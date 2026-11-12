@@ -17,7 +17,7 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 1 de 13: cimientos y páginas públicas del frontal.** Hoy el sistema sirve:
+**Paso 1 de 14: cimientos y páginas públicas del frontal.** Hoy el sistema sirve:
 
 - Portada con las convocatorias vigentes y detalle de cada convocatoria (bases y calendario).
 - Pantallas de cuenta: crear cuenta, ingresar y recuperar contraseña.
@@ -25,7 +25,7 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 > **Aún no hay base de datos.** Las convocatorias que se ven son **datos de demostración**
 > en memoria (`models/demo.go`), y los formularios de cuenta **validan pero no registran**:
-> responden con un aviso explícito. La persistencia llega en el paso 7 del plan.
+> responden con un aviso explícito. La persistencia llega en el paso 2 del plan.
 
 ## Requisitos
 
@@ -236,7 +236,7 @@ make deploy VPS=usuario@mi-vps
 
 El despliegue conteinerizado que exige la política institucional (`Containerfile`,
 `compose.yaml`, unidades Quadlet), los respaldos y el servidor espejo corresponden al
-paso 13 del plan. Para el entorno de desarrollo se usa el flujo de binario + systemd
+paso 14 del plan. Para el entorno de desarrollo se usa el flujo de binario + systemd
 descrito aquí.
 
 ## Dependencias

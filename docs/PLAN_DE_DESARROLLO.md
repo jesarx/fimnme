@@ -8,41 +8,71 @@ políticas de [`PERFIL_DOMINIO_FIMNME.md`](PERFIL_DOMINIO_FIMNME.md).
 verde (`make verificar`), desplegable en el VPS de desarrollo, y se espera indicación
 antes de iniciar el siguiente.
 
-**Por qué el frontal va primero y qué significa aquí.** No hay SPA: el frontal es
-`html/template` + htmx dentro del mismo binario. «Frontal primero» significa construir
-las pantallas y su interacción sobre **datos de demostración en memoria**
-(`models/demo.go`), para validar el flujo con usuarios reales antes de fijar la
-persistencia. Las reglas de negocio se escriben desde el principio en `models/rules.go`,
-de modo que al llegar la base de datos sólo se sustituye la fuente de datos.
+**Orden: primero el backend.** (Plan rehecho el 2026-11-12; la versión anterior ponía el
+frontal primero.) El paso 1, ya entregado, dejó los cimientos y las páginas públicas. A
+partir de aquí se construye todo el backend —persistencia, reglas, control de acceso y
+procesos— y sólo después las pantallas de cada perfil.
+
+**Cómo se revisa un paso de backend sin pantallas.** Cada paso entrega:
+
+- las reglas en `models/rules.go` y el SQL en `models/repository.go`, con pruebas
+  unitarias;
+- sus endpoints REST en `/api/v1`, que responden JSON (los mismos manejadores
+  responderán HTML para htmx cuando existan las pantallas, §7.4);
+- pruebas de extremo a extremo sobre una base SQLite temporal, y ejemplos con `curl`
+  para probarlo a mano en el VPS.
 
 ## Pasos
+
+### Hecho
+
+| # | Paso | Estado |
+|---|---|---|
+| 1 | **Cimientos y páginas públicas.** Estructura MVC, servidor `fimnme-web`, frontal incrustado, CSS propio, i18n es/en, cabeceras de seguridad y CSRF, portada, detalle de convocatoria, pantallas de cuenta (sin conectar), README y despliegue en VPS. | ✅ Hecho |
+
+### Backend
+
+| # | Paso | Requerimientos | Estado |
+|---|---|---|---|
+| 2 | **Persistencia base.** `modernc.org/sqlite` sin CGO; PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3 (incluidos los triggers de sólo inserción de `auditoria`); `models/repository.go`; primer `fimnme-cli` con `migrate`; las páginas públicas leen de la base y desaparece `models/demo.go`; `/readyz` comprueba la base. | §7.5, §8.3, RF-CLI-01, RF-AUD-05 | Pendiente |
+| 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación y cambio de datos; Argon2id; sesiones por cookie con expiración por perfil; tokens de un solo uso; bloqueo por intentos y límite de tasa; perfiles globales y asignaciones por convocatoria (ACL); bitácora de auditoría; bandeja `email_outbox` con interfaz `Mailer` y su trabajador. Los formularios de cuenta del paso 1 quedan funcionando. | RF-AUT-01 a 08 y 10, §2, RF-AUD-01 a 03, RF-NOT-01, 02 y 08, §5.8 | Pendiente |
+| 4 | **Configuración de ediciones y convocatorias.** Ediciones, convocatorias y bases bilingües; calendario y cambio de etapa (automático por fecha y forzado), con las cuotas de 3 jurados y 1+ revisores; dotaciones, requisitos documentales y criterios; alta de cuentas internas con activación; asignación de jurados y revisores; duplicar la configuración del año anterior. | RF-CONV-01 a 09, §3, RN-14 | Pendiente |
+| 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
+| 6 | **Documentos, envío y acuse.** `BlobStore` en disco por SHA-256; MIME por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (< 100 KB); recordatorios de borrador. | RF-DOC-01 a 07, RF-POST-10 a 12, §4.1, §5.10, RF-NOT-03 y 04 | Pendiente |
+| 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
+| 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
+| 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
+| 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
 
 ### Frontal
 
 | # | Paso | Estado |
 |---|---|---|
-| 1 | **Cimientos y páginas públicas.** Estructura MVC, servidor `fimnme-web`, frontal incrustado, sistema de diseño (CSS propio), i18n es/en, cabeceras de seguridad y CSRF, portada, detalle de convocatoria, pantallas de cuenta, README y despliegue en VPS. | ✅ Hecho |
-| 2 | **Postulante I: captura.** Panel «Mis postulaciones»; formulario por pasos con indicador de completitud; datos generales (solista, ensamble, compositor); propuesta de concierto con la regla de sede fuera de CDMX; integrantes dinámicos; autoguardado con confirmación «Guardado a las HH:MM». | Pendiente |
-| 3 | **Postulante II: obras, documentos y envío.** Obras dinámicas; subida de archivos con barra de progreso; ligas de video; pantalla «Revisión y envío» con bloqueadores; confirmación de envío; acuses; vista de subsanación con desbloqueo selectivo y solicitud de desbloqueo. | Pendiente |
-| 4 | **Revisor documental.** Bandeja con filtros reflejados en la URL y toma blanda; vista de revisión; dictamen por documento; señalamiento de campos; solicitud de subsanación; solicitudes de desbloqueo; tablero de avance. | Pendiente |
-| 5 | **Jurado.** Listado con progreso propio; ficha de evaluación (por postulación en Intérpretes, por obra en Compositores); visor de PDF y reproductor de audio. | Pendiente |
-| 6 | **Administración y supervisión.** Ediciones, convocatorias y etapas; dotaciones, requisitos documentales y criterios; usuarios y asignaciones; plantillas de correo; matriz de resultados; archivo histórico, buscador, filtros y descargas; bitácora; importación asistida; publicación al portal. | Pendiente |
+| 11 | **Postulante.** Panel «Mis postulaciones»; formulario por pasos con autoguardado e indicador de completitud; obras e integrantes dinámicos; subida con barra de progreso; revisión y envío; vista de subsanación con lo editable resaltado. Accesibilidad AA y móvil. | Pendiente |
+| 12 | **Revisor y jurado.** Bandeja con filtros; vista de revisión y dictámenes; solicitud de subsanación; ficha de evaluación; visor de PDF y reproductor de audio. | Pendiente |
+| 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
 
-### Backend
+### Operación
 
 | # | Paso | Estado |
 |---|---|---|
-| 7 | **Persistencia y autenticación.** Migrador y esquema (§8.3); `models/repository.go`; Argon2id, sesiones, tokens y verificación de correo; límite de tasa; auditoría; `fimnme-cli migrate`. Sustituye `models/demo.go`. | Pendiente |
-| 8 | **Postulación.** `ValidarParaEnvio()`; autoguardado real; `BlobStore` y documentos (MIME por firma, SHA-256, versiones); validación de ligas; envío con folio y snapshot; acuse PDF propio; `email_outbox` e interfaz `Mailer`. | Pendiente |
-| 9 | **Revisión documental y subsanación.** Dictámenes, motor de desbloqueo selectivo, reenvío con *diff*, recordatorios. | Pendiente |
-| 10 | **Evaluación.** `JuradoRepo` y `SupervisionRepo` separados; prueba automatizada de aislamiento entre jurados; resultados y dictamen final. | Pendiente |
-| 11 | **Archivo, búsqueda y reportes.** FTS5, filtros, vistas guardadas, CSV, ZIP asíncrono con manifiesto, expediente PDF por rol, tableros. | Pendiente |
-| 12 | **`fimnme-cli`.** TUI, importación en dos fases, `export-json`, extensión dinámica de nodos, `verify`, ARCO, espejo. | Pendiente |
-| 13 | **Operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos y espejo con prueba de restauración; script de migración a MariaDB; SMTP propio; prueba de carga de escritura concurrente; manuales de Adopción y Validación. | Pendiente |
+| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | Pendiente |
 
-> La **prueba de carga de escritura concurrente sobre SQLite** (D-30) es condición de
-> aceptación. Aunque su infraestructura está en el paso 13, conviene adelantar una
-> medición en cuanto exista el autoguardado real (paso 8).
+## Notas del plan
+
+- **Prueba de carga adelantada.** La escritura concurrente sobre SQLite es el supuesto más
+  frágil de la arquitectura (D-30). Se hará una primera medición al terminar el paso 5,
+  cuando exista el autoguardado real, y la prueba formal en el paso 14.
+- **Dependencias.** `modernc.org/sqlite` entra en el paso 2 y `golang.org/x/crypto`
+  (Argon2id) en el paso 3. Son las dos previstas por la política; no se añade ninguna otra.
+- **Despliegue.** Desde el paso 2 se suben dos binarios (`fimnme-web` y `fimnme-cli`) y el
+  servicio usa `/var/lib/fimnme` para la base y el acervo. El README se actualiza en cada
+  paso.
+- **Correo en desarrollo.** Hasta el paso 14 el `Mailer` de desarrollo no envía: deja el
+  mensaje en el log y en `email_outbox`, de donde se toma el enlace de verificación.
+- **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
+  excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
+  deciden al llegar al módulo correspondiente.
 
 ## Paso 1 — qué se entregó
 
