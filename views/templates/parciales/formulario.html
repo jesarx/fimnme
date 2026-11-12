@@ -53,3 +53,22 @@
   {{- end}}
 </div>
 {{end}}
+
+{{- /*
+  "campo_idioma": selector del idioma preferido de la cuenta. Recibe la
+  *views.Pagina; el valor elegido se toma de .Formulario.Valor "idioma".
+*/ -}}
+{{define "campo_idioma"}}
+{{- $error := .Formulario.Error "idioma"}}
+<div class="campo{{if $error}} campo--error{{end}}">
+  <label for="c-idioma">{{.T "cuenta.idioma"}}</label>
+  <p class="campo__ayuda" id="c-idioma-ayuda">{{.T "cuenta.idioma_ayuda"}}</p>
+  <select id="c-idioma" name="idioma" aria-describedby="c-idioma-ayuda{{if $error}} c-idioma-error{{end}}">
+    <option value="es" lang="es"{{if eq (.Formulario.Valor "idioma") "es"}} selected{{end}}>{{.T "cuenta.idioma_es"}}</option>
+    <option value="en" lang="en"{{if eq (.Formulario.Valor "idioma") "en"}} selected{{end}}>{{.T "cuenta.idioma_en"}}</option>
+  </select>
+  {{- if $error}}
+  <p class="campo__error" id="c-idioma-error">{{.T $error}}</p>
+  {{- end}}
+</div>
+{{end}}

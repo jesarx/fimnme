@@ -144,13 +144,14 @@ func (m *Motor) Render(w http.ResponseWriter, estado int, plantilla string, p *P
 // traducción y formato en el idioma de la petición, por lo que dentro de un
 // {{range}} se invocan con $ (p. ej. {{$.T "clave"}}).
 type Pagina struct {
-	Idioma     string     // "es" o "en"
-	Ruta       string     // ruta actual; sirve para volver tras cambiar de idioma
-	Titulo     string     // título ya traducido, para <title>
-	Entorno    string     // "desarrollo" muestra la franja de advertencia
-	Aviso      *Aviso     // mensaje destacado opcional
-	Formulario Formulario // valores y errores del formulario, si la página tiene uno
-	Datos      any        // modelo de vista propio de cada página
+	Idioma     string         // "es" o "en"
+	Ruta       string         // ruta actual; sirve para volver tras cambiar de idioma
+	Titulo     string         // título ya traducido, para <title>
+	Entorno    string         // "desarrollo" muestra la franja de advertencia
+	Aviso      *Aviso         // mensaje destacado opcional
+	Sesion     *models.Sesion // sesión en curso, o nil si el visitante es anónimo
+	Formulario Formulario     // valores y errores del formulario, si la página tiene uno
+	Datos      any            // modelo de vista propio de cada página
 
 	motor *Motor
 }

@@ -17,19 +17,25 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 2 de 14: persistencia base.** Hoy el sistema tiene:
+**Paso 3 de 14: cuentas, sesiones y control de acceso.** Hoy el sistema tiene:
 
-- Base de datos **SQLite** con el esquema completo de la especificación, migraciones
-  versionadas y bitácora de auditoría de sólo inserción.
-- Dos ejecutables: `fimnme-web` (servidor) y `fimnme-cli` (mantenimiento).
-- Páginas públicas servidas desde la base: portada, detalle de cada convocatoria (bases
-  y calendario), aviso de privacidad, páginas de error y selector de idioma.
-- Pantallas de cuenta: crear cuenta, ingresar y recuperar contraseña.
+- **Cuentas:** registro, verificación de correo, ingreso, recuperación de contraseña,
+  activación de cuentas internas y «Mi cuenta» (datos, contraseña, correo).
+- **Seguridad:** contraseñas con Argon2id, sesiones por cookie con expiración por
+  inactividad, bloqueo por intentos fallidos y límite de intentos por IP.
+- **Control de acceso:** perfiles globales y asignaciones por convocatoria, comprobados
+  en cada petición.
+- **Bitácora de auditoría** consultable por la API, y bandeja de correo saliente.
+- **Base de datos SQLite** con el esquema completo y migraciones versionadas.
+- **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **Aún no hay cuentas ni panel de administración.** Los formularios de cuenta **validan
-> pero no registran**: responden con un aviso explícito (llegan en el paso 3). Mientras
-> no exista el panel (paso 4), la edición que se ve en desarrollo se carga con
-> `fimnme-cli sembrar-demo` y es **de demostración**.
+> **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
+> paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
+> enlace de verificación o de recuperación; véase «Correos en desarrollo» más abajo.
+>
+> **Aún no hay panel de administración** (paso 4). La edición que se ve en desarrollo se
+> carga con `fimnme-cli sembrar-demo` y es **de demostración**; el primer administrador
+> se crea con `fimnme-cli crear-usuario`.
 
 ## Requisitos
 
@@ -62,6 +68,46 @@ la base está vacía y arranca el servidor. La base local queda en `./data/fimnm
 make reiniciar-datos
 ```
 
+### Correos en desarrollo
+
+Los correos no se envían: aparecen en la salida del servidor como líneas
+`correo NO enviado: transporte de desarrollo`, con su texto completo. Para probar un
+registro, copie de ahí el enlace `…/cuenta/verificar?token=…` y ábralo en el navegador.
+
+### Crear el primer administrador
+
+Con el servidor detenido o en marcha, en otra terminal:
+
+```bash
+go run ./cmd/fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemplo.mx --nombre Ana --apellidos López
+```
+
+La orden imprime un **enlace de activación**: al abrirlo se elige la contraseña. El otro
+perfil global disponible es `coordinacion_nacional` (observador).
+
+### Probar la API
+
+La API usa la misma cookie de sesión que las páginas. Con `curl`:
+
+```bash
+curl -c cookies.txt -H 'Sec-Fetch-Site: same-origin' -d 'email=admin@ejemplo.mx&password=LA-CONTRASEÑA' http://127.0.0.1:8080/cuenta/ingresar
+```
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/v1/sesion
+```
+
+```bash
+curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/auditoria?accion=sesion.ingreso&tamano=5'
+```
+
+| Ruta | Quién | Qué devuelve |
+|---|---|---|
+| `GET /api/v1/sesion` | Cualquier cuenta | La cuenta en sesión, sus perfiles globales y sus asignaciones por convocatoria |
+| `GET /api/v1/auditoria` | `admin_sistema`, `coordinacion_nacional` | La bitácora, paginada. Filtros: `accion`, `entidad`, `entidad_id`, `actor_id`, `desde`, `hasta` (día `AAAA-MM-DD` en hora de México, o instante ISO-8601), `pagina`, `tamano`. Con `formato=csv` descarga el resultado completo |
+
+Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
+
 Las plantillas, la hoja de estilo y las traducciones van **incrustadas en el binario**
 (`//go:embed`), así que tras editar cualquiera de ellas hay que reiniciar `make dev`.
 
@@ -78,22 +124,28 @@ crean sus propias bases SQLite temporales; no tocan `./data`.
 
 ```
 cmd/
-  fimnme-web/         Ejecutable: servidor HTTP
-  fimnme-cli/         Ejecutable: mantenimiento (migrate, sembrar-demo)
+  fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
+  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, sembrar-demo)
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
   repository.go       persistencia: TODO el SQL del sistema
+  seguridad.go        Argon2id y secretos de un solo uso
   migrations/         migraciones NNNN_nombre.sql, incrustadas en el binario
 controllers/        CONTROLADOR
   app.go              rutas, dependencias y sondas /healthz y /readyz
   middleware.go       seguridad (CSP, CSRF), idioma, log
+  sesion.go           sesiones, control de acceso y límite de intentos
   paginas.go          páginas públicas
-  cuenta.go           registro, ingreso, recuperación
+  cuenta.go           registro, ingreso, recuperación, activación, «Mi cuenta»
+  api.go              API REST /api/v1 (JSON)
+  trabajadores.go     envío del correo saliente y limpieza de sesiones
 views/              VISTA (todo incrustado con //go:embed)
   views.go            motor de plantillas
   i18n.go             traducciones y formato de fechas
   markdown.go         intérprete mínimo de Markdown para las bases
+  correo.go           armado de los correos a partir de sus plantillas
+  datos.go            respuestas JSON y CSV de la API
   templates/          html/template
   static/             CSS propio, htmx, iconos
   i18n/               es.json, en.json
@@ -109,7 +161,11 @@ Reglas que el código hace cumplir con pruebas:
 - **Fechas**: se guardan en UTC y se muestran en hora de la Ciudad de México.
 - **SQL sólo en `models/repository.go`**, y los PRAGMAs de SQLite activos en cada
   conexión.
-- **Bitácora inmutable**: la base rechaza modificar o borrar asientos de auditoría.
+- **Bitácora inmutable**: la base rechaza modificar o borrar asientos de auditoría, y en
+  ella no entra ningún dato personal.
+- **Ningún GET modifica estado**: todo cambio es un `POST`, protegido contra CSRF.
+- **Secretos sólo como resumen**: contraseñas, enlaces de un solo uso y sesiones nunca
+  se guardan en claro.
 
 ### Base de datos y migraciones
 
@@ -213,8 +269,27 @@ curl -i http://127.0.0.1:8080/readyz
 `/readyz` responde `200 ok` si la base contesta y `503` si no. `/healthz` sólo indica que
 el proceso está en pie.
 
-**Sólo en el entorno de desarrollo**, la primera vez, cargue la edición de demostración
-para que la portada tenga contenido:
+**La primera vez**, defina la dirección pública del sitio, con la que se arman los
+enlaces de los correos. Edite `/etc/fimnme/fimnme-web.env`, añada la línea con su dominio
+y reinicie el servicio:
+
+```
+FIMNME_URL_BASE=https://dev.fimnme.example
+```
+
+```bash
+sudo systemctl restart fimnme-web
+```
+
+Después cree al primer administrador. La orden imprime un enlace de activación; ábralo
+en el navegador para elegir la contraseña:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme crear-usuario --perfil admin_sistema --email SU-CORREO --nombre SU-NOMBRE --apellidos SUS-APELLIDOS --url-base https://dev.fimnme.example
+```
+
+**Sólo en el entorno de desarrollo**, cargue además la edición de demostración para que
+la portada tenga contenido:
 
 ```bash
 sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme sembrar-demo
@@ -272,6 +347,8 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | `FIMNME_PORT` | `--port` | `8080` | Puerto local. Debe coincidir con el del proxy. |
 | `FIMNME_ENTORNO` | `--entorno` | `produccion` | `desarrollo` muestra la franja de advertencia y bloquea la indexación. |
 | `FIMNME_DATOS` | `--datos` | `data` | Directorio de datos. En el VPS la unidad de systemd lo fija en `/var/lib/fimnme`. |
+| `FIMNME_URL_BASE` | `--url-base` | — | Dirección pública del sitio, sin barra final (`https://dev.fimnme.example`). Con ella se arman los enlaces de los correos. En `desarrollo`, si falta, se usa la dirección local y se avisa en el log; en `produccion` el servicio no arranca sin ella. |
+| `FIMNME_CORREO_POR_MINUTO` | `--correo-por-minuto` | `30` | Máximo de correos que se envían por minuto. |
 
 ### Operación diaria
 
@@ -283,6 +360,12 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Detener | `sudo systemctl stop fimnme-web` |
 | Versión instalada | `/opt/fimnme/bin/fimnme-web --version` |
 | Aplicar migraciones a mano | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme migrate` |
+| Ver los correos (no se envían aún) | `journalctl -u fimnme-web \| grep "correo NO enviado"` |
+
+> **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
+> `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
+> destinatario y asunto, y las cuentas no podrán verificarse ni recuperarse hasta que
+> exista el SMTP (paso 14).
 
 ### Copia de seguridad de la base
 
@@ -329,10 +412,15 @@ de binarios + systemd descrito aquí.
 
 ## Dependencias
 
-La biblioteca estándar de Go y **`modernc.org/sqlite`** (SQLite 3 en Go puro, sin CGO),
-con las dependencias indirectas que arrastra; su lista y justificación están en el
-[ADR 0003](docs/adr/0003-persistencia-sqlite-sin-cgo.md). La otra dependencia prevista,
-`golang.org/x/crypto`, llega con las cuentas (paso 3). Cualquier otra requiere un ADR.
+La biblioteca estándar de Go y las dos dependencias previstas por la política
+institucional:
+
+- **`modernc.org/sqlite`**: SQLite 3 en Go puro, sin CGO, con las dependencias indirectas
+  que arrastra ([ADR 0003](docs/adr/0003-persistencia-sqlite-sin-cgo.md)).
+- **`golang.org/x/crypto`**: Argon2id para las contraseñas
+  ([ADR 0004](docs/adr/0004-cuentas-sesiones-y-correo.md)).
+
+Cualquier otra requiere un ADR.
 
 htmx va **incluido en el repositorio** (`views/static/js/htmx.min.js`), no se descarga al
 compilar. Su versión, origen y suma de verificación están en

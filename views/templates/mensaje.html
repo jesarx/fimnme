@@ -1,0 +1,13 @@
+{{- /*
+  Página de resultado: un título, un texto y, si acaso, un enlace para seguir.
+  Datos: Titulo y Texto (claves de traducción), EnlaceURL y EnlaceTexto (clave).
+*/ -}}
+{{define "contenido"}}
+<section class="mensaje-pagina">
+  <h1>{{.T .Datos.Titulo}}</h1>
+  <p class="entrada">{{.T .Datos.Texto}}</p>
+  {{- if .Datos.EnlaceURL}}
+  <p><a class="boton boton--secundario" href="{{.Datos.EnlaceURL}}">{{.T .Datos.EnlaceTexto}}</a></p>
+  {{- end}}
+</section>
+{{end}}

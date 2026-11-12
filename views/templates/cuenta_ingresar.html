@@ -5,6 +5,8 @@
   <p class="entrada">{{.T "cuenta.ingresar_entrada"}}</p>
   {{template "aviso" .}}
   <form method="post" action="/cuenta/ingresar" novalidate>
+    {{- /* Página a la que se quería llegar; el servidor sólo acepta rutas locales. */}}
+    <input type="hidden" name="volver" value="{{.Formulario.Valor "volver"}}">
     {{template "campo" (dict "P" . "Nombre" "email" "Tipo" "email" "Etiqueta" "cuenta.email" "Autocompletar" "username" "Requerido" true)}}
     {{template "campo" (dict "P" . "Nombre" "password" "Tipo" "password" "Etiqueta" "cuenta.password" "Autocompletar" "current-password" "Requerido" true)}}
     <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.ingresar_boton"}}</button></p>

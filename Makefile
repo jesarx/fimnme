@@ -45,9 +45,13 @@ dev:
 	$(GO) run ./cmd/fimnme-cli sembrar-demo
 	$(GO) run ./cmd/fimnme-web --entorno desarrollo
 
-## test: ejecuta las pruebas con cobertura.
+## test: ejecuta las pruebas con cobertura. La cobertura de cada paquete cuenta
+## también lo que ejercitan las pruebas de los demás (las de extremo a extremo
+## de controllers/ recorren buena parte de models/).
 test:
-	$(GO) test -cover ./...
+	@mkdir -p $(BIN)
+	$(GO) test -coverpkg=./... -coverprofile=$(BIN)/cobertura.out ./...
+	@$(GO) tool cover -func=$(BIN)/cobertura.out | tail -1
 
 ## formato: reescribe el código con el formato canónico de Go.
 formato:

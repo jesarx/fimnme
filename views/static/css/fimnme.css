@@ -306,8 +306,11 @@ main:focus {
   color: var(--acento);
 }
 
-.menu__idioma {
+.menu form {
   margin: 0;
+}
+
+.menu__idioma {
   padding-left: var(--e2);
   border-left: 1px solid var(--borde);
 }
@@ -434,6 +437,16 @@ main {
 .aviso--error {
   border-color: var(--error);
   background: var(--error-fondo);
+}
+
+.aviso--espera {
+  border-color: var(--espera);
+  background: var(--espera-fondo);
+}
+
+.aviso form,
+.aviso > :last-child {
+  margin-bottom: 0;
 }
 
 .aviso__titulo {
@@ -799,14 +812,30 @@ main {
   }
 }
 
-.error-pagina {
+.error-pagina,
+.mensaje-pagina {
   max-width: 34rem;
   margin: var(--e7) auto;
   text-align: center;
 }
 
-.error-pagina .entrada {
+.error-pagina .entrada,
+.mensaje-pagina .entrada {
   margin-inline: auto;
+}
+
+/* Mi cuenta: una columna de paneles, cada uno con su formulario. */
+.cuenta {
+  max-width: 36rem;
+  margin-inline: auto;
+}
+
+.cuenta h1 {
+  font-size: 2rem;
+}
+
+.cuenta .panel {
+  margin-top: var(--e5);
 }
 
 .error-pagina__codigo {

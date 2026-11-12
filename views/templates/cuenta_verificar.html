@@ -1,0 +1,17 @@
+{{- /*
+  Confirmación de correo (RF-AUT-02). El enlace del mensaje llega aquí por GET
+  y NO confirma nada: la confirmación ocurre al pulsar el botón (POST). Así un
+  antivirus o un cliente de correo que «previsualiza» enlaces no gasta el
+  enlace de un solo uso. Datos: Token y Email.
+*/ -}}
+{{define "contenido"}}
+<section class="formulario-pagina">
+  <h1>{{.T "cuenta.verificar_titulo"}}</h1>
+  <p class="entrada">{{.T "cuenta.verificar_entrada"}}</p>
+  <form method="post" action="/cuenta/verificar">
+    <input type="hidden" name="token" value="{{.Datos.Token}}">
+    <p>{{.T "cuenta.cuenta_de"}} <strong>{{.Datos.Email}}</strong></p>
+    <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.verificar_boton"}}</button></p>
+  </form>
+</section>
+{{end}}

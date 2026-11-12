@@ -33,8 +33,16 @@
     </a>
     <nav class="menu" aria-label="{{.T "nav.principal"}}">
       <a href="/"{{if eq .Ruta "/"}} aria-current="page"{{end}}>{{.T "nav.convocatorias"}}</a>
+      {{- if .Sesion}}
+      <a href="/cuenta"{{if eq .Ruta "/cuenta"}} aria-current="page"{{end}}>{{.T "nav.cuenta"}}</a>
+      {{- /* Salir es un POST: cerrar la sesión modifica estado. */}}
+      <form method="post" action="/cuenta/salir">
+        <button type="submit">{{.T "nav.salir"}}</button>
+      </form>
+      {{- else}}
       <a href="/cuenta/ingresar"{{if eq .Ruta "/cuenta/ingresar"}} aria-current="page"{{end}}>{{.T "nav.ingresar"}}</a>
       <a class="menu__destacado" href="/cuenta/registro"{{if eq .Ruta "/cuenta/registro"}} aria-current="page"{{end}}>{{.T "nav.registro"}}</a>
+      {{- end}}
       {{- /* El cambio de idioma es un POST: una petición GET nunca altera estado. */}}
       <form class="menu__idioma" method="post" action="/idioma">
         <input type="hidden" name="volver" value="{{.Ruta}}">

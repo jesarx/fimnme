@@ -31,6 +31,13 @@ var zonaMexico = func() *time.Location {
 	return zona
 }()
 
+// ZonaMexico devuelve la zona horaria de presentación. Los controladores la
+// usan para interpretar las fechas que escribe el usuario (p. ej. en un
+// filtro): «12 de noviembre» es ese día en la Ciudad de México, no en UTC.
+func ZonaMexico() *time.Location {
+	return zonaMexico
+}
+
 // Traducciones guarda los textos de la interfaz por idioma. Son mapas planos
 // cargados de JSON incrustado: no amerita una biblioteca de i18n.
 type Traducciones struct {

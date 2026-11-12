@@ -68,7 +68,8 @@ func appSobre(t *testing.T, datos Datos) http.Handler {
 		t.Fatalf("no se pudo cargar el frontal: %v", err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return Nueva(vistas, datos, EntornoDesarrollo, log).Manejador()
+	return Nueva(Config{Vistas: vistas, Datos: datos, Entorno: EntornoDesarrollo, Log: log,
+		URLBase: "https://postula.ejemplo.mx"}).Manejador()
 }
 
 // appDePrueba arma la aplicación sobre una base SQLite real y temporal.
@@ -77,8 +78,10 @@ func appDePrueba(t *testing.T) http.Handler {
 	return appSobre(t, repoDePrueba(t))
 }
 
-// datosCaidos simula una base de datos que no responde.
-type datosCaidos struct{}
+// datosCaidos simula una base de datos que no responde. Incrusta la interfaz
+// para heredar su conjunto de métodos y redefine sólo los que estas pruebas
+// usan; llamar a cualquier otro provocaría un pánico, que es lo deseable.
+type datosCaidos struct{ Datos }
 
 var errBaseCaida = errors.New("base caída")
 
@@ -286,34 +289,13 @@ func TestRegistroDevuelveErroresPorCampo(t *testing.T) {
 	}
 }
 
-// Mientras no haya persistencia, un formulario válido responde 501 con un
-// aviso explícito: nadie debe creer que quedó registrado.
-func TestFormulariosValidosAvisanQueFaltaElBackend(t *testing.T) {
-	app := appDePrueba(t)
-	casos := map[string]url.Values{
-		"/cuenta/registro": {"email": {"ana@ejemplo.mx"}, "nombre": {"Ana"}, "apellidos": {"López"},
-			"password": {"una-frase-larga"}, "idioma": {"en"}, "acepta_aviso": {"1"}},
-		"/cuenta/ingresar":  {"email": {"ana@ejemplo.mx"}, "password": {"x"}},
-		"/cuenta/recuperar": {"email": {"ana@ejemplo.mx"}},
-	}
-	for ruta, valores := range casos {
-		w := pedir(t, app, formulario(ruta, valores))
-		if w.Code != http.StatusNotImplemented {
-			t.Errorf("POST %s: estado %d, se esperaba 501", ruta, w.Code)
-		}
-		if !strings.Contains(w.Body.String(), "todavía no está conectada") {
-			t.Errorf("POST %s: falta el aviso de función pendiente", ruta)
-		}
-	}
-}
-
 // Un cuerpo mayor al límite no debe procesarse como formulario válido.
 func TestCuerpoDesmesuradoNoSeAcepta(t *testing.T) {
 	app := appDePrueba(t)
 	enorme := url.Values{"email": {"ana@ejemplo.mx"}, "relleno": {strings.Repeat("x", cuerpoMaximo+1)}}
 	w := pedir(t, app, formulario("/cuenta/recuperar", enorme))
-	if w.Code == http.StatusNotImplemented || w.Code == http.StatusOK {
-		t.Errorf("un cuerpo de más de 1 MiB no debe aceptarse: estado %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("un cuerpo de más de 1 MiB no debe aceptarse: estado %d, se esperaba 422", w.Code)
 	}
 }
 

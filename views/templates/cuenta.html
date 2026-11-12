@@ -1,0 +1,53 @@
+{{- /*
+  Mi cuenta (RF-AUT-06): datos personales, contraseña y correo. Requiere
+  sesión. Los tres formularios comparten el resumen de errores del inicio.
+*/ -}}
+{{define "contenido"}}
+<section class="cuenta">
+  <h1>{{.T "cuenta.mi_cuenta"}}</h1>
+  <p class="entrada">{{.Sesion.Usuario.Nombre}} {{.Sesion.Usuario.Apellidos}}</p>
+  {{template "aviso" .}}
+
+  {{- if not .Sesion.Usuario.EmailVerificado}}
+  <div class="aviso aviso--espera">
+    <p>{{.T "cuenta.sin_verificar"}}</p>
+    <form method="post" action="/cuenta/verificacion">
+      <button class="boton boton--secundario" type="submit">{{.T "cuenta.reenviar_verificacion"}}</button>
+    </form>
+  </div>
+  {{- end}}
+
+  <section class="panel" aria-labelledby="t-datos">
+    <h2 id="t-datos">{{.T "cuenta.datos_titulo"}}</h2>
+    <form method="post" action="/cuenta/datos" novalidate>
+      {{template "campo" (dict "P" . "Nombre" "nombre" "Tipo" "text" "Etiqueta" "cuenta.nombre" "Autocompletar" "given-name" "Requerido" true)}}
+      {{template "campo" (dict "P" . "Nombre" "apellidos" "Tipo" "text" "Etiqueta" "cuenta.apellidos" "Autocompletar" "family-name" "Requerido" true)}}
+      {{template "campo_idioma" .}}
+      <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.datos_boton"}}</button></p>
+    </form>
+  </section>
+
+  <section class="panel" aria-labelledby="t-password">
+    <h2 id="t-password">{{.T "cuenta.password_titulo"}}</h2>
+    <p class="nota">{{.T "cuenta.password_nota"}}</p>
+    <form method="post" action="/cuenta/password" novalidate>
+      {{template "campo" (dict "P" . "Nombre" "password_actual" "Tipo" "password" "Etiqueta" "cuenta.password_actual" "Autocompletar" "current-password" "Requerido" true)}}
+      {{template "campo" (dict "P" . "Nombre" "password_nueva" "Tipo" "password" "Etiqueta" "cuenta.password_nueva" "Ayuda" "cuenta.password_ayuda" "Autocompletar" "new-password" "Requerido" true)}}
+      <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.password_boton"}}</button></p>
+    </form>
+  </section>
+
+  <section class="panel" aria-labelledby="t-email">
+    <h2 id="t-email">{{.T "cuenta.email_titulo"}}</h2>
+    <p>{{.T "cuenta.email_actual"}} <strong>{{.Sesion.Usuario.Email}}</strong>
+      {{- if .Sesion.Usuario.EmailVerificado}} <span class="estado estado--abierta">{{.T "cuenta.email_confirmado"}}</span>
+      {{- else}} <span class="estado estado--proxima">{{.T "cuenta.email_sin_confirmar"}}</span>{{end}}</p>
+    <p class="nota">{{.T "cuenta.email_nota"}}</p>
+    <form method="post" action="/cuenta/email" novalidate>
+      {{template "campo" (dict "P" . "Nombre" "email_nuevo" "Tipo" "email" "Etiqueta" "cuenta.email_nuevo" "Autocompletar" "email" "Requerido" true)}}
+      {{template "campo" (dict "P" . "Nombre" "password_email" "Tipo" "password" "Etiqueta" "cuenta.password_actual" "Autocompletar" "current-password" "Requerido" true)}}
+      <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.email_boton"}}</button></p>
+    </form>
+  </section>
+</section>
+{{end}}

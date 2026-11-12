@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,12 +43,23 @@ func entorno(nombre, porOmision string) string {
 	return porOmision
 }
 
+// enteroDeEntorno lee un entero de una variable de entorno; si falta o no es
+// un número, devuelve el valor por omisión.
+func enteroDeEntorno(nombre string, porOmision int) int {
+	if n, err := strconv.Atoi(os.Getenv(nombre)); err == nil {
+		return n
+	}
+	return porOmision
+}
+
 func main() {
 	var (
 		ip             string
 		puerto         string
 		modo           string
 		dirDatos       string
+		urlBase        string
+		correoMinuto   int
 		mostrarVersion bool
 	)
 	// -s y --serve son la misma bandera, como en los demás sistemas de la CNMO.
@@ -58,6 +71,10 @@ func main() {
 		"entorno de ejecución: desarrollo o produccion (FIMNME_ENTORNO)")
 	flag.StringVar(&dirDatos, "datos", entorno("FIMNME_DATOS", "data"),
 		"directorio de datos: base SQLite y acervo de archivos (FIMNME_DATOS)")
+	flag.StringVar(&urlBase, "url-base", entorno("FIMNME_URL_BASE", ""),
+		"dirección pública del sitio, para los enlaces de los correos; p. ej. https://postula.ejemplo.mx (FIMNME_URL_BASE)")
+	flag.IntVar(&correoMinuto, "correo-por-minuto", enteroDeEntorno("FIMNME_CORREO_POR_MINUTO", 30),
+		"máximo de correos que se envían por minuto (FIMNME_CORREO_POR_MINUTO)")
 	flag.BoolVar(&mostrarVersion, "version", false, "muestra la versión y termina")
 	flag.Parse()
 
@@ -104,7 +121,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := controllers.Nueva(vistas, repositorio, modo, log)
+	// Los enlaces de los correos se arman con la dirección pública del sitio.
+	// Nunca se deduce de la petición: la cabecera Host la controla el visitante.
+	if urlBase == "" {
+		if modo == controllers.EntornoProduccion {
+			log.Error("falta la dirección pública del sitio: defina FIMNME_URL_BASE (p. ej. https://postula.ejemplo.mx)")
+			repositorio.Cerrar()
+			os.Exit(2)
+		}
+		urlBase = "http://" + net.JoinHostPort(ip, puerto)
+		log.Warn("FIMNME_URL_BASE sin definir: los enlaces de los correos apuntarán a "+urlBase,
+			"consecuencia", "sólo servirán desde esta misma máquina")
+	}
+
+	app := controllers.Nueva(controllers.Config{
+		Vistas: vistas, Datos: repositorio, Entorno: modo, Log: log, URLBase: urlBase,
+	})
+
+	// Transporte de correo. Aún no existe el SMTP propio (paso 14 del plan):
+	// los mensajes se escriben en el log en vez de enviarse. El cuerpo, que
+	// lleva enlaces de un solo uso, sólo se muestra en desarrollo.
+	mailer := controllers.MailerRegistro{Log: log, MostrarCuerpo: modo == controllers.EntornoDesarrollo}
+	if modo == controllers.EntornoProduccion {
+		log.Warn("NO hay transporte de correo real: los mensajes no se envían y sus enlaces no se muestran; " +
+			"las cuentas no podrán verificarse ni recuperarse hasta configurar el SMTP")
+	}
+	trabajador := &controllers.TrabajadorCorreo{Bandeja: repositorio, Mailer: mailer, Log: log, PorMinuto: correoMinuto}
 	servidor := &http.Server{
 		Addr:    net.JoinHostPort(ip, puerto),
 		Handler: app.Manejador(),
@@ -121,6 +163,14 @@ func main() {
 	// se dejan terminar las peticiones en curso antes de salir.
 	ctx, detener := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer detener()
+
+	// Trabajadores internos: se detienen con la misma señal que el servidor.
+	var trabajadores sync.WaitGroup
+	trabajadores.Add(1)
+	go func() {
+		defer trabajadores.Done()
+		trabajador.Ejecutar(ctx)
+	}()
 
 	errServidor := make(chan error, 1)
 	go func() {
@@ -146,5 +196,8 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// Se espera a que los trabajadores suelten la base antes de cerrarla.
+	detener()
+	trabajadores.Wait()
 	log.Info("fimnme-web detenido")
 }

@@ -37,6 +37,11 @@ import (
 //   2. Migraciones
 //   3. Auditoría
 //   4. Ediciones y convocatorias
+//   5. Usuarios
+//   6. Sesiones e inicios de sesión
+//   7. Enlaces de un solo uso (tokens)
+//   8. Correo saliente (bandeja de salida)
+//   9. Consulta de la bitácora
 
 // ---------------------------------------------------------------------------
 // 1. Apertura y conexiones
@@ -146,6 +151,12 @@ func (r *Repositorio) Verificar(ctx context.Context) error {
 		return fmt.Errorf("la base de datos no responde: %w", err)
 	}
 	return nil
+}
+
+// FijarReloj sustituye el reloj del repositorio. Existe para las pruebas, que
+// necesitan adelantar el tiempo (vencimiento de enlaces, sesiones y bloqueos).
+func (r *Repositorio) FijarReloj(ahora func() time.Time) {
+	r.ahora = ahora
 }
 
 // marca devuelve la hora actual en el formato de almacenamiento (UTC).
@@ -566,4 +577,733 @@ func (r *Repositorio) ConvocatoriaPublica(ctx context.Context, numeroEdicion int
 		return Convocatoria{}, fmt.Errorf("leer etapas: %w", err)
 	}
 	return c, nil
+}
+
+// ---------------------------------------------------------------------------
+// 5. Usuarios
+// ---------------------------------------------------------------------------
+
+// REGLA DE LA BITÁCORA PARA DATOS PERSONALES: la tabla auditoria es de sólo
+// inserción, de modo que lo que entra no puede borrarse ni ante una solicitud
+// ARCO. Por eso en «antes» y «despues» NUNCA se guardan correos, nombres ni
+// otros datos de contacto: sólo identificadores, perfiles y los NOMBRES de los
+// campos que cambiaron.
+
+// columnasUsuario es la lista de columnas que lee leerUsuario.
+const columnasUsuario = "u.id, u.email, u.nombre, u.apellidos, u.idioma, u.email_verificado_at, u.activo, u.creado_at"
+
+// leerUsuario vuelca una fila con columnasUsuario (más las columnas extra que
+// se indiquen al final) en la entidad.
+func leerUsuario(f fila, extra ...any) (Usuario, error) {
+	var u Usuario
+	var verificado sql.NullString
+	var creado string
+	destinos := append([]any{&u.ID, &u.Email, &u.Nombre, &u.Apellidos, &u.Idioma, &verificado, &u.Activo, &creado}, extra...)
+	if err := f.Scan(destinos...); err != nil {
+		return Usuario{}, err
+	}
+	var err error
+	if u.CreadoAt, err = deMarca(creado); err != nil {
+		return Usuario{}, err
+	}
+	if verificado.Valid {
+		if u.EmailVerificadoAt, err = deMarca(verificado.String); err != nil {
+			return Usuario{}, err
+		}
+	}
+	return u, nil
+}
+
+// emailEnUso indica si otra cuenta ya usa el correo. La comparación ignora
+// mayúsculas (la columna es COLLATE NOCASE). Se ejecuta dentro de la
+// transacción de escritura, que es única: no hay carrera posible.
+func emailEnUso(ctx context.Context, tx *sql.Tx, email string, exceptoID int64) (bool, error) {
+	var n int
+	err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM usuario WHERE email = ? AND id <> ?", email, exceptoID).Scan(&n)
+	return n > 0, err
+}
+
+// encolarCorreo escribe un mensaje en la bandeja de salida, dentro de la
+// transacción de negocio. Nunca se envía correo dentro de una transacción.
+func (r *Repositorio) encolarCorreo(ctx context.Context, tx *sql.Tx, c CorreoSaliente) error {
+	marca := r.marca()
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO email_outbox (destinatario, idioma, asunto, cuerpo_html, cuerpo_texto,
+		                          plantilla_clave, programado_para, creado_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Destinatario, c.Idioma, c.Asunto, c.HTML, c.Texto, nuloSiVacio(c.PlantillaClave), marca, marca)
+	if err != nil {
+		return fmt.Errorf("encolar correo: %w", err)
+	}
+	return nil
+}
+
+// insertarToken guarda un enlace de un solo uso y anula los anteriores del
+// mismo propósito que la cuenta aún no hubiera usado: sólo vale el último.
+func (r *Repositorio) insertarToken(ctx context.Context, tx *sql.Tx, usuarioID int64, t NuevoToken) error {
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE token SET usado_at = ? WHERE usuario_id = ? AND proposito = ? AND usado_at IS NULL",
+		r.marca(), usuarioID, string(t.Proposito)); err != nil {
+		return fmt.Errorf("anular enlaces anteriores: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO token (hash, usuario_id, proposito, expira_at) VALUES (?, ?, ?, ?)",
+		t.Resumen, usuarioID, string(t.Proposito), aMarca(t.ExpiraAt)); err != nil {
+		return fmt.Errorf("guardar enlace: %w", err)
+	}
+	return nil
+}
+
+// CrearUsuario da de alta una cuenta con su perfil global inicial y, en la
+// misma transacción, el enlace de un solo uso (verificación o activación) y
+// los correos que lo llevan. Devuelve ErrEmailEnUso si el correo ya existe.
+func (r *Repositorio) CrearUsuario(ctx context.Context, actor Actor, n NuevoUsuario, token *NuevoToken, correos ...CorreoSaliente) (int64, error) {
+	var id int64
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if enUso, err := emailEnUso(ctx, tx, n.Email, 0); err != nil {
+			return err
+		} else if enUso {
+			return ErrEmailEnUso
+		}
+		marca := r.marca()
+		var avisoAceptado sql.NullString
+		if n.AvisoVersion != "" {
+			// Consentimiento con sello de tiempo y versión del aviso (LFPDPPP).
+			avisoAceptado = sql.NullString{String: marca, Valid: true}
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO usuario (email, password_hash, nombre, apellidos, idioma,
+			                     aviso_privacidad_version, aviso_privacidad_aceptado_at,
+			                     creado_at, actualizado_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			n.Email, n.PasswordHash, n.Nombre, n.Apellidos, n.Idioma,
+			nuloSiVacio(n.AvisoVersion), avisoAceptado, marca, marca)
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO usuario_perfil (usuario_id, perfil, otorgado_por, creado_at) VALUES (?, ?, ?, ?)",
+			id, string(n.Perfil), nuloSiCero(actor.UsuarioID), marca); err != nil {
+			return err
+		}
+		if token != nil {
+			if err := r.insertarToken(ctx, tx, id, *token); err != nil {
+				return err
+			}
+		}
+		for _, c := range correos {
+			if err := r.encolarCorreo(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "usuario.crear", "usuario", id, nil, map[string]any{
+			"perfil": n.Perfil, "idioma": n.Idioma, "aviso_privacidad_version": n.AvisoVersion,
+		})
+	})
+	if err != nil {
+		if errors.Is(err, ErrEmailEnUso) {
+			return 0, err
+		}
+		return 0, fmt.Errorf("crear usuario: %w", err)
+	}
+	return id, nil
+}
+
+// UsuarioPorEmail busca una cuenta por su correo y devuelve además su resumen
+// de contraseña, para el inicio de sesión. ErrNoEncontrado si no existe.
+func (r *Repositorio) UsuarioPorEmail(ctx context.Context, email string) (Usuario, string, error) {
+	var resumen string
+	u, err := leerUsuario(r.lectura.QueryRowContext(ctx,
+		"SELECT "+columnasUsuario+", u.password_hash FROM usuario u WHERE u.email = ?", email), &resumen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Usuario{}, "", ErrNoEncontrado
+	}
+	if err != nil {
+		return Usuario{}, "", fmt.Errorf("leer usuario: %w", err)
+	}
+	return u, resumen, nil
+}
+
+// ResumenDePassword devuelve el resumen de contraseña de una cuenta, para
+// comprobar la contraseña actual antes de un cambio sensible.
+func (r *Repositorio) ResumenDePassword(ctx context.Context, usuarioID int64) (string, error) {
+	var resumen string
+	err := r.lectura.QueryRowContext(ctx, "SELECT password_hash FROM usuario WHERE id = ?", usuarioID).Scan(&resumen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoEncontrado
+	}
+	if err != nil {
+		return "", fmt.Errorf("leer contraseña: %w", err)
+	}
+	return resumen, nil
+}
+
+// ActualizarDatosPersonales cambia nombre, apellidos e idioma (RF-AUT-06). En
+// la bitácora queda qué campos cambiaron, no sus valores.
+func (r *Repositorio) ActualizarDatosPersonales(ctx context.Context, actor Actor, usuarioID int64, nombre, apellidos, idioma string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		var antesNombre, antesApellidos, antesIdioma string
+		err := tx.QueryRowContext(ctx, "SELECT nombre, apellidos, idioma FROM usuario WHERE id = ?", usuarioID).
+			Scan(&antesNombre, &antesApellidos, &antesIdioma)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoEncontrado
+		}
+		if err != nil {
+			return err
+		}
+		var campos []string
+		if antesNombre != nombre {
+			campos = append(campos, "nombre")
+		}
+		if antesApellidos != apellidos {
+			campos = append(campos, "apellidos")
+		}
+		if antesIdioma != idioma {
+			campos = append(campos, "idioma")
+		}
+		if len(campos) == 0 {
+			return nil // nada cambió: ni escritura ni asiento
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET nombre = ?, apellidos = ?, idioma = ?, actualizado_at = ? WHERE id = ?",
+			nombre, apellidos, idioma, r.marca(), usuarioID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "cuenta.datos_actualizados", "usuario", usuarioID, nil,
+			map[string]any{"campos": campos})
+	})
+	if err != nil && !errors.Is(err, ErrNoEncontrado) {
+		return fmt.Errorf("actualizar datos personales: %w", err)
+	}
+	return err
+}
+
+// CambiarPassword guarda una contraseña nueva y cierra las demás sesiones de
+// la cuenta; se conserva sólo la que hizo el cambio.
+func (r *Repositorio) CambiarPassword(ctx context.Context, actor Actor, usuarioID int64, resumen, sesionAConservar string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET password_hash = ?, actualizado_at = ? WHERE id = ?",
+			resumen, r.marca(), usuarioID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"DELETE FROM sesion WHERE usuario_id = ? AND id <> ?", usuarioID, sesionAConservar); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "cuenta.password_cambiada", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("cambiar contraseña: %w", err)
+	}
+	return nil
+}
+
+// CambiarEmail cambia el correo de la cuenta. El correo nuevo queda SIN
+// verificar y se emite su enlace de verificación (RF-AUT-06). Devuelve
+// ErrEmailEnUso si otra cuenta ya lo tiene.
+func (r *Repositorio) CambiarEmail(ctx context.Context, actor Actor, usuarioID int64, email string, token NuevoToken, correos ...CorreoSaliente) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if enUso, err := emailEnUso(ctx, tx, email, usuarioID); err != nil {
+			return err
+		} else if enUso {
+			return ErrEmailEnUso
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET email = ?, email_verificado_at = NULL, actualizado_at = ? WHERE id = ?",
+			email, r.marca(), usuarioID); err != nil {
+			return err
+		}
+		if err := r.insertarToken(ctx, tx, usuarioID, token); err != nil {
+			return err
+		}
+		for _, c := range correos {
+			if err := r.encolarCorreo(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "cuenta.email_cambiado", "usuario", usuarioID, nil,
+			map[string]any{"campos": []string{"email"}})
+	})
+	if err != nil && !errors.Is(err, ErrEmailEnUso) {
+		return fmt.Errorf("cambiar correo: %w", err)
+	}
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// 6. Sesiones e inicios de sesión
+// ---------------------------------------------------------------------------
+
+// AbrirSesion registra una sesión nueva y asienta el inicio de sesión
+// (RF-AUT-08). idResumen es el resumen del identificador que viaja en la
+// cookie; el valor en claro nunca se guarda.
+func (r *Repositorio) AbrirSesion(ctx context.Context, actor Actor, usuarioID int64, idResumen string, expira time.Time) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO sesion (id, usuario_id, ip, user_agent, expira_at, creado_at) VALUES (?, ?, ?, ?, ?, ?)",
+			idResumen, usuarioID, nuloSiVacio(actor.IP), nuloSiVacio(actor.Agente), aMarca(expira), r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "sesion.ingreso", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("abrir sesión: %w", err)
+	}
+	return nil
+}
+
+// RegistrarIngresoFallido asienta un intento de inicio de sesión que no
+// prosperó. usuarioID es 0 si el correo no corresponde a ninguna cuenta.
+// Los intentos rechazados por bloqueo se asientan aparte y no alargan el
+// bloqueo: sólo cuentan las contraseñas incorrectas.
+func (r *Repositorio) RegistrarIngresoFallido(ctx context.Context, actor Actor, usuarioID int64, bloqueado bool) error {
+	accion := "sesion.ingreso_fallido"
+	if bloqueado {
+		accion = "sesion.ingreso_bloqueado"
+	}
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, accion, "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("registrar intento de ingreso: %w", err)
+	}
+	return nil
+}
+
+// FallosDeIngreso devuelve cuántas contraseñas incorrectas seguidas lleva una
+// cuenta y cuándo fue la última. La cuenta se reinicia con un ingreso
+// correcto, un restablecimiento de contraseña o la activación. La bitácora es
+// la única fuente: no hay un contador aparte que pueda desincronizarse.
+func (r *Repositorio) FallosDeIngreso(ctx context.Context, usuarioID int64) (int, time.Time, error) {
+	var fallos int
+	var ultimo sql.NullString
+	err := r.lectura.QueryRowContext(ctx, `
+		SELECT COUNT(*), MAX(creado_at)
+		FROM auditoria
+		WHERE entidad = 'usuario' AND entidad_id = ? AND accion = 'sesion.ingreso_fallido'
+		  AND id > COALESCE((SELECT MAX(id) FROM auditoria
+		                     WHERE entidad = 'usuario' AND entidad_id = ?
+		                       AND accion IN ('sesion.ingreso', 'cuenta.password_restablecida', 'cuenta.activada')), 0)`,
+		usuarioID, usuarioID).Scan(&fallos, &ultimo)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("contar intentos fallidos: %w", err)
+	}
+	if !ultimo.Valid {
+		return 0, time.Time{}, nil
+	}
+	momento, err := deMarca(ultimo.String)
+	return fallos, momento, err
+}
+
+// SesionPorID devuelve la sesión vigente con ese resumen de identificador,
+// junto con la cuenta, sus perfiles globales y sus asignaciones activas.
+// ErrNoEncontrado si no existe, venció o la cuenta está desactivada.
+func (r *Repositorio) SesionPorID(ctx context.Context, idResumen string) (*Sesion, error) {
+	var expira string
+	usuario, err := leerUsuario(r.lectura.QueryRowContext(ctx, `
+		SELECT `+columnasUsuario+`, s.expira_at
+		FROM sesion s
+		JOIN usuario u ON u.id = s.usuario_id
+		WHERE s.id = ? AND s.expira_at > ? AND u.activo = 1`, idResumen, r.marca()), &expira)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoEncontrado
+	}
+	if err != nil {
+		return nil, fmt.Errorf("leer sesión: %w", err)
+	}
+	s := &Sesion{ID: idResumen, Usuario: usuario}
+	if s.ExpiraAt, err = deMarca(expira); err != nil {
+		return nil, err
+	}
+
+	filas, err := r.lectura.QueryContext(ctx,
+		"SELECT perfil FROM usuario_perfil WHERE usuario_id = ? ORDER BY perfil", usuario.ID)
+	if err != nil {
+		return nil, fmt.Errorf("leer perfiles: %w", err)
+	}
+	for filas.Next() {
+		var perfil string
+		if err := filas.Scan(&perfil); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer perfiles: %w", err)
+		}
+		s.Perfiles = append(s.Perfiles, Perfil(perfil))
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer perfiles: %w", err)
+	}
+
+	// Sólo las asignaciones ACTIVAS dan acceso: retirar a un jurado surte
+	// efecto en su siguiente petición, sin esperar a que cierre sesión.
+	filas, err = r.lectura.QueryContext(ctx,
+		"SELECT convocatoria_id, perfil FROM asignacion WHERE usuario_id = ? AND activo = 1 ORDER BY convocatoria_id, perfil",
+		usuario.ID)
+	if err != nil {
+		return nil, fmt.Errorf("leer asignaciones: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var a Asignacion
+		var perfil string
+		if err := filas.Scan(&a.ConvocatoriaID, &perfil); err != nil {
+			return nil, fmt.Errorf("leer asignaciones: %w", err)
+		}
+		a.Perfil = Perfil(perfil)
+		s.Asignaciones = append(s.Asignaciones, a)
+	}
+	return s, filas.Err()
+}
+
+// RenovarSesion prolonga una sesión en uso (expiración por inactividad).
+func (r *Repositorio) RenovarSesion(ctx context.Context, idResumen string, expira time.Time) error {
+	if _, err := r.escritura.ExecContext(ctx,
+		"UPDATE sesion SET expira_at = ? WHERE id = ?", aMarca(expira), idResumen); err != nil {
+		return fmt.Errorf("renovar sesión: %w", err)
+	}
+	return nil
+}
+
+// CerrarSesion elimina una sesión (salida voluntaria) y lo asienta.
+func (r *Repositorio) CerrarSesion(ctx context.Context, actor Actor, idResumen string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM sesion WHERE id = ?", idResumen); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "sesion.salida", "usuario", actor.UsuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("cerrar sesión: %w", err)
+	}
+	return nil
+}
+
+// PurgarSesionesVencidas borra las sesiones que ya expiraron. Son estado
+// técnico efímero: su rastro permanente es el asiento de inicio de sesión.
+func (r *Repositorio) PurgarSesionesVencidas(ctx context.Context) (int64, error) {
+	res, err := r.escritura.ExecContext(ctx, "DELETE FROM sesion WHERE expira_at <= ?", r.marca())
+	if err != nil {
+		return 0, fmt.Errorf("purgar sesiones: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// ---------------------------------------------------------------------------
+// 7. Enlaces de un solo uso (tokens)
+// ---------------------------------------------------------------------------
+
+// EmitirToken guarda un enlace nuevo para una cuenta existente y encola los
+// correos que lo llevan. Anula los enlaces anteriores del mismo propósito.
+func (r *Repositorio) EmitirToken(ctx context.Context, actor Actor, usuarioID int64, token NuevoToken, correos ...CorreoSaliente) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if err := r.insertarToken(ctx, tx, usuarioID, token); err != nil {
+			return err
+		}
+		for _, c := range correos {
+			if err := r.encolarCorreo(ctx, tx, c); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "token.emitir", "usuario", usuarioID, nil,
+			map[string]any{"proposito": token.Proposito})
+	})
+	if err != nil {
+		return fmt.Errorf("emitir enlace: %w", err)
+	}
+	return nil
+}
+
+// UltimaExpiracionDeToken devuelve el vencimiento del enlace más reciente de
+// ese propósito emitido a la cuenta, o el valor cero si nunca hubo. Con él,
+// rules.go decide si ya puede emitirse otro.
+func (r *Repositorio) UltimaExpiracionDeToken(ctx context.Context, usuarioID int64, proposito PropositoToken) (time.Time, error) {
+	var expira sql.NullString
+	err := r.lectura.QueryRowContext(ctx,
+		"SELECT MAX(expira_at) FROM token WHERE usuario_id = ? AND proposito = ?",
+		usuarioID, string(proposito)).Scan(&expira)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("leer enlaces: %w", err)
+	}
+	if !expira.Valid {
+		return time.Time{}, nil
+	}
+	return deMarca(expira.String)
+}
+
+// TokenVigente comprueba, SIN consumirlo, que un enlace sirve, y devuelve la
+// cuenta a la que pertenece. Se usa para pintar la página a la que llega el
+// enlace. ErrTokenInvalido si no existe, venció o ya se usó.
+func (r *Repositorio) TokenVigente(ctx context.Context, resumen string, proposito PropositoToken) (Usuario, error) {
+	u, err := leerUsuario(r.lectura.QueryRowContext(ctx, `
+		SELECT `+columnasUsuario+`
+		FROM token t
+		JOIN usuario u ON u.id = t.usuario_id
+		WHERE t.hash = ? AND t.proposito = ? AND t.usado_at IS NULL AND t.expira_at > ? AND u.activo = 1`,
+		resumen, string(proposito), r.marca()))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Usuario{}, ErrTokenInvalido
+	}
+	if err != nil {
+		return Usuario{}, fmt.Errorf("leer enlace: %w", err)
+	}
+	return u, nil
+}
+
+// consumirToken marca un enlace como usado y devuelve su cuenta. El UPDATE
+// condicionado hace atómico el «un solo uso»: de dos peticiones simultáneas
+// con el mismo enlace, sólo una modifica la fila.
+func (r *Repositorio) consumirToken(ctx context.Context, tx *sql.Tx, resumen string, proposito PropositoToken) (int64, error) {
+	marca := r.marca()
+	res, err := tx.ExecContext(ctx,
+		"UPDATE token SET usado_at = ? WHERE hash = ? AND proposito = ? AND usado_at IS NULL AND expira_at > ?",
+		marca, resumen, string(proposito), marca)
+	if err != nil {
+		return 0, err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return 0, err
+	} else if n != 1 {
+		return 0, ErrTokenInvalido
+	}
+	var usuarioID int64
+	err = tx.QueryRowContext(ctx,
+		"SELECT t.usuario_id FROM token t JOIN usuario u ON u.id = t.usuario_id WHERE t.hash = ? AND u.activo = 1",
+		resumen).Scan(&usuarioID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrTokenInvalido
+	}
+	return usuarioID, err
+}
+
+// VerificarEmailConToken consume un enlace de verificación y marca el correo
+// de la cuenta como verificado (RF-AUT-02). Devuelve el id de la cuenta.
+func (r *Repositorio) VerificarEmailConToken(ctx context.Context, actor Actor, resumen string) (int64, error) {
+	var usuarioID int64
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		var err error
+		if usuarioID, err = r.consumirToken(ctx, tx, resumen, TokenVerificarEmail); err != nil {
+			return err
+		}
+		marca := r.marca()
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET email_verificado_at = ?, actualizado_at = ? WHERE id = ?",
+			marca, marca, usuarioID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "cuenta.email_verificado", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil && !errors.Is(err, ErrTokenInvalido) {
+		return 0, fmt.Errorf("verificar correo: %w", err)
+	}
+	return usuarioID, err
+}
+
+// DefinirPasswordConToken consume un enlace de restablecimiento o de
+// activación y guarda la contraseña nueva. Además:
+//   - marca el correo como verificado, si no lo estaba: quien abrió el enlace
+//     demostró que controla ese buzón;
+//   - cierra TODAS las sesiones de la cuenta;
+//   - anula cualquier otro enlace de restablecimiento o activación pendiente.
+//
+// Devuelve el id de la cuenta.
+func (r *Repositorio) DefinirPasswordConToken(ctx context.Context, actor Actor, resumenToken string, proposito PropositoToken, resumenPassword string) (int64, error) {
+	accion := "cuenta.password_restablecida"
+	if proposito == TokenActivacion {
+		accion = "cuenta.activada"
+	}
+	var usuarioID int64
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		var err error
+		if usuarioID, err = r.consumirToken(ctx, tx, resumenToken, proposito); err != nil {
+			return err
+		}
+		marca := r.marca()
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE usuario
+			SET password_hash = ?, email_verificado_at = COALESCE(email_verificado_at, ?), actualizado_at = ?
+			WHERE id = ?`, resumenPassword, marca, marca, usuarioID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM sesion WHERE usuario_id = ?", usuarioID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE token SET usado_at = ?
+			WHERE usuario_id = ? AND proposito IN ('reset_password', 'activacion') AND usado_at IS NULL`,
+			marca, usuarioID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, accion, "usuario", usuarioID, nil, nil)
+	})
+	if err != nil && !errors.Is(err, ErrTokenInvalido) {
+		return 0, fmt.Errorf("definir contraseña: %w", err)
+	}
+	return usuarioID, err
+}
+
+// ---------------------------------------------------------------------------
+// 8. Correo saliente (bandeja de salida)
+// ---------------------------------------------------------------------------
+
+// PlantillaCorreo devuelve la versión activa más reciente de una plantilla en
+// el idioma pedido. Si no existe en ese idioma se entrega la española.
+func (r *Repositorio) PlantillaCorreo(ctx context.Context, clave, idioma string) (PlantillaCorreo, error) {
+	for _, candidato := range []string{idioma, IdiomaES} {
+		p := PlantillaCorreo{Clave: clave, Idioma: candidato}
+		err := r.lectura.QueryRowContext(ctx, `
+			SELECT version, asunto, cuerpo_md FROM plantilla_correo
+			WHERE clave = ? AND idioma = ? AND activa = 1
+			ORDER BY version DESC LIMIT 1`, clave, candidato).Scan(&p.Version, &p.Asunto, &p.CuerpoMD)
+		if err == nil {
+			return p, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return PlantillaCorreo{}, fmt.Errorf("leer plantilla %s: %w", clave, err)
+		}
+	}
+	return PlantillaCorreo{}, fmt.Errorf("plantilla de correo %q: %w", clave, ErrNoEncontrado)
+}
+
+// CorreosPendientes devuelve los mensajes de la bandeja de salida cuyo envío
+// ya toca, los más antiguos primero.
+func (r *Repositorio) CorreosPendientes(ctx context.Context, limite int) ([]CorreoSaliente, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT id, destinatario, idioma, asunto, cuerpo_html, cuerpo_texto, COALESCE(plantilla_clave, ''), intentos
+		FROM email_outbox
+		WHERE estado = 'pendiente' AND programado_para <= ?
+		ORDER BY id LIMIT ?`, r.marca(), limite)
+	if err != nil {
+		return nil, fmt.Errorf("leer bandeja de salida: %w", err)
+	}
+	defer filas.Close()
+	var correos []CorreoSaliente
+	for filas.Next() {
+		var c CorreoSaliente
+		if err := filas.Scan(&c.ID, &c.Destinatario, &c.Idioma, &c.Asunto, &c.HTML, &c.Texto, &c.PlantillaClave, &c.Intentos); err != nil {
+			return nil, fmt.Errorf("leer bandeja de salida: %w", err)
+		}
+		correos = append(correos, c)
+	}
+	return correos, filas.Err()
+}
+
+// cuerpoRetirado sustituye al contenido de un correo con enlace de un solo
+// uso una vez enviado.
+const cuerpoRetirado = "[contenido retirado tras el envío: llevaba un enlace de un solo uso]"
+
+// MarcarCorreoEnviado registra un envío correcto con su Message-ID. Si el
+// mensaje llevaba un enlace de un solo uso, su cuerpo se retira de la base.
+func (r *Repositorio) MarcarCorreoEnviado(ctx context.Context, correo CorreoSaliente, messageID string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		marca := r.marca()
+		consulta := "UPDATE email_outbox SET estado = 'enviado', message_id = ?, enviado_at = ?, intentos = intentos + 1, ultimo_error = NULL"
+		args := []any{messageID, marca}
+		if PlantillaConEnlaceSecreto(correo.PlantillaClave) {
+			consulta += ", cuerpo_html = ?, cuerpo_texto = ?"
+			args = append(args, cuerpoRetirado, cuerpoRetirado)
+		}
+		if _, err := tx.ExecContext(ctx, consulta+" WHERE id = ?", append(args, correo.ID)...); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, Actor{Perfil: ActorSistema}, "correo.enviar", "email_outbox", correo.ID, nil,
+			map[string]any{"plantilla": correo.PlantillaClave, "message_id": messageID})
+	})
+	if err != nil {
+		return fmt.Errorf("marcar correo enviado: %w", err)
+	}
+	return nil
+}
+
+// MarcarCorreoFallido registra un intento de envío fallido. Si reintentar es
+// true el mensaje sigue pendiente y se reprograma; si no, queda en estado
+// «error» para atención del administrador, y se asienta en la bitácora.
+func (r *Repositorio) MarcarCorreoFallido(ctx context.Context, correo CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if reintentar {
+			_, err := tx.ExecContext(ctx,
+				"UPDATE email_outbox SET intentos = intentos + 1, ultimo_error = ?, programado_para = ? WHERE id = ?",
+				motivo, aMarca(proximo), correo.ID)
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE email_outbox SET estado = 'error', intentos = intentos + 1, ultimo_error = ? WHERE id = ?",
+			motivo, correo.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, Actor{Perfil: ActorSistema}, "correo.error", "email_outbox", correo.ID, nil,
+			map[string]any{"plantilla": correo.PlantillaClave, "intentos": correo.Intentos + 1})
+	})
+	if err != nil {
+		return fmt.Errorf("marcar correo fallido: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// 9. Consulta de la bitácora
+// ---------------------------------------------------------------------------
+
+// ConsultarAuditoria devuelve una página de la bitácora, los asientos más
+// recientes primero, y el total de asientos que cumplen el filtro (RF-AUD-03).
+func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria) ([]AsientoAuditoria, int, error) {
+	// El WHERE se arma sólo con fragmentos fijos; los valores van siempre
+	// como parámetros, nunca concatenados.
+	donde := " WHERE 1 = 1"
+	var args []any
+	if f.Accion != "" {
+		donde += " AND accion = ?"
+		args = append(args, f.Accion)
+	}
+	if f.Entidad != "" {
+		donde += " AND entidad = ?"
+		args = append(args, f.Entidad)
+	}
+	if f.EntidadID != 0 {
+		donde += " AND entidad_id = ?"
+		args = append(args, f.EntidadID)
+	}
+	if f.ActorID != 0 {
+		donde += " AND actor_id = ?"
+		args = append(args, f.ActorID)
+	}
+	if !f.Desde.IsZero() {
+		donde += " AND creado_at >= ?"
+		args = append(args, aMarca(f.Desde))
+	}
+	if !f.Hasta.IsZero() {
+		donde += " AND creado_at < ?"
+		args = append(args, aMarca(f.Hasta))
+	}
+
+	var total int
+	if err := r.lectura.QueryRowContext(ctx, "SELECT COUNT(*) FROM auditoria"+donde, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("contar bitácora: %w", err)
+	}
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT id, COALESCE(actor_id, 0), COALESCE(actor_perfil, ''), accion, entidad, COALESCE(entidad_id, 0),
+		       COALESCE(antes, ''), COALESCE(despues, ''), COALESCE(ip, ''), COALESCE(user_agent, ''), creado_at
+		FROM auditoria`+donde+" ORDER BY id DESC LIMIT ? OFFSET ?",
+		append(args, f.Tamano, (f.Pagina-1)*f.Tamano)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("leer bitácora: %w", err)
+	}
+	defer filas.Close()
+	var asientos []AsientoAuditoria
+	for filas.Next() {
+		var a AsientoAuditoria
+		var creado string
+		if err := filas.Scan(&a.ID, &a.ActorID, &a.ActorPerfil, &a.Accion, &a.Entidad, &a.EntidadID,
+			&a.Antes, &a.Despues, &a.IP, &a.Agente, &creado); err != nil {
+			return nil, 0, fmt.Errorf("leer bitácora: %w", err)
+		}
+		if a.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, 0, err
+		}
+		asientos = append(asientos, a)
+	}
+	return asientos, total, filas.Err()
 }

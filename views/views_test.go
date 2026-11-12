@@ -239,3 +239,63 @@ func TestPlantillasSinCodigoEnLinea(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Los valores de las variables de un correo son texto literal: no se
+// interpretan como Markdown ni como HTML.
+func TestRenderCorreo(t *testing.T) {
+	plantilla := models.PlantillaCorreo{
+		Clave: models.PlantillaVerificarEmail, Idioma: models.IdiomaES,
+		Asunto:   "Hola, {{nombre}}",
+		CuerpoMD: "Hola, **{{nombre}}**:\n\nAbre este enlace:\n\n{{liga}}\n\n{{desconocida}}",
+	}
+	liga := "https://postula.ejemplo.mx/cuenta/verificar?token=abc&x=1"
+	c := RenderCorreo(plantilla, "ana@ejemplo.mx", map[string]string{
+		"nombre": "<script>alert(1)</script> *Ana*\r\nBcc: otro@ejemplo.mx", "liga": liga,
+	})
+	if c.Destinatario != "ana@ejemplo.mx" || c.Idioma != models.IdiomaES || c.PlantillaClave != models.PlantillaVerificarEmail {
+		t.Errorf("metadatos incorrectos: %+v", c)
+	}
+	// El asunto queda en una sola línea: no hay forma de inyectar cabeceras.
+	if strings.ContainsAny(c.Asunto, "\r\n") || !strings.HasPrefix(c.Asunto, "Hola, <script>") {
+		t.Errorf("asunto incorrecto: %q", c.Asunto)
+	}
+	for _, fragmento := range []string{
+		`<html lang="es">`,
+		"<strong>&lt;script&gt;alert(1)&lt;/script&gt; *Ana*", // ni HTML ni Markdown en el valor
+		`<a href="https://postula.ejemplo.mx/cuenta/verificar?token=abc&amp;x=1">`,
+		"{{desconocida}}", // una variable sin valor queda visible
+	} {
+		if !strings.Contains(c.HTML, fragmento) {
+			t.Errorf("falta %q en el HTML:\n%s", fragmento, c.HTML)
+		}
+	}
+	if strings.Contains(c.HTML, "<script>") || strings.Contains(c.HTML, "<em>Ana</em>") {
+		t.Errorf("el valor de una variable se interpretó:\n%s", c.HTML)
+	}
+	// La versión de texto es la plantilla legible, con el enlace tal cual.
+	if !strings.Contains(c.Texto, liga) || !strings.Contains(c.Texto, "Abre este enlace:") {
+		t.Errorf("texto incorrecto:\n%s", c.Texto)
+	}
+}
+
+// El CSV sale en UTF-8 con BOM, con comillas RFC 4180 y fin de línea CRLF.
+func TestCSV(t *testing.T) {
+	w := httptest.NewRecorder()
+	err := CSV(w, "reporte.csv", []string{"folio", "nombre"}, [][]string{
+		{"FIM49-INT-0001", `María "la Güera", Núñez`},
+		{"FIM49-INT-0002", "dos\nrenglones"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	esperado := "\xEF\xBB\xBFfolio,nombre\r\n" +
+		"FIM49-INT-0001,\"María \"\"la Güera\"\", Núñez\"\r\n" +
+		"FIM49-INT-0002,\"dos\r\nrenglones\"\r\n" // el salto dentro de un campo también va en CRLF
+	if w.Body.String() != esperado {
+		t.Errorf("CSV inesperado:\n%q\nse esperaba:\n%q", w.Body.String(), esperado)
+	}
+	if w.Header().Get("Content-Type") != "text/csv; charset=utf-8" ||
+		!strings.Contains(w.Header().Get("Content-Disposition"), `filename="reporte.csv"`) {
+		t.Errorf("cabeceras incorrectas: %v", w.Header())
+	}
+}

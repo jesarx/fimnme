@@ -115,6 +115,7 @@ func (a *App) pagina(r *http.Request, claveTitulo string) *views.Pagina {
 		Ruta:    r.URL.Path,
 		Titulo:  a.vistas.T(idioma, claveTitulo),
 		Entorno: a.entorno,
+		Sesion:  sesionDe(r),
 	}
 }
 
@@ -179,10 +180,18 @@ func (a *App) avisoPrivacidad(w http.ResponseWriter, r *http.Request) {
 	a.pintar(w, r, http.StatusOK, "aviso_privacidad.html", a.pagina(r, "aviso.titulo"))
 }
 
-// cambiarIdioma guarda el idioma elegido en una cookie y regresa a la página
-// desde la que se pidió el cambio.
+// cambiarIdioma guarda el idioma elegido y regresa a la página desde la que
+// se pidió el cambio. Con sesión, el idioma se guarda además en la cuenta,
+// que es la preferencia que manda (RF-I18N-03) y la que rige sus correos.
 func (a *App) cambiarIdioma(w http.ResponseWriter, r *http.Request) {
 	if idioma := r.PostFormValue("idioma"); models.IdiomaValido(idioma) {
+		if s := sesionDe(r); s != nil {
+			u := s.Usuario
+			if err := a.datos.ActualizarDatosPersonales(r.Context(), a.actorDe(r), u.ID, u.Nombre, u.Apellidos, idioma); err != nil {
+				a.errorInterno(w, r, "guardar idioma de la cuenta", err)
+				return
+			}
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name:     cookieIdioma,
 			Value:    idioma,
@@ -212,12 +221,24 @@ func (a *App) noEncontrado(w http.ResponseWriter, r *http.Request) {
 	a.errorPagina(w, r, http.StatusNotFound)
 }
 
-// errorPagina pinta la página de error correspondiente al estado HTTP.
+// errorPagina responde un error según el estado HTTP: una página en el idioma
+// del visitante o, en la API, un cuerpo JSON.
 func (a *App) errorPagina(w http.ResponseWriter, r *http.Request, estado int) {
 	codigo := estado
 	// Sólo hay textos propios para estos estados; lo demás se presenta como 500.
-	if estado != http.StatusNotFound && estado != http.StatusForbidden {
+	switch estado {
+	case http.StatusNotFound, http.StatusForbidden, http.StatusTooManyRequests:
+	default:
 		codigo = http.StatusInternalServerError
+	}
+	if esAPI(r) {
+		a.errorAPI(w, r, estado, map[int]string{
+			http.StatusNotFound:            "no_encontrado",
+			http.StatusForbidden:           "sin_permiso",
+			http.StatusTooManyRequests:     "demasiadas",
+			http.StatusInternalServerError: "error_interno",
+		}[codigo])
+		return
 	}
 	prefijo := "http." + strconv.Itoa(codigo)
 	p := a.pagina(r, prefijo+"_titulo")

@@ -9,6 +9,7 @@
 // Órdenes disponibles hoy:
 //
 //	fimnme-cli migrate        aplica las migraciones pendientes del esquema
+//	fimnme-cli crear-usuario  crea una cuenta interna y da su enlace de activación
 //	fimnme-cli sembrar-demo   carga una edición de demostración (sólo desarrollo)
 //	fimnme-cli version        muestra la versión
 //
@@ -48,10 +49,15 @@ func ayuda(banderas *flag.FlagSet) {
 	fmt.Fprint(os.Stderr, `fimnme-cli — mantenimiento de la Plataforma de Postulaciones FIMNME
 
 Uso:
-  fimnme-cli [--datos DIRECTORIO] ORDEN
+  fimnme-cli [--datos DIRECTORIO] ORDEN [opciones de la orden]
 
 Órdenes:
   migrate        Aplica, en orden, las migraciones pendientes del esquema.
+  crear-usuario  Crea una cuenta interna y muestra su enlace de activación.
+                 Así se da de alta al primer administrador:
+                   crear-usuario --perfil admin_sistema --email CORREO \
+                                 --nombre NOMBRE --apellidos APELLIDOS
+                 Perfiles: admin_sistema, coordinacion_nacional.
   sembrar-demo   Carga una edición de demostración en una base sin ediciones.
                  Sólo para entornos de desarrollo.
   version        Muestra la versión.
@@ -73,7 +79,7 @@ func actorCLI() models.Actor {
 		nombre = u.Username
 	}
 	return models.Actor{
-		Perfil: "cli",
+		Perfil: models.ActorCLI,
 		Agente: fmt.Sprintf("fimnme-cli %s (usuario del sistema: %s)", version, nombre),
 	}
 }
@@ -86,7 +92,7 @@ func main() {
 	if err := banderas.Parse(os.Args[1:]); err != nil {
 		os.Exit(salidaUso)
 	}
-	if banderas.NArg() != 1 {
+	if banderas.NArg() < 1 {
 		ayuda(banderas)
 		os.Exit(salidaUso)
 	}
@@ -98,6 +104,8 @@ func main() {
 		return
 	case "migrate":
 		err = conRepositorio(*dirDatos, migrar)
+	case "crear-usuario":
+		err = conRepositorio(*dirDatos, crearUsuario(banderas.Args()[1:]))
 	case "sembrar-demo":
 		err = conRepositorio(*dirDatos, sembrarDemo)
 	default:

@@ -155,8 +155,7 @@ const cookieIdioma = "fimnme_idioma"
 
 // resolverIdioma determina el idioma de la petición (RF-I18N-03):
 // preferencia de la cuenta > selector explícito (cookie) > cabecera
-// Accept-Language > español. La preferencia de la cuenta se incorporará
-// cuando existan las sesiones.
+// Accept-Language > español. Por eso corre después de cargarSesion.
 func resolverIdioma(siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// La página depende de la cookie y de la cabecera: un caché intermedio
@@ -169,6 +168,9 @@ func resolverIdioma(siguiente http.Handler) http.Handler {
 
 // idiomaPreferido aplica el orden de precedencia sobre una petición.
 func idiomaPreferido(r *http.Request) string {
+	if s := sesionDe(r); s != nil && models.IdiomaValido(s.Usuario.Idioma) {
+		return s.Usuario.Idioma
+	}
 	if c, err := r.Cookie(cookieIdioma); err == nil && models.IdiomaValido(c.Value) {
 		return c.Value
 	}

@@ -13,18 +13,7 @@
     {{template "campo" (dict "P" . "Nombre" "apellidos" "Tipo" "text" "Etiqueta" "cuenta.apellidos" "Autocompletar" "family-name" "Requerido" true)}}
     {{template "campo" (dict "P" . "Nombre" "password" "Tipo" "password" "Etiqueta" "cuenta.password" "Ayuda" "cuenta.password_ayuda" "Autocompletar" "new-password" "Requerido" true)}}
 
-    {{- $errorIdioma := .Formulario.Error "idioma"}}
-    <div class="campo{{if $errorIdioma}} campo--error{{end}}">
-      <label for="c-idioma">{{.T "cuenta.idioma"}}</label>
-      <p class="campo__ayuda" id="c-idioma-ayuda">{{.T "cuenta.idioma_ayuda"}}</p>
-      <select id="c-idioma" name="idioma" aria-describedby="c-idioma-ayuda{{if $errorIdioma}} c-idioma-error{{end}}">
-        <option value="es" lang="es"{{if eq (.Formulario.Valor "idioma") "es"}} selected{{end}}>{{.T "cuenta.idioma_es"}}</option>
-        <option value="en" lang="en"{{if eq (.Formulario.Valor "idioma") "en"}} selected{{end}}>{{.T "cuenta.idioma_en"}}</option>
-      </select>
-      {{- if $errorIdioma}}
-      <p class="campo__error" id="c-idioma-error">{{.T $errorIdioma}}</p>
-      {{- end}}
-    </div>
+    {{template "campo_idioma" .}}
 
     {{- $errorAviso := .Formulario.Error "acepta_aviso"}}
     <div class="campo campo--casilla{{if $errorAviso}} campo--error{{end}}">

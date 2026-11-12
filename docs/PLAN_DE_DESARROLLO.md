@@ -30,12 +30,12 @@ procesos— y sólo después las pantallas de cada perfil.
 |---|---|---|
 | 1 | **Cimientos y páginas públicas.** Estructura MVC, servidor `fimnme-web`, frontal incrustado, CSS propio, i18n es/en, cabeceras de seguridad y CSRF, portada, detalle de convocatoria, pantallas de cuenta (sin conectar), README y despliegue en VPS. | ✅ Hecho |
 | 2 | **Persistencia base.** SQLite sin CGO con los PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3; `models/repository.go`; bitácora de auditoría de sólo inserción; `fimnme-cli` con `migrate` y `sembrar-demo`; las páginas públicas leen de la base; `/readyz` comprueba la base; despliegue con migración. | ✅ Hecho |
+| 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación, activación de cuentas internas y «Mi cuenta»; Argon2id; sesiones con expiración por perfil; enlaces de un solo uso; bloqueo por intentos y límite por IP; perfiles globales y asignaciones por convocatoria; consulta de la bitácora por API; bandeja de correo saliente con interfaz `Mailer` y su trabajador. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación y cambio de datos; Argon2id; sesiones por cookie con expiración por perfil; tokens de un solo uso; bloqueo por intentos y límite de tasa; perfiles globales y asignaciones por convocatoria (ACL); bitácora de auditoría; bandeja `email_outbox` con interfaz `Mailer` y su trabajador. Los formularios de cuenta del paso 1 quedan funcionando. | RF-AUT-01 a 08 y 10, §2, RF-AUD-01 a 03, RF-NOT-01, 02 y 08, §5.8 | Pendiente |
 | 4 | **Configuración de ediciones y convocatorias.** Ediciones, convocatorias y bases bilingües; calendario y cambio de etapa (automático por fecha y forzado), con las cuotas de 3 jurados y 1+ revisores; dotaciones, requisitos documentales y criterios; alta de cuentas internas con activación; asignación de jurados y revisores; duplicar la configuración del año anterior. | RF-CONV-01 a 09, §3, RN-14 | Pendiente |
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
 | 6 | **Documentos, envío y acuse.** `BlobStore` en disco por SHA-256; MIME por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (< 100 KB); recordatorios de borrador. | RF-DOC-01 a 07, RF-POST-10 a 12, §4.1, §5.10, RF-NOT-03 y 04 | Pendiente |
@@ -72,11 +72,55 @@ procesos— y sólo después las pantallas de cada perfil.
   que la especificación menciona sin definir (plantillas de reporte, motivos frecuentes,
   versiones del aviso de privacidad, intentos de ingreso) se añaden con migraciones
   nuevas en el paso que las use.
-- **Correo en desarrollo.** Hasta el paso 14 el `Mailer` de desarrollo no envía: deja el
-  mensaje en el log y en `email_outbox`, de donde se toma el enlace de verificación.
+- **Correo en desarrollo.** Hasta el paso 14 el `Mailer` no envía: escribe el mensaje en
+  el log, de donde se toma el enlace de verificación. En el entorno `produccion` el log
+  no muestra el cuerpo, de modo que las cuentas no pueden verificarse ni recuperarse
+  hasta que exista el SMTP.
+- **Alta de cuentas internas.** El mecanismo (cuenta sin contraseña + enlace de
+  activación) quedó hecho en el paso 3 y se usa desde `fimnme-cli crear-usuario`. El
+  paso 4 lo expone al administrador desde la web y añade las asignaciones de jurados y
+  revisores.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
-  deciden al llegar al módulo correspondiente.
+  deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
+  administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 3 — qué se entregó
+
+- **Registro y verificación** (RF-AUT-01 y 02). Alta con consentimiento del aviso de
+  privacidad (versión y sello de tiempo); la cuenta queda con sesión iniciada y sin
+  verificar; enlace de verificación de 24 horas y un solo uso, que se confirma con un
+  botón; reenvío con espera mínima de 5 minutos.
+- **Ingreso** (RF-AUT-03, 08 y 10). Argon2id; mensaje y tiempo de respuesta idénticos
+  exista o no la cuenta; bloqueo temporal desde el quinto fallo con retroceso exponencial
+  y tope de 30 minutos; cada intento queda en la bitácora con IP y agente; sesión por
+  cookie con expiración por inactividad de 8 horas (perfiles internos) o 30 días
+  (postulante).
+- **Recuperación y activación** (RF-AUT-04 y 07). Enlace de 1 hora para restablecer;
+  enlace de 7 días para activar una cuenta interna; ambos cierran las sesiones abiertas.
+- **Mi cuenta** (RF-AUT-06). Cambio de nombre, apellidos e idioma; de contraseña (cierra
+  las demás sesiones); y de correo (exige la contraseña, obliga a verificar de nuevo y
+  avisa a la dirección anterior).
+- **Control de acceso** (§2). Perfiles globales y asignaciones por convocatoria leídos de
+  la base en cada petición; páginas y API protegidas; `GET /api/v1/sesion`.
+- **Bitácora** (RF-AUD-01 a 03). `GET /api/v1/auditoria` con filtros, paginación y
+  exportación CSV, sólo para `admin_sistema` y `coordinacion_nacional`. La bitácora no
+  guarda datos personales.
+- **Correo saliente** (§5.8, RF-NOT-01, 02 y 08). Plantillas bilingües en la base
+  (migración `0002`); bandeja `email_outbox` escrita en la misma transacción que la
+  operación; trabajador con límite por minuto y reintentos; interfaz `Mailer`.
+- **Límite de intentos** (RNF-10): 30 por minuto y por IP en los formularios de cuenta.
+- **`fimnme-cli crear-usuario`**: alta del primer administrador o de un observador.
+- **Pruebas.** Flujos completos por HTTP sobre SQLite real con reloj controlado.
+  Cobertura contando todas las pruebas: 80 % en modelos.
+
+**Lo que este paso NO incluye:**
+
+- **Envío real de correo.** Sólo existe el transporte de desarrollo, que escribe en el
+  log. El SMTP propio es el paso 14.
+- **2FA (TOTP)** para administrador y observador (RF-AUT-09, prioridad S).
+- **Alta de cuentas internas desde la web y asignación de jurados y revisores**: paso 4.
+  La tabla `asignacion` ya se lee, pero aún no hay forma de llenarla salvo en pruebas.
 
 ## Paso 2 — qué se entregó
 
@@ -146,3 +190,12 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
    logotipos. Si existe un manual de identidad del Foro o del INBAL, se ajusta.
 6. **Número y año de la edición de arranque**: la demostración usa «Edición 49 · 2027»,
    tomada del ejemplo de la especificación.
+7. **Vigencia del enlace de activación de cuentas internas: 7 días** (la especificación
+   no la fija).
+8. **Bloqueo por intentos fallidos:** 1 minuto al quinto fallo, el doble por cada fallo
+   adicional y tope de 30 minutos.
+9. **El registro avisa cuando el correo ya tiene cuenta.** Es lo más claro para quien
+   postuló otro año, a cambio de revelar que ese correo está registrado.
+10. **`sesion.id` guarda el resumen del identificador, no un UUID en claro** como dice el
+    comentario de §8.3, para que una copia de la base no contenga sesiones utilizables
+    (ADR 0004).
