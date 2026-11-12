@@ -1,0 +1,45 @@
+{{- /* Portada pública: convocatorias vigentes y explicación del proceso. */ -}}
+{{define "contenido"}}
+<section class="portada">
+  <p class="antetitulo">{{.T "inicio.antetitulo"}}</p>
+  <h1>{{.T "inicio.encabezado"}}</h1>
+  <p class="entrada">{{.T "inicio.entrada"}}</p>
+</section>
+
+<section aria-labelledby="t-convocatorias">
+  <h2 id="t-convocatorias">{{.T "inicio.convocatorias"}}</h2>
+  {{- if .Datos.Convocatorias}}
+  <ul class="tarjetas">
+    {{- range .Datos.Convocatorias}}
+    <li class="tarjeta">
+      <p class="tarjeta__meta">
+        <span>{{.Edicion}}</span>
+        <span class="estado estado--{{.EstadoClase}}">{{$.T .Estado}}</span>
+      </p>
+      <h3><a class="tarjeta__enlace" href="{{.URL}}">{{.Titulo}}</a></h3>
+      {{- if .TieneFechas}}
+      <dl class="fechas">
+        {{- if .Proxima}}
+        <div><dt>{{$.T "inicio.abre"}}</dt><dd><time datetime="{{$.ISO .Apertura}}">{{$.Fecha .Apertura}}</time></dd></div>
+        {{- end}}
+        <div><dt>{{$.T "inicio.cierra"}}</dt><dd><time datetime="{{$.ISO .Cierre}}">{{$.FechaHora .Cierre}}</time></dd></div>
+      </dl>
+      {{- end}}
+      <p class="tarjeta__accion" aria-hidden="true">{{$.T "inicio.ver_bases"}} →</p>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{.T "inicio.sin_convocatorias"}}</p>
+  {{- end}}
+</section>
+
+<section aria-labelledby="t-como">
+  <h2 id="t-como">{{.T "inicio.como_funciona"}}</h2>
+  <ol class="pasos">
+    <li><h3>{{.T "inicio.paso1_titulo"}}</h3><p>{{.T "inicio.paso1_texto"}}</p></li>
+    <li><h3>{{.T "inicio.paso2_titulo"}}</h3><p>{{.T "inicio.paso2_texto"}}</p></li>
+    <li><h3>{{.T "inicio.paso3_titulo"}}</h3><p>{{.T "inicio.paso3_texto"}}</p></li>
+  </ol>
+</section>
+{{end}}

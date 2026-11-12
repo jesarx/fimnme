@@ -1,0 +1,55 @@
+{{- /*
+  Parciales de formulario, compartidos por todas las pantallas con captura.
+*/ -}}
+
+{{- /*
+  "aviso": mensaje destacado y resumen de errores al inicio de un formulario.
+  Recibe la *views.Pagina. El resumen enlaza a cada campo con problema, para
+  quien navega con teclado o lector de pantalla (WCAG 2.1 AA).
+*/ -}}
+{{define "aviso"}}
+{{- with .Aviso}}
+<div class="aviso aviso--{{.Tipo}}" role="status">{{$.T .Clave}}</div>
+{{- end}}
+{{- if .Formulario.Errores}}
+<div class="aviso aviso--error" role="alert" tabindex="-1">
+  <p class="aviso__titulo">{{.T "form.resumen_errores"}}</p>
+  <ul>
+    {{- range .Formulario.Errores}}
+    <li><a href="#c-{{.Campo}}">{{$.T .Clave}}</a></li>
+    {{- end}}
+  </ul>
+</div>
+{{- end}}
+{{end}}
+
+{{- /*
+  "campo": etiqueta + control de texto + ayuda + mensaje de error.
+  Argumentos (con dict):
+    P             *views.Pagina
+    Nombre        nombre del campo (name y sufijo del id)
+    Tipo          text | email | password
+    Etiqueta      clave de traducción de la etiqueta
+    Ayuda         clave de traducción del texto de ayuda (opcional)
+    Autocompletar valor del atributo autocomplete
+    Requerido     true si el campo es obligatorio
+  Las contraseñas nunca se devuelven al navegador al repintar.
+*/ -}}
+{{define "campo"}}
+{{- $error := .P.Formulario.Error .Nombre}}
+<div class="campo{{if $error}} campo--error{{end}}">
+  <label for="c-{{.Nombre}}">{{.P.T .Etiqueta}}{{if not .Requerido}} <span class="campo__opcional">{{.P.T "form.opcional"}}</span>{{end}}</label>
+  {{- if .Ayuda}}
+  <p class="campo__ayuda" id="c-{{.Nombre}}-ayuda">{{.P.T .Ayuda}}</p>
+  {{- end}}
+  <input id="c-{{.Nombre}}" name="{{.Nombre}}" type="{{.Tipo}}"
+    {{- if ne .Tipo "password"}} value="{{.P.Formulario.Valor .Nombre}}"{{end}}
+    {{- if .Autocompletar}} autocomplete="{{.Autocompletar}}"{{end}}
+    {{- if .Requerido}} required{{end}}
+    {{- if $error}} aria-invalid="true"{{end}}
+    {{- if or .Ayuda $error}} aria-describedby="{{if .Ayuda}}c-{{.Nombre}}-ayuda{{end}}{{if $error}} c-{{.Nombre}}-error{{end}}"{{end}}>
+  {{- if $error}}
+  <p class="campo__error" id="c-{{.Nombre}}-error">{{.P.T $error}}</p>
+  {{- end}}
+</div>
+{{end}}

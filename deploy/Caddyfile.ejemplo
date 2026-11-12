@@ -1,0 +1,28 @@
+# FIMNME — proxy inverso con TLS (Caddy). Ejemplo para /etc/caddy/Caddyfile.
+#
+# Caddy obtiene y renueva solo el certificado de Let's Encrypt. Requisitos:
+# que el dominio apunte a la IP del VPS y que los puertos 80 y 443 estén
+# abiertos. Sustituya el dominio y recargue:  sudo systemctl reload caddy
+
+dev.fimnme.example {
+	# Compresión de las respuestas (HTML, CSS, JS).
+	encode zstd gzip
+
+	# Entorno de desarrollo: se recomienda pedir contraseña para que el sitio
+	# de pruebas no quede abierto al público. Genere el hash con:
+	#     caddy hash-password
+	# y descomente el bloque (la sonda /healthz queda libre):
+	#
+	# @protegido not path /healthz
+	# basicauth @protegido {
+	#     equipo HASH_GENERADO_CON_CADDY_HASH_PASSWORD
+	# }
+	#
+	# (En Caddy 2.8 o posterior la directiva se llama basic_auth; el nombre
+	# anterior sigue funcionando.)
+
+	# Caddy añade X-Forwarded-For y X-Forwarded-Proto y conserva la cabecera
+	# Host; la aplicación los necesita para la cookie segura, HSTS y la
+	# protección CSRF.
+	reverse_proxy 127.0.0.1:8080
+}

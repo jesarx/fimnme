@@ -1,0 +1,15 @@
+{{- /* Inicio de sesión (RF-AUT-03). */ -}}
+{{define "contenido"}}
+<section class="formulario-pagina">
+  <h1>{{.T "cuenta.ingresar_titulo"}}</h1>
+  <p class="entrada">{{.T "cuenta.ingresar_entrada"}}</p>
+  {{template "aviso" .}}
+  <form method="post" action="/cuenta/ingresar" novalidate>
+    {{template "campo" (dict "P" . "Nombre" "email" "Tipo" "email" "Etiqueta" "cuenta.email" "Autocompletar" "username" "Requerido" true)}}
+    {{template "campo" (dict "P" . "Nombre" "password" "Tipo" "password" "Etiqueta" "cuenta.password" "Autocompletar" "current-password" "Requerido" true)}}
+    <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.ingresar_boton"}}</button></p>
+  </form>
+  <p><a href="/cuenta/recuperar">{{.T "cuenta.olvide"}}</a></p>
+  <p>{{.T "cuenta.sin_cuenta"}} <a href="/cuenta/registro">{{.T "nav.registro"}}</a></p>
+</section>
+{{end}}

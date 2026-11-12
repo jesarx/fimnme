@@ -1,0 +1,58 @@
+{{- /*
+  Armazón común de todas las páginas: cabecera, navegación, contenido y pie.
+  Cada página define el bloque "contenido". Recibe una *views.Pagina.
+  CSP estricta: aquí no puede haber <script> ni style="" en línea.
+*/ -}}
+<!DOCTYPE html>
+<html lang="{{.Idioma}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Titulo}} · {{.T "sitio.sigla"}}</title>
+<meta name="description" content="{{.T "sitio.descripcion"}}">
+{{- if .EsDesarrollo}}
+<meta name="robots" content="noindex, nofollow">
+{{- end}}
+{{- /* htmx sin estilos inyectados ni eval(), para que la CSP no necesite excepciones. */}}
+<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"selfRequestsOnly":true}'>
+<link rel="icon" href="{{estatico "img/favicon.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{estatico "css/fimnme.css"}}">
+<script src="{{estatico "js/htmx.min.js"}}" defer></script>
+</head>
+<body>
+<a class="salto" href="#contenido">{{.T "sitio.saltar"}}</a>
+{{- if .EsDesarrollo}}
+<p class="franja-desarrollo" role="note">{{.T "sitio.desarrollo"}}</p>
+{{- end}}
+
+<header class="cabecera">
+  <div class="cabecera__interior ancho">
+    <a class="marca" href="/" aria-label="{{.T "sitio.sigla"}} · {{.T "sitio.inicio"}}">
+      <span class="marca__sigla">{{.T "sitio.sigla"}}</span>
+      <span class="marca__nombre">{{.T "sitio.plataforma"}}</span>
+    </a>
+    <nav class="menu" aria-label="{{.T "nav.principal"}}">
+      <a href="/"{{if eq .Ruta "/"}} aria-current="page"{{end}}>{{.T "nav.convocatorias"}}</a>
+      <a href="/cuenta/ingresar"{{if eq .Ruta "/cuenta/ingresar"}} aria-current="page"{{end}}>{{.T "nav.ingresar"}}</a>
+      <a class="menu__destacado" href="/cuenta/registro"{{if eq .Ruta "/cuenta/registro"}} aria-current="page"{{end}}>{{.T "nav.registro"}}</a>
+      {{- /* El cambio de idioma es un POST: una petición GET nunca altera estado. */}}
+      <form class="menu__idioma" method="post" action="/idioma">
+        <input type="hidden" name="volver" value="{{.Ruta}}">
+        <button type="submit" name="idioma" value="{{.OtroIdioma}}" lang="{{.OtroIdioma}}">{{.T "sitio.cambiar_idioma"}}</button>
+      </form>
+    </nav>
+  </div>
+</header>
+
+<main id="contenido" class="ancho" tabindex="-1">
+{{template "contenido" .}}
+</main>
+
+<footer class="pie">
+  <div class="ancho pie__interior">
+    <p class="pie__institucion">{{.T "pie.institucion"}}</p>
+    <p><a href="/aviso-de-privacidad">{{.T "pie.aviso"}}</a> · {{.T "pie.licencia"}}</p>
+  </div>
+</footer>
+</body>
+</html>

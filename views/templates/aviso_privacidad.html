@@ -1,0 +1,17 @@
+{{- /*
+  Aviso de privacidad (LFPDPPP). ESTRUCTURA PROVISIONAL: el texto oficial lo
+  proporciona la CNMO y más adelante se versiona desde la administración.
+*/ -}}
+{{define "contenido"}}
+<article class="prosa prosa--estrecha">
+  <h1>{{.T "aviso.titulo"}}</h1>
+  <p class="aviso aviso--info">{{.T "aviso.pendiente"}}</p>
+  <p class="entrada">{{.T "aviso.entrada"}}</p>
+  <h2>{{.T "aviso.datos_titulo"}}</h2>
+  <p>{{.T "aviso.datos_texto"}}</p>
+  <h2>{{.T "aviso.finalidad_titulo"}}</h2>
+  <p>{{.T "aviso.finalidad_texto"}}</p>
+  <h2>{{.T "aviso.arco_titulo"}}</h2>
+  <p>{{.T "aviso.arco_texto"}}</p>
+</article>
+{{end}}

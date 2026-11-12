@@ -1,0 +1,44 @@
+{{- /*
+  Autorregistro de postulante (RF-AUT-01): correo, nombre, apellidos,
+  contraseña, idioma preferido y aceptación del aviso de privacidad.
+*/ -}}
+{{define "contenido"}}
+<section class="formulario-pagina">
+  <h1>{{.T "cuenta.registro_titulo"}}</h1>
+  <p class="entrada">{{.T "cuenta.registro_entrada"}}</p>
+  {{template "aviso" .}}
+  <form method="post" action="/cuenta/registro" novalidate>
+    {{template "campo" (dict "P" . "Nombre" "email" "Tipo" "email" "Etiqueta" "cuenta.email" "Autocompletar" "email" "Requerido" true)}}
+    {{template "campo" (dict "P" . "Nombre" "nombre" "Tipo" "text" "Etiqueta" "cuenta.nombre" "Autocompletar" "given-name" "Requerido" true)}}
+    {{template "campo" (dict "P" . "Nombre" "apellidos" "Tipo" "text" "Etiqueta" "cuenta.apellidos" "Autocompletar" "family-name" "Requerido" true)}}
+    {{template "campo" (dict "P" . "Nombre" "password" "Tipo" "password" "Etiqueta" "cuenta.password" "Ayuda" "cuenta.password_ayuda" "Autocompletar" "new-password" "Requerido" true)}}
+
+    {{- $errorIdioma := .Formulario.Error "idioma"}}
+    <div class="campo{{if $errorIdioma}} campo--error{{end}}">
+      <label for="c-idioma">{{.T "cuenta.idioma"}}</label>
+      <p class="campo__ayuda" id="c-idioma-ayuda">{{.T "cuenta.idioma_ayuda"}}</p>
+      <select id="c-idioma" name="idioma" aria-describedby="c-idioma-ayuda{{if $errorIdioma}} c-idioma-error{{end}}">
+        <option value="es" lang="es"{{if eq (.Formulario.Valor "idioma") "es"}} selected{{end}}>{{.T "cuenta.idioma_es"}}</option>
+        <option value="en" lang="en"{{if eq (.Formulario.Valor "idioma") "en"}} selected{{end}}>{{.T "cuenta.idioma_en"}}</option>
+      </select>
+      {{- if $errorIdioma}}
+      <p class="campo__error" id="c-idioma-error">{{.T $errorIdioma}}</p>
+      {{- end}}
+    </div>
+
+    {{- $errorAviso := .Formulario.Error "acepta_aviso"}}
+    <div class="campo campo--casilla{{if $errorAviso}} campo--error{{end}}">
+      <input id="c-acepta_aviso" name="acepta_aviso" type="checkbox" value="1" required
+        {{- if .Formulario.Valor "acepta_aviso"}} checked{{end}}
+        {{- if $errorAviso}} aria-invalid="true" aria-describedby="c-acepta_aviso-error"{{end}}>
+      <label for="c-acepta_aviso">{{.T "cuenta.acepto_aviso"}} <a href="/aviso-de-privacidad">{{.T "cuenta.aviso_enlace"}}</a></label>
+      {{- if $errorAviso}}
+      <p class="campo__error" id="c-acepta_aviso-error">{{.T $errorAviso}}</p>
+      {{- end}}
+    </div>
+
+    <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.registro_boton"}}</button></p>
+  </form>
+  <p>{{.T "cuenta.con_cuenta"}} <a href="/cuenta/ingresar">{{.T "nav.ingresar"}}</a></p>
+</section>
+{{end}}

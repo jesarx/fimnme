@@ -1,0 +1,41 @@
+# FIMNME — proxy inverso con TLS (nginx). Alternativa a Caddy.
+# Ejemplo para /etc/nginx/sites-available/fimnme; el certificado se obtiene
+# con certbot:  sudo certbot --nginx -d dev.fimnme.example
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name dev.fimnme.example;
+    # Todo el tráfico va por HTTPS.
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name dev.fimnme.example;
+
+    # Rutas que escribe certbot al emitir el certificado.
+    ssl_certificate     /etc/letsencrypt/live/dev.fimnme.example/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/dev.fimnme.example/privkey.pem;
+
+    # Tamaño máximo de una petición. Se ampliará al implementar la subida de
+    # archivos (audio de hasta 100 MB).
+    client_max_body_size 2m;
+
+    gzip on;
+    gzip_types text/css application/javascript image/svg+xml;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+
+        # IMPRESCINDIBLES. Sin Host la protección CSRF rechaza los formularios;
+        # sin X-Forwarded-Proto la aplicación no sabe que el visitante llegó
+        # por HTTPS (cookie segura y HSTS).
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

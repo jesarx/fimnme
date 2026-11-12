@@ -1,0 +1,18 @@
+# Binarios compilados (se generan con `make build`)
+/bin/
+
+# Datos locales: base SQLite y acervo de archivos. Nunca se versionan.
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Configuración local y secretos
+*.env
+!deploy/*.env.ejemplo
+
+# Editores y sistema
+.DS_Store
+.idea/
+.vscode/
+*.swp

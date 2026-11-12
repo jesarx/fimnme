@@ -1,0 +1,13 @@
+{{- /* Solicitud de recuperación de contraseña (RF-AUT-04). */ -}}
+{{define "contenido"}}
+<section class="formulario-pagina">
+  <h1>{{.T "cuenta.recuperar_titulo"}}</h1>
+  <p class="entrada">{{.T "cuenta.recuperar_entrada"}}</p>
+  {{template "aviso" .}}
+  <form method="post" action="/cuenta/recuperar" novalidate>
+    {{template "campo" (dict "P" . "Nombre" "email" "Tipo" "email" "Etiqueta" "cuenta.email" "Autocompletar" "email" "Requerido" true)}}
+    <p class="acciones"><button class="boton" type="submit">{{.T "cuenta.recuperar_boton"}}</button></p>
+  </form>
+  <p><a href="/cuenta/ingresar">{{.T "cuenta.volver_ingresar"}}</a></p>
+</section>
+{{end}}

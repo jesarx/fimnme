@@ -1,0 +1,71 @@
+{{- /* Detalle público de una convocatoria: bases, calendario y acceso a postular. */ -}}
+{{define "contenido"}}
+{{- with .Datos}}
+<nav class="migas" aria-label="{{$.T "convocatoria.migas"}}">
+  <a href="/">{{$.T "nav.convocatorias"}}</a> <span aria-hidden="true">/</span> <span>{{.Edicion}}</span>
+</nav>
+
+<header class="encabezado">
+  <p class="antetitulo">{{.Edicion}}</p>
+  <h1>{{.Titulo}}</h1>
+  <p><span class="estado estado--{{.EstadoClase}}">{{$.T .Estado}}</span></p>
+</header>
+
+{{- /* El lateral va primero en el HTML: en móvil el plazo y el botón quedan
+     arriba de las bases; en escritorio la hoja de estilo lo coloca a la derecha. */}}
+<div class="dos-columnas">
+  <aside class="lateral">
+    <section class="panel" aria-labelledby="t-participa">
+      <h2 id="t-participa">{{$.T "convocatoria.participa"}}</h2>
+      {{- if .Abierta}}
+      <p>{{$.T "convocatoria.participa_texto"}}</p>
+      {{- if .TieneFechas}}
+      <p class="plazo"><span>{{$.T "convocatoria.cierre"}}</span>
+        <time datetime="{{$.ISO .Cierre}}">{{$.FechaHora .Cierre}}</time></p>
+      {{- end}}
+      <p><a class="boton" href="/cuenta/registro">{{$.T "convocatoria.postular"}}</a></p>
+      <p><a href="/cuenta/ingresar">{{$.T "convocatoria.ya_tengo_cuenta"}}</a></p>
+      {{- else if .Proxima}}
+      <p>{{$.T "convocatoria.proxima_texto"}}</p>
+      {{- if .TieneFechas}}
+      <p class="plazo"><span>{{$.T "convocatoria.apertura"}}</span>
+        <time datetime="{{$.ISO .Apertura}}">{{$.Fecha .Apertura}}</time></p>
+      {{- end}}
+      <p><a class="boton boton--secundario" href="/cuenta/registro">{{$.T "nav.registro"}}</a></p>
+      {{- else}}
+      <p>{{$.T "convocatoria.cerrada_texto"}}</p>
+      <p><a class="boton boton--secundario" href="/cuenta/ingresar">{{$.T "nav.ingresar"}}</a></p>
+      {{- end}}
+    </section>
+
+    {{- if .Etapas}}
+    <section class="panel" aria-labelledby="t-calendario">
+      <h2 id="t-calendario">{{$.T "convocatoria.calendario"}}</h2>
+      <ol class="calendario">
+        {{- range .Etapas}}
+        <li{{if .Actual}} class="calendario__actual" aria-current="step"{{end}}>
+          <strong>{{$.T .Nombre}}</strong>
+          <span>{{$.T "convocatoria.rango" ($.Fecha .Inicia) ($.Fecha .Termina)}}</span>
+        </li>
+        {{- end}}
+      </ol>
+      <p class="nota">{{$.T "convocatoria.zona_nota"}}</p>
+    </section>
+    {{- end}}
+  </aside>
+
+  <article class="prosa" aria-labelledby="t-bases">
+    <h2 id="t-bases">{{$.T "convocatoria.bases"}}</h2>
+    {{- if .BasesRespaldo}}
+    <p class="aviso aviso--info">{{$.T "convocatoria.bases_respaldo"}}</p>
+    {{- end}}
+    {{- if .Bases}}
+    {{- /* El atributo lang avisa al lector de pantalla si el texto está en español. */}}
+    <div{{if .BasesRespaldo}} lang="es"{{end}}>{{.Bases}}</div>
+    {{- else}}
+    <p class="vacio">{{$.T "convocatoria.sin_bases"}}</p>
+    {{- end}}
+  </article>
+</div>
+{{- end}}
+{{end}}

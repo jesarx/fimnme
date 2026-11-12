@@ -1,0 +1,9 @@
+{{- /* Página de error (404, 403, 500). Datos: Codigo, Titulo y Texto (claves de traducción). */ -}}
+{{define "contenido"}}
+<section class="error-pagina">
+  <p class="error-pagina__codigo" aria-hidden="true">{{.Datos.Codigo}}</p>
+  <h1>{{.T .Datos.Titulo}}</h1>
+  <p class="entrada">{{.T .Datos.Texto}}</p>
+  <p><a class="boton boton--secundario" href="/">{{.T "http.volver_inicio"}}</a></p>
+</section>
+{{end}}
