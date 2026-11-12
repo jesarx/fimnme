@@ -11,6 +11,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jesarx/fimnme/models"
 	"github.com/jesarx/fimnme/views"
@@ -23,30 +24,31 @@ const (
 	EntornoProduccion = "produccion"
 )
 
-// Catalogo es lo que las páginas públicas necesitan saber de las
-// convocatorias. La interfaz se define aquí, del lado de quien la consume: hoy
-// la satisface models.FuenteDemo y mañana el repositorio SQLite, sin tocar los
-// controladores.
-type Catalogo interface {
+// Datos es lo que los controladores necesitan de la persistencia. La interfaz
+// se define aquí, del lado de quien la consume, y la satisface
+// *models.Repositorio; los controladores nunca ven SQL ni conexiones.
+type Datos interface {
 	// ConvocatoriasPublicas devuelve las convocatorias vigentes a anunciar.
 	ConvocatoriasPublicas(ctx context.Context) ([]models.Convocatoria, error)
 	// ConvocatoriaPublica devuelve una convocatoria por número de edición y
 	// tipo, o models.ErrNoEncontrado si no existe o está en borrador.
 	ConvocatoriaPublica(ctx context.Context, numeroEdicion int, tipo models.TipoConvocatoria) (models.Convocatoria, error)
+	// Verificar comprueba que la base de datos responde.
+	Verificar(ctx context.Context) error
 }
 
 // App reúne las dependencias de los controladores. Se construye una vez al
 // arrancar y después sólo se lee, por lo que es segura entre peticiones.
 type App struct {
-	vistas   *views.Motor
-	catalogo Catalogo
-	entorno  string
-	log      *slog.Logger
+	vistas  *views.Motor
+	datos   Datos
+	entorno string
+	log     *slog.Logger
 }
 
 // Nueva construye la aplicación con sus dependencias explícitas.
-func Nueva(vistas *views.Motor, catalogo Catalogo, entorno string, log *slog.Logger) *App {
-	return &App{vistas: vistas, catalogo: catalogo, entorno: entorno, log: log}
+func Nueva(vistas *views.Motor, datos Datos, entorno string, log *slog.Logger) *App {
+	return &App{vistas: vistas, datos: datos, entorno: entorno, log: log}
 }
 
 // Manejador devuelve el http.Handler completo: las rutas envueltas en la
@@ -73,8 +75,8 @@ func (a *App) Manejador() http.Handler {
 
 	// Estáticos incrustados y sondas de vida para el proxy y systemd.
 	mux.Handle("GET /static/", a.vistas.Estaticos())
-	mux.HandleFunc("GET /healthz", a.salud)
-	mux.HandleFunc("GET /readyz", a.salud)
+	mux.HandleFunc("GET /healthz", a.vivo)
+	mux.HandleFunc("GET /readyz", a.listo)
 
 	// Cualquier otra ruta: página 404 propia, en el idioma del visitante.
 	mux.HandleFunc("/", a.noEncontrado)
@@ -90,10 +92,32 @@ func (a *App) Manejador() http.Handler {
 	)
 }
 
-// salud responde a las sondas /healthz y /readyz. Cuando exista la base de
-// datos, /readyz comprobará además que responde.
-func (a *App) salud(w http.ResponseWriter, _ *http.Request) {
+// plazoSonda acota la comprobación de la base en /readyz.
+const plazoSonda = 2 * time.Second
+
+// vivo responde a /healthz: el proceso está en pie. No toca la base, para que
+// un problema de datos no haga que systemd reinicie el servicio en bucle.
+func (a *App) vivo(w http.ResponseWriter, _ *http.Request) {
+	responderSonda(w, http.StatusOK, "ok\n")
+}
+
+// listo responde a /readyz: el servicio puede atender, es decir, la base de
+// datos responde. Si no, 503, para que el proxy o el monitoreo lo detecten.
+func (a *App) listo(w http.ResponseWriter, r *http.Request) {
+	ctx, cancelar := context.WithTimeout(r.Context(), plazoSonda)
+	defer cancelar()
+	if err := a.datos.Verificar(ctx); err != nil {
+		a.log.Error("sonda /readyz: la base de datos no responde", "error", err)
+		responderSonda(w, http.StatusServiceUnavailable, "no disponible\n")
+		return
+	}
+	responderSonda(w, http.StatusOK, "ok\n")
+}
+
+// responderSonda escribe la respuesta de texto de una sonda.
+func responderSonda(w http.ResponseWriter, estado int, texto string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte("ok\n"))
+	w.WriteHeader(estado)
+	_, _ = w.Write([]byte(texto))
 }

@@ -5,6 +5,8 @@
 package controllers
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,22 +14,83 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jesarx/fimnme/models"
 	"github.com/jesarx/fimnme/views"
 )
 
-// appDePrueba arma la aplicación completa (rutas + middleware) sobre los datos
-// de demostración, con el log silenciado.
-func appDePrueba(t *testing.T) http.Handler {
+// repoDePrueba crea una base SQLite temporal, migrada, con la edición 49 y sus
+// dos convocatorias: Intérpretes abierta y Compositores publicada.
+func repoDePrueba(t *testing.T) *models.Repositorio {
+	t.Helper()
+	ctx := context.Background()
+	actor := models.Actor{Perfil: "cli", Agente: "pruebas"}
+	repo, err := models.AbrirRepositorio(t.TempDir())
+	if err != nil {
+		t.Fatalf("abrir repositorio: %v", err)
+	}
+	t.Cleanup(func() { repo.Cerrar() })
+	if _, err := repo.Migrar(ctx, actor); err != nil {
+		t.Fatalf("migrar: %v", err)
+	}
+	edicion := models.Edicion{Numero: 49, Anio: 2027, NombreES: "Edición 49 · 2027", NombreEN: "49th Edition · 2027"}
+	if edicion.ID, err = repo.CrearEdicion(ctx, actor, edicion); err != nil {
+		t.Fatal(err)
+	}
+	// Cierre: 29 de enero de 2027 a las 23:59 en la Ciudad de México.
+	etapas := []models.Etapa{{
+		Clave:     models.EtapaPostulacion,
+		IniciaAt:  time.Date(2026, 11, 2, 6, 0, 0, 0, time.UTC),
+		TerminaAt: time.Date(2027, 1, 30, 5, 59, 0, 0, time.UTC),
+	}}
+	for _, c := range []models.Convocatoria{
+		{Edicion: edicion, Tipo: models.TipoInterpretes, TituloES: "Convocatoria de Intérpretes",
+			TituloEN: "Call for Performers", BasesMDES: "# A quién se dirige\n\nA **intérpretes**.",
+			Estado: models.EstadoPostulacion, MaxVideos: 3, Etapas: etapas},
+		{Edicion: edicion, Tipo: models.TipoCompositores, TituloES: "Convocatoria de Compositores",
+			TituloEN: "Call for Composers", BasesMDES: "# Bases", BasesMDEN: "# Terms",
+			Estado: models.EstadoPublicada, MaxObras: 2, MaxVideos: 3, Etapas: etapas},
+	} {
+		if _, err := repo.CrearConvocatoria(ctx, actor, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+// appSobre arma la aplicación completa (rutas + middleware) sobre una fuente
+// de datos, con el log silenciado.
+func appSobre(t *testing.T, datos Datos) http.Handler {
 	t.Helper()
 	vistas, err := views.Nuevo()
 	if err != nil {
 		t.Fatalf("no se pudo cargar el frontal: %v", err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return Nueva(vistas, models.NuevaFuenteDemo(), EntornoDesarrollo, log).Manejador()
+	return Nueva(vistas, datos, EntornoDesarrollo, log).Manejador()
 }
+
+// appDePrueba arma la aplicación sobre una base SQLite real y temporal.
+func appDePrueba(t *testing.T) http.Handler {
+	t.Helper()
+	return appSobre(t, repoDePrueba(t))
+}
+
+// datosCaidos simula una base de datos que no responde.
+type datosCaidos struct{}
+
+var errBaseCaida = errors.New("base caída")
+
+func (datosCaidos) ConvocatoriasPublicas(context.Context) ([]models.Convocatoria, error) {
+	return nil, errBaseCaida
+}
+
+func (datosCaidos) ConvocatoriaPublica(context.Context, int, models.TipoConvocatoria) (models.Convocatoria, error) {
+	return models.Convocatoria{}, errBaseCaida
+}
+
+func (datosCaidos) Verificar(context.Context) error { return errBaseCaida }
 
 // pedir ejecuta una petición contra la aplicación y devuelve la respuesta.
 func pedir(t *testing.T, app http.Handler, r *http.Request) *httptest.ResponseRecorder {
@@ -268,5 +331,54 @@ func TestIPDelCliente(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "1.2.3.4")
 	if ip := ipCliente(r); ip != "203.0.113.7" {
 		t.Errorf("ip = %q, se esperaba 203.0.113.7", ip)
+	}
+}
+
+// Las páginas públicas salen de la base: bases en Markdown, calendario en hora
+// de México y respaldo en español cuando falta el texto en inglés.
+func TestConvocatoriaLeidaDeLaBase(t *testing.T) {
+	app := appDePrueba(t)
+	w := pedir(t, app, httptest.NewRequest(http.MethodGet, "/convocatorias/49/interpretes", nil))
+	cuerpo := w.Body.String()
+	for _, fragmento := range []string{
+		"<h2>A quién se dirige</h2>",
+		"<strong>intérpretes</strong>",
+		"Postulación abierta",
+		"29 de enero de 2027, 23:59 h (hora de la Ciudad de México)",
+		`datetime="2027-01-30T05:59:00Z"`,
+	} {
+		if !strings.Contains(cuerpo, fragmento) {
+			t.Errorf("no aparece %q", fragmento)
+		}
+	}
+	// En inglés, Intérpretes no tiene bases traducidas: se avisa y se muestran en español.
+	r := httptest.NewRequest(http.MethodGet, "/convocatorias/49/interpretes", nil)
+	r.Header.Set("Accept-Language", "en")
+	cuerpo = pedir(t, app, r).Body.String()
+	for _, fragmento := range []string{"Call for Performers", "only available in Spanish", `<div lang="es">`} {
+		if !strings.Contains(cuerpo, fragmento) {
+			t.Errorf("en inglés no aparece %q", fragmento)
+		}
+	}
+}
+
+// /healthz dice que el proceso vive; /readyz, que además la base responde.
+func TestSondasConLaBaseCaida(t *testing.T) {
+	app := appSobre(t, datosCaidos{})
+	if w := pedir(t, app, httptest.NewRequest(http.MethodGet, "/healthz", nil)); w.Code != http.StatusOK {
+		t.Errorf("/healthz no debe depender de la base: estado %d", w.Code)
+	}
+	if w := pedir(t, app, httptest.NewRequest(http.MethodGet, "/readyz", nil)); w.Code != http.StatusServiceUnavailable {
+		t.Errorf("/readyz con la base caída: estado %d, se esperaba 503", w.Code)
+	}
+	// Un fallo de la base se presenta como error 500, sin filtrar el detalle.
+	for _, ruta := range []string{"/", "/convocatorias/49/interpretes"} {
+		w := pedir(t, app, httptest.NewRequest(http.MethodGet, ruta, nil))
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("GET %s con la base caída: estado %d, se esperaba 500", ruta, w.Code)
+		}
+		if strings.Contains(w.Body.String(), errBaseCaida.Error()) {
+			t.Errorf("GET %s: el detalle interno del error llegó al visitante", ruta)
+		}
 	}
 }

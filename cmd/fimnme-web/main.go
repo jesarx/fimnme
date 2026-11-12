@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // fimnme-web es el servidor HTTP de la plataforma: sirve el frontal integrado
-// y, más adelante, la API REST y los trabajadores internos.
+// sobre la base SQLite y, más adelante, la API REST y los trabajadores internos.
 //
 // Es un servicio PÚBLICO: escucha por omisión en 127.0.0.1:8080 y debe quedar
 // SIEMPRE detrás de un proxy inverso con TLS (Caddy o nginx). Nunca se expone
@@ -46,6 +46,7 @@ func main() {
 		ip             string
 		puerto         string
 		modo           string
+		dirDatos       string
 		mostrarVersion bool
 	)
 	// -s y --serve son la misma bandera, como en los demás sistemas de la CNMO.
@@ -55,6 +56,8 @@ func main() {
 	flag.StringVar(&puerto, "port", entorno("FIMNME_PORT", "8080"), "puerto TCP en el que escucha el servidor (FIMNME_PORT)")
 	flag.StringVar(&modo, "entorno", entorno("FIMNME_ENTORNO", controllers.EntornoProduccion),
 		"entorno de ejecución: desarrollo o produccion (FIMNME_ENTORNO)")
+	flag.StringVar(&dirDatos, "datos", entorno("FIMNME_DATOS", "data"),
+		"directorio de datos: base SQLite y acervo de archivos (FIMNME_DATOS)")
 	flag.BoolVar(&mostrarVersion, "version", false, "muestra la versión y termina")
 	flag.Parse()
 
@@ -78,12 +81,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	// PROVISIONAL: mientras no exista models/repository.go, las páginas se
-	// alimentan de datos de demostración en memoria.
-	catalogo := models.NuevaFuenteDemo()
-	log.Warn("fuente de datos de DEMOSTRACIÓN en memoria: aún no hay persistencia")
+	repositorio, err := models.AbrirRepositorio(dirDatos)
+	if err != nil {
+		log.Error("no se pudo abrir la base de datos", "datos", dirDatos, "error", err)
+		os.Exit(1)
+	}
+	defer repositorio.Cerrar()
 
-	app := controllers.Nueva(vistas, catalogo, modo, log)
+	// El servidor NO migra por su cuenta: cambiar el esquema es un acto
+	// explícito del operador (fimnme-cli migrate). Con el esquema
+	// desactualizado, o con una base más nueva que este binario, no se sirve.
+	pendientes, err := repositorio.MigracionesPendientes(context.Background())
+	if err != nil {
+		log.Error("la base de datos no corresponde a este binario", "datos", dirDatos, "error", err)
+		repositorio.Cerrar()
+		os.Exit(1)
+	}
+	if len(pendientes) > 0 {
+		log.Error("hay migraciones sin aplicar; ejecute: fimnme-cli --datos "+dirDatos+" migrate",
+			"pendientes", len(pendientes), "primera", pendientes[0].Nombre)
+		repositorio.Cerrar()
+		os.Exit(1)
+	}
+
+	app := controllers.Nueva(vistas, repositorio, modo, log)
 	servidor := &http.Server{
 		Addr:    net.JoinHostPort(ip, puerto),
 		Handler: app.Manejador(),
@@ -103,7 +124,8 @@ func main() {
 
 	errServidor := make(chan error, 1)
 	go func() {
-		log.Info("fimnme-web escuchando", "direccion", servidor.Addr, "entorno", modo, "version", version)
+		log.Info("fimnme-web escuchando", "direccion", servidor.Addr, "entorno", modo,
+			"datos", dirDatos, "version", version)
 		errServidor <- servidor.ListenAndServe()
 	}()
 
@@ -111,6 +133,7 @@ func main() {
 	case err := <-errServidor:
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Error("el servidor se detuvo", "error", err)
+			repositorio.Cerrar() // os.Exit no ejecuta los defer
 			os.Exit(1)
 		}
 	case <-ctx.Done():
@@ -119,6 +142,7 @@ func main() {
 		defer cancelar()
 		if err := servidor.Shutdown(ctxApagado); err != nil {
 			log.Error("apagado forzado", "error", err)
+			repositorio.Cerrar() // os.Exit no ejecuta los defer
 			os.Exit(1)
 		}
 	}

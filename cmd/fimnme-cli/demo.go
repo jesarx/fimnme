@@ -2,99 +2,97 @@
 // Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
 // SPDX-License-Identifier: GPL-3.0-only
 
-package models
+package main
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/jesarx/fimnme/models"
 )
 
-// FuenteDemo es una fuente de datos EN MEMORIA y de sólo lectura, con una
-// edición ficticia. Existe únicamente para poder construir y revisar el frontal
-// antes de que exista la persistencia.
+// Orden «sembrar-demo»: carga una edición ficticia con sus dos convocatorias,
+// para poder revisar el sistema en un entorno de desarrollo mientras no exista
+// el panel de administración (paso 4 del plan).
 //
-// PROVISIONAL: se sustituye por models/repository.go (SQLite) en el paso de
-// persistencia del plan (docs/PLAN_DE_DESARROLLO.md). Nada de lo que aquí
-// aparece son bases oficiales.
-type FuenteDemo struct {
-	convocatorias []Convocatoria
-}
+// Salvaguardas:
+//   - Sólo actúa sobre una base SIN ediciones; si ya hay alguna, no hace nada.
+//   - Escribe a través del repositorio, igual que lo hará el administrador, y
+//     por tanto queda asentada en la bitácora de auditoría.
+//
+// Nada de lo que aquí aparece son bases oficiales.
 
-// utc construye una marca de tiempo en UTC para los datos de demostración.
+// utc construye una marca de tiempo en UTC.
 func utc(anio int, mes time.Month, dia, hora, minuto int) time.Time {
 	return time.Date(anio, mes, dia, hora, minuto, 0, 0, time.UTC)
 }
 
-// NuevaFuenteDemo arma la edición de demostración con sus dos convocatorias.
-// Las fechas se guardan en UTC: el cierre "29 de enero, 23:59" de la Ciudad de
-// México (UTC−6) es el 30 de enero a las 05:59 UTC.
-func NuevaFuenteDemo() *FuenteDemo {
-	edicion := Edicion{
-		ID:       1,
-		Numero:   49,
-		Anio:     2027,
-		NombreES: "Edición 49 · 2027",
-		NombreEN: "49th Edition · 2027",
+// sembrarDemo crea la edición de demostración. Las fechas se dan en UTC: el
+// cierre «29 de enero, 23:59» de la Ciudad de México (UTC−6) es el 30 de enero
+// a las 05:59 UTC.
+func sembrarDemo(ctx context.Context, repositorio *models.Repositorio) error {
+	pendientes, err := repositorio.MigracionesPendientes(ctx)
+	if err != nil {
+		return err
 	}
-	return &FuenteDemo{convocatorias: []Convocatoria{
+	if len(pendientes) > 0 {
+		return fmt.Errorf("el esquema no está al día; ejecute primero: fimnme-cli migrate")
+	}
+	existentes, err := repositorio.ContarEdiciones(ctx)
+	if err != nil {
+		return err
+	}
+	if existentes > 0 {
+		fmt.Printf("La base ya tiene %d edición(es); no se siembra nada.\n", existentes)
+		return nil
+	}
+
+	actor := actorCLI()
+	edicion := models.Edicion{Numero: 49, Anio: 2027, NombreES: "Edición 49 · 2027", NombreEN: "49th Edition · 2027"}
+	if edicion.ID, err = repositorio.CrearEdicion(ctx, actor, edicion); err != nil {
+		return err
+	}
+	convocatorias := []models.Convocatoria{
 		{
-			ID:        1,
 			Edicion:   edicion,
-			Tipo:      TipoInterpretes,
+			Tipo:      models.TipoInterpretes,
 			TituloES:  "Convocatoria de Intérpretes",
 			TituloEN:  "Call for Performers",
 			BasesMDES: demoBasesInterpretesES,
 			BasesMDEN: demoBasesInterpretesEN,
-			Estado:    EstadoPostulacion,
+			Estado:    models.EstadoPostulacion,
 			MaxVideos: 3,
-			Etapas: []Etapa{
-				{Clave: EtapaPostulacion, IniciaAt: utc(2026, 11, 2, 6, 0), TerminaAt: utc(2027, 1, 30, 5, 59)},
-				{Clave: EtapaRevisionDocumental, IniciaAt: utc(2027, 2, 1, 6, 0), TerminaAt: utc(2027, 2, 27, 5, 59)},
-				{Clave: EtapaEvaluacion, IniciaAt: utc(2027, 3, 1, 6, 0), TerminaAt: utc(2027, 4, 1, 5, 59)},
+			Etapas: []models.Etapa{
+				{Clave: models.EtapaPostulacion, IniciaAt: utc(2026, 11, 2, 6, 0), TerminaAt: utc(2027, 1, 30, 5, 59)},
+				{Clave: models.EtapaRevisionDocumental, IniciaAt: utc(2027, 2, 1, 6, 0), TerminaAt: utc(2027, 2, 27, 5, 59)},
+				{Clave: models.EtapaEvaluacion, IniciaAt: utc(2027, 3, 1, 6, 0), TerminaAt: utc(2027, 4, 1, 5, 59)},
 			},
 		},
 		{
-			ID:        2,
 			Edicion:   edicion,
-			Tipo:      TipoCompositores,
+			Tipo:      models.TipoCompositores,
 			TituloES:  "Convocatoria de Compositores",
 			TituloEN:  "Call for Composers",
 			BasesMDES: demoBasesCompositoresES,
 			BasesMDEN: demoBasesCompositoresEN,
-			Estado:    EstadoPublicada,
+			Estado:    models.EstadoPublicada,
 			MaxObras:  2,
 			MaxVideos: 3,
-			Etapas: []Etapa{
-				{Clave: EtapaPostulacion, IniciaAt: utc(2026, 11, 23, 6, 0), TerminaAt: utc(2027, 2, 13, 5, 59)},
-				{Clave: EtapaRevisionDocumental, IniciaAt: utc(2027, 2, 15, 6, 0), TerminaAt: utc(2027, 3, 13, 5, 59)},
-				{Clave: EtapaEvaluacion, IniciaAt: utc(2027, 3, 15, 6, 0), TerminaAt: utc(2027, 4, 15, 5, 59)},
+			Etapas: []models.Etapa{
+				{Clave: models.EtapaPostulacion, IniciaAt: utc(2026, 11, 23, 6, 0), TerminaAt: utc(2027, 2, 13, 5, 59)},
+				{Clave: models.EtapaRevisionDocumental, IniciaAt: utc(2027, 2, 15, 6, 0), TerminaAt: utc(2027, 3, 13, 5, 59)},
+				{Clave: models.EtapaEvaluacion, IniciaAt: utc(2027, 3, 15, 6, 0), TerminaAt: utc(2027, 4, 15, 5, 59)},
 			},
 		},
-	}}
-}
-
-// ConvocatoriasPublicas devuelve las convocatorias vigentes que se anuncian en
-// la portada.
-func (f *FuenteDemo) ConvocatoriasPublicas(_ context.Context) ([]Convocatoria, error) {
-	var visibles []Convocatoria
-	for _, c := range f.convocatorias {
-		if ConvocatoriaVigente(c) {
-			visibles = append(visibles, c)
+	}
+	for _, c := range convocatorias {
+		if _, err := repositorio.CrearConvocatoria(ctx, actor, c); err != nil {
+			return err
 		}
 	}
-	return visibles, nil
-}
-
-// ConvocatoriaPublica busca una convocatoria por número de edición y tipo. Una
-// convocatoria en borrador se reporta como inexistente: no debe poder
-// distinguirse de una que no existe.
-func (f *FuenteDemo) ConvocatoriaPublica(_ context.Context, numeroEdicion int, tipo TipoConvocatoria) (Convocatoria, error) {
-	for _, c := range f.convocatorias {
-		if c.Edicion.Numero == numeroEdicion && c.Tipo == tipo && ConvocatoriaVisibleAlPublico(c) {
-			return c, nil
-		}
-	}
-	return Convocatoria{}, ErrNoEncontrado
+	fmt.Printf("Edición de demostración creada: %s, con %d convocatorias.\n", edicion.NombreES, len(convocatorias))
+	return nil
 }
 
 // Textos de demostración. Resumen las reglas de la especificación para que las

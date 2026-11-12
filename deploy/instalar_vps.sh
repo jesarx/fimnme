@@ -8,12 +8,13 @@
 #
 # Qué hace:
 #   1. Crea el usuario de sistema «fimnme», sin contraseña ni shell.
-#   2. Crea /opt/fimnme/bin (binarios) y /etc/fimnme (configuración).
+#   2. Crea /opt/fimnme/bin (binarios), /etc/fimnme (configuración) y
+#      /var/lib/fimnme (datos: base SQLite y acervo).
 #   3. Instala la unidad de systemd y la configuración de ejemplo.
 #   4. Habilita el servicio para que arranque con la máquina.
 #
-# Qué NO hace: no instala el binario (eso es `make deploy`) ni el proxy
-# inverso con TLS (ver README, sección de despliegue).
+# Qué NO hace: no instala los binarios ni crea la base (eso es `make deploy`)
+# ni configura el proxy inverso con TLS (ver README, sección de despliegue).
 
 set -eu
 
@@ -32,9 +33,11 @@ if ! id fimnme >/dev/null 2>&1; then
     echo "Usuario de sistema «fimnme» creado."
 fi
 
-# 2. Directorios. /var/lib/fimnme lo crea systemd (StateDirectory).
+# 2. Directorios. El de datos pertenece al servicio y nadie más lo lee:
+#    contiene datos personales.
 install -d -o root -g root -m 0755 /opt/fimnme /opt/fimnme/bin
 install -d -o root -g fimnme -m 0750 /etc/fimnme
+install -d -o fimnme -g fimnme -m 0750 /var/lib/fimnme
 
 # 3. Unidad de systemd y configuración. La configuración existente se respeta.
 install -o root -g root -m 0644 "$origen/fimnme-web.service" /etc/systemd/system/fimnme-web.service

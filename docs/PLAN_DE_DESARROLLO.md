@@ -29,12 +29,12 @@ procesos— y sólo después las pantallas de cada perfil.
 | # | Paso | Estado |
 |---|---|---|
 | 1 | **Cimientos y páginas públicas.** Estructura MVC, servidor `fimnme-web`, frontal incrustado, CSS propio, i18n es/en, cabeceras de seguridad y CSRF, portada, detalle de convocatoria, pantallas de cuenta (sin conectar), README y despliegue en VPS. | ✅ Hecho |
+| 2 | **Persistencia base.** SQLite sin CGO con los PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3; `models/repository.go`; bitácora de auditoría de sólo inserción; `fimnme-cli` con `migrate` y `sembrar-demo`; las páginas públicas leen de la base; `/readyz` comprueba la base; despliegue con migración. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 2 | **Persistencia base.** `modernc.org/sqlite` sin CGO; PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3 (incluidos los triggers de sólo inserción de `auditoria`); `models/repository.go`; primer `fimnme-cli` con `migrate`; las páginas públicas leen de la base y desaparece `models/demo.go`; `/readyz` comprueba la base. | §7.5, §8.3, RF-CLI-01, RF-AUD-05 | Pendiente |
 | 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación y cambio de datos; Argon2id; sesiones por cookie con expiración por perfil; tokens de un solo uso; bloqueo por intentos y límite de tasa; perfiles globales y asignaciones por convocatoria (ACL); bitácora de auditoría; bandeja `email_outbox` con interfaz `Mailer` y su trabajador. Los formularios de cuenta del paso 1 quedan funcionando. | RF-AUT-01 a 08 y 10, §2, RF-AUD-01 a 03, RF-NOT-01, 02 y 08, §5.8 | Pendiente |
 | 4 | **Configuración de ediciones y convocatorias.** Ediciones, convocatorias y bases bilingües; calendario y cambio de etapa (automático por fecha y forzado), con las cuotas de 3 jurados y 1+ revisores; dotaciones, requisitos documentales y criterios; alta de cuentas internas con activación; asignación de jurados y revisores; duplicar la configuración del año anterior. | RF-CONV-01 a 09, §3, RN-14 | Pendiente |
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
@@ -63,16 +63,55 @@ procesos— y sólo después las pantallas de cada perfil.
 - **Prueba de carga adelantada.** La escritura concurrente sobre SQLite es el supuesto más
   frágil de la arquitectura (D-30). Se hará una primera medición al terminar el paso 5,
   cuando exista el autoguardado real, y la prueba formal en el paso 14.
-- **Dependencias.** `modernc.org/sqlite` entra en el paso 2 y `golang.org/x/crypto`
-  (Argon2id) en el paso 3. Son las dos previstas por la política; no se añade ninguna otra.
-- **Despliegue.** Desde el paso 2 se suben dos binarios (`fimnme-web` y `fimnme-cli`) y el
-  servicio usa `/var/lib/fimnme` para la base y el acervo. El README se actualiza en cada
-  paso.
+- **Dependencias.** `modernc.org/sqlite` entró en el paso 2 (ADR 0003) y
+  `golang.org/x/crypto` (Argon2id) entra en el paso 3. Son las dos previstas por la
+  política; no se añade ninguna otra.
+- **Despliegue.** Se suben dos binarios (`fimnme-web` y `fimnme-cli`) y el servicio usa
+  `/var/lib/fimnme` para la base y el acervo. El README se actualiza en cada paso.
+- **El esquema crece por migraciones.** La migración `0001` trae todo §8.3. Las tablas
+  que la especificación menciona sin definir (plantillas de reporte, motivos frecuentes,
+  versiones del aviso de privacidad, intentos de ingreso) se añaden con migraciones
+  nuevas en el paso que las use.
 - **Correo en desarrollo.** Hasta el paso 14 el `Mailer` de desarrollo no envía: deja el
   mensaje en el log y en `email_outbox`, de donde se toma el enlace de verificación.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente.
+
+## Paso 2 — qué se entregó
+
+- **Base de datos.** `modernc.org/sqlite` v1.62.0, sin CGO. Los siete PRAGMAs de §7.5 se
+  emiten en cada conexión. Una conexión de escritura (`BEGIN IMMEDIATE`) y ocho de
+  lectura marcadas `query_only`.
+- **Esquema.** Migración `0001_esquema_inicial.sql`: el DDL de §8.3 copiado del documento
+  por programa (42 tablas, la vista `v_resultado`, los dos índices FTS5), más los triggers
+  que el documento anuncia: bitácora de sólo inserción, rango de puntajes y
+  sincronización de los índices de búsqueda.
+- **Migrador.** Archivos `NNNN_nombre.sql` incrustados; una transacción por migración;
+  registro en `schema_migration` con SHA-256; rechazo de migraciones alteradas y de bases
+  más nuevas que el binario. `fimnme-web` no migra y no arranca con migraciones
+  pendientes.
+- **Repositorio** (`models/repository.go`, único lugar con SQL): ediciones,
+  convocatorias con su calendario, lectura pública y auditoría dentro de la misma
+  transacción que cada escritura.
+- **`fimnme-cli`**: `migrate`, `sembrar-demo` (sólo desarrollo) y `version`. Sus
+  operaciones quedan en la bitácora con el usuario del sistema. Se niega a trabajar
+  sobre datos de otro usuario.
+- **Servidor.** Bandera `--datos` / `FIMNME_DATOS`; `/healthz` (proceso vivo) y `/readyz`
+  (la base responde, o 503). Desaparece `models/demo.go`.
+- **Despliegue.** `make deploy` sube ambos binarios y ejecuta `deploy/actualizar_vps.sh`:
+  detener, migrar como usuario `fimnme`, arrancar. `make dev` prepara la base local.
+- **Pruebas.** 4 paquetes; cobertura 94 % en controladores, 76 % en modelos, 75 % en
+  vistas. Entre ellas: PRAGMAs conexión por conexión, llaves foráneas, bitácora
+  inmutable, operación fallida sin rastro parcial, búsqueda FTS5 con acentos y por
+  subcadena, vista de resultados, y 600 escrituras simultáneas desde dos procesos sin
+  errores.
+
+**No verificado en este paso:** el arranque bajo systemd real, con su endurecimiento
+(`ProtectSystem=strict`, `MemoryDenyWriteExecute`), sobre la base SQLite. El entorno donde
+se desarrolló no tiene systemd: el guion de actualización se probó con `systemctl`
+simulado y el binario se ejecutó como usuario `fimnme` sobre `/var/lib/fimnme`. Conviene
+confirmarlo en el primer despliegue al VPS con `curl -i http://127.0.0.1:8080/readyz`.
 
 ## Paso 1 — qué se entregó
 

@@ -1,7 +1,8 @@
 # FIMNME — unidad de systemd del servidor web (fimnme-web).
 # Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
 #
-# Instalación: la copia deploy/instalar_vps.sh en /etc/systemd/system/.
+# Instalación: la copian deploy/instalar_vps.sh y deploy/actualizar_vps.sh en
+# /etc/systemd/system/.
 # Consulta de logs:  journalctl -u fimnme-web -f
 
 [Unit]
@@ -15,6 +16,11 @@ Type=simple
 User=fimnme
 Group=fimnme
 
+# Directorio de datos. Se fija aquí para que el servicio funcione aunque el
+# archivo de configuración no lo mencione; ese archivo puede sobrescribirlo.
+Environment=FIMNME_DATOS=/var/lib/fimnme
+WorkingDirectory=/var/lib/fimnme
+
 # Configuración (IP, puerto, entorno). El guion inicial "-" permite arrancar
 # con los valores por omisión si el archivo no existe.
 EnvironmentFile=-/etc/fimnme/fimnme-web.env
@@ -26,8 +32,9 @@ RestartSec=3
 # Margen para terminar las peticiones en curso (el binario espera hasta 15 s).
 TimeoutStopSec=20
 
-# Directorio de datos: /var/lib/fimnme, creado por systemd con dueño fimnme.
-# Aquí vivirán la base SQLite y el acervo de archivos.
+# Directorio de datos: /var/lib/fimnme, con dueño fimnme. Contiene la base
+# SQLite (fimnme.db y sus archivos -wal y -shm) y, más adelante, el acervo de
+# archivos. Es lo único del sistema de archivos que el servicio puede escribir.
 StateDirectory=fimnme
 StateDirectoryMode=0750
 

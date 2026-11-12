@@ -5,8 +5,6 @@
 package models
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"testing"
 )
@@ -126,19 +124,5 @@ func TestBasesConRespaldoEnEspanol(t *testing.T) {
 	}
 	if c.Titulo(IdiomaEN) != "Título" {
 		t.Fatalf("el título debe respaldarse en español")
-	}
-}
-
-// Una convocatoria en borrador no debe distinguirse de una inexistente.
-func TestFuenteDemoOcultaBorradores(t *testing.T) {
-	f := NuevaFuenteDemo()
-	f.convocatorias[0].Estado = EstadoBorrador
-	_, err := f.ConvocatoriaPublica(context.Background(), 49, TipoInterpretes)
-	if !errors.Is(err, ErrNoEncontrado) {
-		t.Fatalf("se esperaba ErrNoEncontrado, se obtuvo %v", err)
-	}
-	visibles, _ := f.ConvocatoriasPublicas(context.Background())
-	if len(visibles) != 1 {
-		t.Fatalf("se esperaba una convocatoria visible, hubo %d", len(visibles))
 	}
 }

@@ -132,7 +132,7 @@ func (a *App) pintar(w http.ResponseWriter, r *http.Request, estado int, plantil
 
 // inicio muestra la portada con las convocatorias vigentes.
 func (a *App) inicio(w http.ResponseWriter, r *http.Request) {
-	convocatorias, err := a.catalogo.ConvocatoriasPublicas(r.Context())
+	convocatorias, err := a.datos.ConvocatoriasPublicas(r.Context())
 	if err != nil {
 		a.log.Error("no se pudieron leer las convocatorias", "error", err)
 		a.errorPagina(w, r, http.StatusInternalServerError)
@@ -157,7 +157,7 @@ func (a *App) convocatoria(w http.ResponseWriter, r *http.Request) {
 		a.errorPagina(w, r, http.StatusNotFound)
 		return
 	}
-	c, err := a.catalogo.ConvocatoriaPublica(r.Context(), numero, tipo)
+	c, err := a.datos.ConvocatoriaPublica(r.Context(), numero, tipo)
 	switch {
 	case errors.Is(err, models.ErrNoEncontrado):
 		a.errorPagina(w, r, http.StatusNotFound)

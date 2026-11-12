@@ -2,10 +2,10 @@
 # Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
 #
 # Uso habitual:
-#   make dev                      servidor local en http://127.0.0.1:8080
+#   make dev                      servidor local en http://127.0.0.1:8080 (base en ./data)
 #   make verificar                formato + go vet + pruebas
-#   make build                    binario estático para Debian 13 en bin/
-#   make deploy VPS=usuario@host  compila, sube el binario y reinicia el servicio
+#   make build                    binarios estáticos para Debian 13 en bin/
+#   make deploy VPS=usuario@host  compila, sube los binarios, migra la base y reinicia
 #
 # La compilación se hace en la máquina del desarrollador (Linux, macOS o
 # Windows con make): Go compila de forma cruzada, por eso el VPS no necesita
@@ -31,15 +31,18 @@ BANDERAS := -trimpath -buildvcs=false -ldflags '-s -w -buildid= -X main.version=
 VPS  ?=
 SUDO ?= sudo
 
-.PHONY: build dev test verificar formato limpiar deploy instalar-vps
+.PHONY: build dev test verificar formato limpiar reiniciar-datos deploy instalar-vps
 
-## build: compila fimnme-web como ELF estático, sin CGO.
+## build: compila fimnme-web y fimnme-cli como ELF estáticos, sin CGO.
 build:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build $(BANDERAS) -o $(BIN)/fimnme-web ./cmd/fimnme-web
-	@sha256sum $(BIN)/fimnme-web 2>/dev/null || shasum -a 256 $(BIN)/fimnme-web
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build $(BANDERAS) -o $(BIN)/fimnme-cli ./cmd/fimnme-cli
+	@sha256sum $(BIN)/fimnme-web $(BIN)/fimnme-cli 2>/dev/null || shasum -a 256 $(BIN)/fimnme-web $(BIN)/fimnme-cli
 
-## dev: arranca el servidor en esta máquina, en modo desarrollo.
+## dev: prepara la base local (./data) y arranca el servidor en modo desarrollo.
 dev:
+	$(GO) run ./cmd/fimnme-cli migrate
+	$(GO) run ./cmd/fimnme-cli sembrar-demo
 	$(GO) run ./cmd/fimnme-web --entorno desarrollo
 
 ## test: ejecuta las pruebas con cobertura.
@@ -56,23 +59,23 @@ verificar:
 	$(GO) vet ./...
 	$(GO) test ./...
 
-## limpiar: borra los binarios compilados.
+## limpiar: borra los binarios compilados (no toca la base local).
 limpiar:
 	rm -rf $(BIN)
 
-## instalar-vps: preparación INICIAL del VPS (usuario, directorios, servicio). Una sola vez.
+## reiniciar-datos: BORRA la base local de desarrollo (./data) para empezar de cero.
+reiniciar-datos:
+	rm -rf data
+
+## instalar-vps: preparación INICIAL del VPS (usuario, directorios, configuración). Una sola vez.
 instalar-vps:
 	@test -n "$(VPS)" || (echo "Falta el destino. Ejemplo: make instalar-vps VPS=usuario@host"; exit 1)
 	scp deploy/instalar_vps.sh deploy/fimnme-web.service deploy/fimnme-web.env.ejemplo $(VPS):/tmp/
 	ssh -t $(VPS) '$(SUDO) sh /tmp/instalar_vps.sh'
 
-## deploy: compila, sube el binario al VPS y reinicia el servicio.
+## deploy: compila, sube los binarios al VPS, migra la base y reinicia el servicio.
 deploy: build
 	@test -n "$(VPS)" || (echo "Falta el destino. Ejemplo: make deploy VPS=usuario@host"; exit 1)
-	scp $(BIN)/fimnme-web $(VPS):/tmp/fimnme-web.nuevo
-	ssh -t $(VPS) '$(SUDO) install -o root -g root -m 0755 /tmp/fimnme-web.nuevo /opt/fimnme/bin/fimnme-web \
-		&& rm -f /tmp/fimnme-web.nuevo \
-		&& $(SUDO) systemctl restart fimnme-web \
-		&& sleep 1 \
-		&& systemctl is-active fimnme-web \
-		&& /opt/fimnme/bin/fimnme-web --version'
+	ssh $(VPS) 'rm -rf /tmp/fimnme-despliegue && mkdir -m 0700 /tmp/fimnme-despliegue'
+	scp $(BIN)/fimnme-web $(BIN)/fimnme-cli deploy/fimnme-web.service deploy/actualizar_vps.sh $(VPS):/tmp/fimnme-despliegue/
+	ssh -t $(VPS) '$(SUDO) sh /tmp/fimnme-despliegue/actualizar_vps.sh'

@@ -13,14 +13,14 @@ import (
 
 // Pantallas de cuenta: registro, inicio de sesión y recuperación de contraseña.
 //
-// ESTADO ACTUAL (paso 1 del plan): los formularios validan con las reglas de
-// models/rules.go y devuelven los errores campo por campo, pero todavía NO
-// crean cuentas ni sesiones, porque la persistencia no existe. Tras una
-// validación correcta responden 501 con un aviso explícito, para que nadie
-// crea que quedó registrado. La conexión real llega en el paso de
-// autenticación (docs/PLAN_DE_DESARROLLO.md).
+// ESTADO ACTUAL: los formularios validan con las reglas de models/rules.go y
+// devuelven los errores campo por campo, pero todavía NO crean cuentas ni
+// sesiones. Tras una validación correcta responden 501 con un aviso explícito,
+// para que nadie crea que quedó registrado. La conexión real llega en el paso
+// 3 del plan, «Cuentas, sesiones y control de acceso»
+// (docs/PLAN_DE_DESARROLLO.md).
 
-// avisoPendiente es el mensaje que se muestra mientras no hay backend.
+// avisoPendiente es el mensaje que se muestra mientras no hay cuentas.
 var avisoPendiente = &views.Aviso{Tipo: "info", Clave: "cuenta.pendiente"}
 
 // responderFormulario repinta un formulario tras recibirlo: con los errores

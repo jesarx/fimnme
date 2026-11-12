@@ -132,6 +132,15 @@ func (c Convocatoria) Etapa(clave ClaveEtapa) (Etapa, bool) {
 	return Etapa{}, false
 }
 
+// Actor identifica a quien ejecuta una operación con efectos, para dejarla
+// asentada en la bitácora de auditoría (RF-AUD-02).
+type Actor struct {
+	UsuarioID int64  // 0 = sin cuenta de usuario (p. ej. fimnme-cli)
+	Perfil    string // perfil con el que actúa: admin_sistema, jurado, cli…
+	IP        string
+	Agente    string // user-agent del navegador, o identificación de fimnme-cli
+}
+
 // DatosRegistro son los datos del autorregistro de un postulante (RF-AUT-01).
 // Sólo se piden correo, nombre, apellidos, contraseña e idioma: los datos
 // artísticos pertenecen a la postulación, no a la cuenta.
