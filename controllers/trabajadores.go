@@ -6,6 +6,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -160,4 +161,112 @@ func (m MailerRegistro) Enviar(_ context.Context, correo models.CorreoSaliente) 
 	}
 	m.Log.Info("correo NO enviado: transporte de desarrollo", atributos...)
 	return fmt.Sprintf("<%d.sin-enviar@fimnme.invalid>", correo.ID), nil
+}
+
+// --- Avance de etapa por calendario (§3) --------------------------------------
+
+// Calendario es lo que el trabajador de etapas necesita de la persistencia.
+type Calendario interface {
+	ConvocatoriasEnCurso(ctx context.Context) ([]int64, error)
+	ConfiguracionDeConvocatoria(ctx context.Context, convocatoriaID int64) (models.ConfiguracionConvocatoria, error)
+	CambiarEstadoConvocatoria(ctx context.Context, actor models.Actor, convocatoriaID int64,
+		destino models.EstadoConvocatoria, motivo string, automatico bool) (models.EstadoConvocatoria, error)
+}
+
+// Ritmo del trabajador de etapas.
+const (
+	intervaloEtapas = 30 * time.Second // cada cuánto se revisa el calendario
+	esperaAvisos    = time.Hour        // un avance bloqueado se avisa una vez por hora
+)
+
+// TrabajadorEtapas hace avanzar las convocatorias de etapa cuando llega su
+// fecha («el sistema avanza de etapa automáticamente por fecha»). Pasa por
+// las MISMAS reglas que el cambio forzado por el administrador: si a la fecha
+// de cierre de la postulación no hay un revisor asignado, la convocatoria no
+// avanza, y se deja un aviso en el log hasta que se corrija.
+type TrabajadorEtapas struct {
+	Datos Calendario
+	Log   *slog.Logger
+	// Ahora es el reloj; nil usa el del sistema.
+	Ahora func() time.Time
+	// avisado recuerda cuándo se avisó por última vez de cada bloqueo, para
+	// no llenar el log con el mismo mensaje cada 30 segundos.
+	avisado map[int64]time.Time
+}
+
+func (t *TrabajadorEtapas) reloj() time.Time {
+	if t.Ahora != nil {
+		return t.Ahora()
+	}
+	return time.Now()
+}
+
+// Ejecutar revisa el calendario hasta que se cancele el contexto.
+func (t *TrabajadorEtapas) Ejecutar(ctx context.Context) {
+	t.Procesar(ctx) // al arrancar: puede haber vencido una fecha con el servicio detenido
+	reloj := time.NewTicker(intervaloEtapas)
+	defer reloj.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-reloj.C:
+			t.Procesar(ctx)
+		}
+	}
+}
+
+// Procesar avanza cada convocatoria en curso tantas etapas como su calendario
+// indique y sus reglas permitan. Devuelve cuántos cambios de etapa hizo.
+func (t *TrabajadorEtapas) Procesar(ctx context.Context) int {
+	ids, err := t.Datos.ConvocatoriasEnCurso(ctx)
+	if err != nil {
+		t.Log.Error("leer convocatorias en curso", "error", err)
+		return 0
+	}
+	cambios := 0
+	for _, id := range ids {
+		// De una en una, por si el servicio estuvo detenido y hay varias
+		// fechas vencidas. El ciclo de vida tiene siete estados: no hay más
+		// de seis avances posibles.
+		for paso := 0; paso < 6; paso++ {
+			cfg, err := t.Datos.ConfiguracionDeConvocatoria(ctx, id)
+			if err != nil {
+				t.Log.Error("leer configuración de la convocatoria", "convocatoria", id, "error", err)
+				break
+			}
+			destino, toca := models.ProximoEstadoAutomatico(cfg.Convocatoria, t.reloj())
+			if !toca {
+				break
+			}
+			anterior, err := t.Datos.CambiarEstadoConvocatoria(ctx, models.Actor{Perfil: models.ActorSistema}, id, destino, "", true)
+			if err != nil {
+				t.avisarBloqueo(id, destino, err)
+				break
+			}
+			cambios++
+			delete(t.avisado, id)
+			t.Log.Info("la convocatoria avanzó de etapa por calendario", "convocatoria", id, "de", anterior, "a", destino)
+		}
+	}
+	return cambios
+}
+
+// avisarBloqueo deja constancia de que una convocatoria debió avanzar y no
+// pudo, como mucho una vez por hora.
+func (t *TrabajadorEtapas) avisarBloqueo(id int64, destino models.EstadoConvocatoria, causa error) {
+	var regla *models.ErrorValidacion
+	if !errors.As(causa, &regla) {
+		t.Log.Error("cambiar de etapa por calendario", "convocatoria", id, "a", destino, "error", causa)
+		return
+	}
+	if t.avisado == nil {
+		t.avisado = make(map[int64]time.Time)
+	}
+	if ultimo, ok := t.avisado[id]; ok && t.reloj().Sub(ultimo) < esperaAvisos {
+		return
+	}
+	t.avisado[id] = t.reloj()
+	t.Log.Warn("la convocatoria debió avanzar de etapa por calendario y NO pudo: falta cumplir una regla",
+		"convocatoria", id, "a", destino, "motivo", causa.Error())
 }

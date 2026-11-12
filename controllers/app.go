@@ -68,6 +68,31 @@ type Datos interface {
 
 	// Bitácora.
 	ConsultarAuditoria(ctx context.Context, filtro models.FiltroAuditoria) ([]models.AsientoAuditoria, int, error)
+
+	// Configuración de ediciones y convocatorias.
+	ListarEdiciones(ctx context.Context) ([]models.Edicion, error)
+	EdicionPorID(ctx context.Context, id int64) (models.Edicion, error)
+	CrearEdicion(ctx context.Context, actor models.Actor, e models.Edicion) (int64, error)
+	ActualizarEdicion(ctx context.Context, actor models.Actor, e models.Edicion) error
+	ConvocatoriasDeEdicion(ctx context.Context, edicionID int64) ([]models.Convocatoria, error)
+	ConvocatoriasEnCurso(ctx context.Context) ([]int64, error)
+	ConfiguracionDeConvocatoria(ctx context.Context, convocatoriaID int64) (models.ConfiguracionConvocatoria, error)
+	CrearConvocatoriaConfigurada(ctx context.Context, actor models.Actor, c models.Convocatoria,
+		requisitos []models.RequisitoDocumental, criterios []models.CriterioEvaluacion) (int64, error)
+	ActualizarConvocatoria(ctx context.Context, actor models.Actor, c models.Convocatoria) error
+	DefinirEtapas(ctx context.Context, actor models.Actor, convocatoriaID int64, etapas []models.Etapa) error
+	CambiarEstadoConvocatoria(ctx context.Context, actor models.Actor, convocatoriaID int64,
+		destino models.EstadoConvocatoria, motivo string, automatico bool) (models.EstadoConvocatoria, error)
+	DuplicarConvocatoria(ctx context.Context, actor models.Actor, origenID, edicionID int64) (int64, error)
+	GuardarDotacion(ctx context.Context, actor models.Actor, d models.Dotacion) (id, convocatoriaID int64, err error)
+	GuardarRequisito(ctx context.Context, actor models.Actor, rq models.RequisitoDocumental) (id, convocatoriaID int64, err error)
+	BorrarRequisito(ctx context.Context, actor models.Actor, id int64) error
+	GuardarCriterio(ctx context.Context, actor models.Actor, c models.CriterioEvaluacion) (id, convocatoriaID int64, err error)
+	BorrarCriterio(ctx context.Context, actor models.Actor, id int64) error
+	Asignar(ctx context.Context, actor models.Actor, convocatoriaID, usuarioID int64, perfil models.Perfil) (int64, error)
+	RetirarAsignacion(ctx context.Context, actor models.Actor, id int64) (int64, error)
+	UsuarioPorID(ctx context.Context, id int64) (models.CuentaAdmin, error)
+	BuscarUsuarios(ctx context.Context, texto string, pagina, tamano int) ([]models.CuentaAdmin, int, error)
 }
 
 // Config son las dependencias y ajustes de la aplicación.
@@ -156,6 +181,32 @@ func (a *App) Manejador() http.Handler {
 	// API REST: responde JSON.
 	mux.HandleFunc("GET /api/v1/sesion", a.conSesion(a.apiSesion))
 	mux.HandleFunc("GET /api/v1/auditoria", a.conSesion(a.apiAuditoria))
+
+	// API de configuración (RF-CONV): leen administrador y observador;
+	// escribe sólo el administrador.
+	mux.HandleFunc("GET /api/v1/ediciones", a.supervisa(a.apiEdiciones))
+	mux.HandleFunc("POST /api/v1/ediciones", a.administra(a.apiCrearEdicion))
+	mux.HandleFunc("GET /api/v1/ediciones/{id}", a.supervisa(a.apiEdicion))
+	mux.HandleFunc("PUT /api/v1/ediciones/{id}", a.administra(a.apiActualizarEdicion))
+	mux.HandleFunc("POST /api/v1/ediciones/{id}/convocatorias", a.administra(a.apiCrearConvocatoria))
+	mux.HandleFunc("GET /api/v1/convocatorias/{id}", a.supervisa(a.apiConvocatoria))
+	mux.HandleFunc("PUT /api/v1/convocatorias/{id}", a.administra(a.apiActualizarConvocatoria))
+	mux.HandleFunc("PUT /api/v1/convocatorias/{id}/etapas", a.administra(a.apiDefinirEtapas))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/estado", a.administra(a.apiCambiarEstado))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/duplicar", a.administra(a.apiDuplicarConvocatoria))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/dotaciones", a.administra(a.apiCrearDotacion))
+	mux.HandleFunc("PUT /api/v1/dotaciones/{id}", a.administra(a.apiActualizarDotacion))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/requisitos", a.administra(a.apiCrearRequisito))
+	mux.HandleFunc("PUT /api/v1/requisitos/{id}", a.administra(a.apiActualizarRequisito))
+	mux.HandleFunc("DELETE /api/v1/requisitos/{id}", a.administra(a.apiBorrarRequisito))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/criterios", a.administra(a.apiCrearCriterio))
+	mux.HandleFunc("PUT /api/v1/criterios/{id}", a.administra(a.apiActualizarCriterio))
+	mux.HandleFunc("DELETE /api/v1/criterios/{id}", a.administra(a.apiBorrarCriterio))
+	mux.HandleFunc("POST /api/v1/convocatorias/{id}/asignaciones", a.administra(a.apiAsignar))
+	mux.HandleFunc("DELETE /api/v1/asignaciones/{id}", a.administra(a.apiRetirarAsignacion))
+	mux.HandleFunc("GET /api/v1/usuarios", a.administra(a.apiUsuarios))
+	mux.HandleFunc("POST /api/v1/usuarios", a.administra(a.apiCrearUsuario))
+	mux.HandleFunc("POST /api/v1/usuarios/{id}/activacion", a.administra(a.apiReenviarActivacion))
 
 	// Estáticos incrustados y sondas de vida para el proxy y systemd.
 	mux.Handle("GET /static/", a.vistas.Estaticos())

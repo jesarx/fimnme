@@ -87,8 +87,38 @@ func sembrarDemo(ctx context.Context, repositorio *models.Repositorio) error {
 		},
 	}
 	for _, c := range convocatorias {
-		if _, err := repositorio.CrearConvocatoria(ctx, actor, c); err != nil {
+		// Con los requisitos documentales y los criterios iniciales de su tipo.
+		id, err := repositorio.CrearConvocatoriaConfigurada(ctx, actor, c,
+			models.RequisitosIniciales(c.Tipo), models.CriteriosIniciales())
+		if err != nil {
 			return err
+		}
+		if c.Tipo != models.TipoCompositores {
+			continue
+		}
+		// Catálogo de dotaciones de ejemplo. En la segunda, la excepción
+		// típica: una obra electroacústica no lleva particellas.
+		for orden, d := range []models.Dotacion{
+			{NombreES: "Cuarteto de cuerdas", NombreEN: "String quartet"},
+			{NombreES: "Obra electroacústica", NombreEN: "Electroacoustic work"},
+			{NombreES: "Ensamble mixto (hasta 8 intérpretes)", NombreEN: "Mixed ensemble (up to 8 performers)"},
+		} {
+			d.ConvocatoriaID, d.Orden, d.Activa = id, orden+1, true
+			dotacionID, _, err := repositorio.GuardarDotacion(ctx, actor, d)
+			if err != nil {
+				return err
+			}
+			if orden != 1 {
+				continue
+			}
+			for _, rq := range models.RequisitosIniciales(c.Tipo) {
+				if rq.Clave == "particellas" {
+					rq.ConvocatoriaID, rq.DotacionID, rq.Obligatorio = id, dotacionID, false
+					if _, _, err := repositorio.GuardarRequisito(ctx, actor, rq); err != nil {
+						return err
+					}
+				}
+			}
 		}
 	}
 	fmt.Printf("Edición de demostración creada: %s, con %d convocatorias.\n", edicion.NombreES, len(convocatorias))

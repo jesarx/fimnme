@@ -56,6 +56,18 @@ func TestMigrarYSembrarDemo(t *testing.T) {
 	if err != nil || compositores.MaxObras != 2 {
 		t.Errorf("Compositores debe limitar a 2 obras: %+v (%v)", compositores.MaxObras, err)
 	}
+	// La demostración trae la configuración inicial: requisitos, criterios y un
+	// catálogo de dotaciones con su excepción (la electroacústica, sin particellas).
+	cfg, err := repo.ConfiguracionDeConvocatoria(ctx, compositores.ID)
+	if err != nil || len(cfg.Dotaciones) != 3 || len(cfg.Requisitos) != 5 || len(cfg.Criterios) != 2 {
+		t.Fatalf("configuración de demostración incompleta: %d dotaciones, %d requisitos, %d criterios (%v)",
+			len(cfg.Dotaciones), len(cfg.Requisitos), len(cfg.Criterios), err)
+	}
+	for _, rq := range models.RequisitosAplicables(cfg.Requisitos, cfg.Dotaciones[1].ID) {
+		if rq.Clave == "particellas" && rq.Obligatorio {
+			t.Error("en la obra electroacústica las particellas no deben ser obligatorias")
+		}
+	}
 }
 
 // La identificación del actor lleva el usuario del sistema (RF-CLI-09).

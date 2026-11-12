@@ -58,7 +58,12 @@ func contar(t *testing.T, r *Repositorio, consulta string, args ...any) int {
 // convocatoriaDePrueba arma una convocatoria con su calendario completo.
 func convocatoriaDePrueba(edicionID int64, tipo TipoConvocatoria, estado EstadoConvocatoria) Convocatoria {
 	dia := func(mes time.Month, d int) time.Time { return time.Date(2027, mes, d, 6, 0, 0, 0, time.UTC) }
+	maxObras := 0 // Intérpretes: sin límite
+	if tipo == TipoCompositores {
+		maxObras = MaxObrasCompositores
+	}
 	return Convocatoria{
+		MaxObras:  maxObras,
 		Edicion:   Edicion{ID: edicionID},
 		Tipo:      tipo,
 		TituloES:  "Convocatoria de " + string(tipo),
@@ -232,9 +237,16 @@ func TestElGrupoDeLecturaNoEscribe(t *testing.T) {
 
 func TestLlavesForaneasActivas(t *testing.T) {
 	r := repoDePrueba(t)
-	c := convocatoriaDePrueba(999, TipoInterpretes, EstadoPublicada) // edición inexistente
-	if _, err := r.CrearConvocatoria(context.Background(), actorPrueba, c); err == nil {
-		t.Fatal("se aceptó una convocatoria de una edición que no existe")
+	// Directo a la base, sin pasar por las reglas: la rechaza la propia llave foránea.
+	_, err := r.escritura.Exec(`INSERT INTO convocatoria (edicion_id, tipo, titulo_es, titulo_en, creado_at, actualizado_at)
+		VALUES (999, 'interpretes', 'a', 'b', 'x', 'x')`)
+	if err == nil || !strings.Contains(err.Error(), "FOREIGN KEY") {
+		t.Fatalf("la base aceptó una convocatoria de una edición que no existe: %v", err)
+	}
+	// Y el repositorio lo informa como «no encontrado», antes de llegar a la base.
+	c := convocatoriaDePrueba(999, TipoInterpretes, EstadoPublicada)
+	if _, err := r.CrearConvocatoria(context.Background(), actorPrueba, c); !errors.Is(err, ErrNoEncontrado) {
+		t.Fatalf("se esperaba ErrNoEncontrado, se obtuvo %v", err)
 	}
 }
 
@@ -300,7 +312,6 @@ func TestConvocatoriasPublicas(t *testing.T) {
 		t.Fatal(err)
 	}
 	compositores := convocatoriaDePrueba(ed49, TipoCompositores, EstadoBorrador)
-	compositores.MaxObras = 2
 	for _, c := range []Convocatoria{
 		convocatoriaDePrueba(ed48, TipoInterpretes, EstadoArchivada),
 		convocatoriaDePrueba(ed49, TipoInterpretes, EstadoPostulacion),

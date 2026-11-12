@@ -17,25 +17,26 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 3 de 14: cuentas, sesiones y control de acceso.** Hoy el sistema tiene:
+**Paso 4 de 14: configuración de ediciones y convocatorias.** Hoy el sistema tiene:
 
-- **Cuentas:** registro, verificación de correo, ingreso, recuperación de contraseña,
-  activación de cuentas internas y «Mi cuenta» (datos, contraseña, correo).
-- **Seguridad:** contraseñas con Argon2id, sesiones por cookie con expiración por
-  inactividad, bloqueo por intentos fallidos y límite de intentos por IP.
-- **Control de acceso:** perfiles globales y asignaciones por convocatoria, comprobados
-  en cada petición.
+- **Configuración por API** (para el administrador): ediciones, convocatorias con sus
+  bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios
+  de evaluación, cuentas internas y asignación de jurados y revisores.
+- **Ciclo de etapas:** cambio forzado por el administrador y avance automático por
+  calendario, ambos sujetos a las mismas reglas (un revisor al menos para pasar a
+  revisión documental; exactamente tres jurados para pasar a evaluación).
+- **Cuentas:** registro, verificación de correo, ingreso, recuperación, activación y
+  «Mi cuenta», con Argon2id, sesiones, bloqueo por intentos y control de acceso.
 - **Bitácora de auditoría** consultable por la API, y bandeja de correo saliente.
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
+> **La configuración aún no tiene pantallas.** Se hace por la API (`curl` o cualquier
+> cliente HTTP); el panel de administración llega en el paso 13.
+>
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
-> enlace de verificación o de recuperación; véase «Correos en desarrollo» más abajo.
->
-> **Aún no hay panel de administración** (paso 4). La edición que se ve en desarrollo se
-> carga con `fimnme-cli sembrar-demo` y es **de demostración**; el primer administrador
-> se crea con `fimnme-cli crear-usuario`.
+> enlace de verificación, recuperación o activación; véase «Correos en desarrollo».
 
 ## Requisitos
 
@@ -106,7 +107,57 @@ curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/auditoria?accion=sesion.ingres
 | `GET /api/v1/sesion` | Cualquier cuenta | La cuenta en sesión, sus perfiles globales y sus asignaciones por convocatoria |
 | `GET /api/v1/auditoria` | `admin_sistema`, `coordinacion_nacional` | La bitácora, paginada. Filtros: `accion`, `entidad`, `entidad_id`, `actor_id`, `desde`, `hasta` (día `AAAA-MM-DD` en hora de México, o instante ISO-8601), `pagina`, `tamano`. Con `formato=csv` descarga el resultado completo |
 
+### API de configuración
+
+Lee `admin_sistema` y `coordinacion_nacional`; **escribe sólo `admin_sistema`**. Los
+cuerpos son JSON y las fechas van en ISO-8601 con desfase (`2027-01-29T23:59:00-06:00`);
+se guardan en UTC. Toda respuesta de una convocatoria trae su configuración completa y,
+en `siguiente`, **qué le falta para pasar a la etapa que sigue**.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/ediciones` | Lista las ediciones con el resumen de sus convocatorias |
+| `POST /api/v1/ediciones` | Crea una edición: `numero`, `anio`, `nombre_es`, `nombre_en` |
+| `GET` · `PUT /api/v1/ediciones/{id}` | Consulta o edita una edición |
+| `POST /api/v1/ediciones/{id}/convocatorias` | Crea una convocatoria en borrador: `tipo` (`interpretes` o `compositores`), `titulo_es`, `titulo_en`, `bases_md_es`, `bases_md_en`, `max_obras`, `duracion_max_programa_min`, `max_videos`, `etapas`. Nace con los requisitos y criterios iniciales de su tipo |
+| `GET` · `PUT /api/v1/convocatorias/{id}` | Consulta la configuración completa, o edita textos y límites |
+| `PUT /api/v1/convocatorias/{id}/etapas` | Sustituye el calendario: `etapas` con `clave` (`postulacion`, `revision_documental`, `evaluacion`), `inicia_at` y `termina_at` |
+| `POST /api/v1/convocatorias/{id}/estado` | Cambia de etapa: `estado` y, para retroceder, `motivo`. Sólo al estado inmediato anterior o siguiente |
+| `POST /api/v1/convocatorias/{id}/duplicar` | Copia la configuración a otra edición: `edicion_id` |
+| `POST /api/v1/convocatorias/{id}/dotaciones` · `PUT /api/v1/dotaciones/{id}` | Crea o edita una dotación (sólo Compositores). Para retirarla: `"activa": false` |
+| `POST /api/v1/convocatorias/{id}/requisitos` · `PUT` · `DELETE /api/v1/requisitos/{id}` | Requisitos documentales: `dotacion_id` (0 = regla general), `clave`, `etiqueta_es`, `ambito` (`postulacion` u `obra`), `obligatorio`, `mimes_permitidos`, `tamano_max_bytes`, `max_archivos`. Borrar, sólo en borrador |
+| `POST /api/v1/convocatorias/{id}/criterios` · `PUT` · `DELETE /api/v1/criterios/{id}` | Criterios de evaluación: `clave`, `etiqueta_es`, `escala_min`, `escala_max`, `obligatorio` |
+| `POST /api/v1/convocatorias/{id}/asignaciones` · `DELETE /api/v1/asignaciones/{id}` | Asigna (`usuario_id`, `perfil`: `jurado` o `revisor_documental`) o retira |
+| `GET /api/v1/usuarios?q=` | Busca cuentas por correo, nombre o apellidos |
+| `POST /api/v1/usuarios` | Crea una cuenta interna: `email`, `nombre`, `apellidos`, `idioma`, `perfil_global` (vacío para un jurado o revisor; `coordinacion_nacional` o `admin_sistema`). Se le envía su enlace de activación |
+| `POST /api/v1/usuarios/{id}/activacion` | Reenvía el enlace de activación |
+
+Ejemplo: crear una edición, su convocatoria de Intérpretes, fijarle el calendario y
+publicarla (con la sesión de administrador en `cookies.txt`, como arriba):
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"numero":49,"anio":2027,"nombre_es":"Edición 49 · 2027"}' http://127.0.0.1:8080/api/v1/ediciones
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"tipo":"interpretes","titulo_es":"Convocatoria de Intérpretes","bases_md_es":"# Bases\n\nTexto de las bases."}' http://127.0.0.1:8080/api/v1/ediciones/1/convocatorias
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"etapas":[{"clave":"postulacion","inicia_at":"2026-12-01T00:00:00-06:00","termina_at":"2027-01-29T23:59:00-06:00"},{"clave":"revision_documental","inicia_at":"2027-02-01T00:00:00-06:00","termina_at":"2027-02-26T23:59:00-06:00"},{"clave":"evaluacion","inicia_at":"2027-03-01T00:00:00-06:00","termina_at":"2027-03-31T23:59:00-06:00"}]}' http://127.0.0.1:8080/api/v1/convocatorias/1/etapas
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"estado":"publicada"}' http://127.0.0.1:8080/api/v1/convocatorias/1/estado
+```
+
+A partir de ahí la convocatoria **avanza sola** al llegar cada fecha, siempre que cumpla
+las reglas; si no, se queda donde está y el log lo avisa. Las reglas de cada transición
+están en el [ADR 0005](docs/adr/0005-configuracion-de-convocatorias.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
+Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
+`campos`, que dice qué corregir en cada uno.
 
 Las plantillas, la hoja de estilo y las traducciones van **incrustadas en el binario**
 (`//go:embed`), así que tras editar cualquiera de ellas hay que reiniciar `make dev`.
@@ -138,14 +189,16 @@ controllers/        CONTROLADOR
   sesion.go           sesiones, control de acceso y límite de intentos
   paginas.go          páginas públicas
   cuenta.go           registro, ingreso, recuperación, activación, «Mi cuenta»
-  api.go              API REST /api/v1 (JSON)
-  trabajadores.go     envío del correo saliente y limpieza de sesiones
+  api.go              API REST /api/v1: sesión y bitácora
+  configuracion.go    API de configuración de ediciones y convocatorias
+  trabajadores.go     correo saliente, limpieza de sesiones y avance de etapa
 views/              VISTA (todo incrustado con //go:embed)
   views.go            motor de plantillas
   i18n.go             traducciones y formato de fechas
   markdown.go         intérprete mínimo de Markdown para las bases
   correo.go           armado de los correos a partir de sus plantillas
   datos.go            respuestas JSON y CSV de la API
+  configuracion.go    respuestas JSON de la configuración
   templates/          html/template
   static/             CSS propio, htmx, iconos
   i18n/               es.json, en.json
@@ -166,6 +219,8 @@ Reglas que el código hace cumplir con pruebas:
 - **Ningún GET modifica estado**: todo cambio es un `POST`, protegido contra CSRF.
 - **Secretos sólo como resumen**: contraseñas, enlaces de un solo uso y sesiones nunca
   se guardan en claro.
+- **Las reglas se aplican en la misma transacción que la escritura**: ninguna puede
+  burlarse con dos peticiones simultáneas.
 
 ### Base de datos y migraciones
 

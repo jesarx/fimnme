@@ -31,13 +31,13 @@ procesos— y sólo después las pantallas de cada perfil.
 | 1 | **Cimientos y páginas públicas.** Estructura MVC, servidor `fimnme-web`, frontal incrustado, CSS propio, i18n es/en, cabeceras de seguridad y CSRF, portada, detalle de convocatoria, pantallas de cuenta (sin conectar), README y despliegue en VPS. | ✅ Hecho |
 | 2 | **Persistencia base.** SQLite sin CGO con los PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3; `models/repository.go`; bitácora de auditoría de sólo inserción; `fimnme-cli` con `migrate` y `sembrar-demo`; las páginas públicas leen de la base; `/readyz` comprueba la base; despliegue con migración. | ✅ Hecho |
 | 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación, activación de cuentas internas y «Mi cuenta»; Argon2id; sesiones con expiración por perfil; enlaces de un solo uso; bloqueo por intentos y límite por IP; perfiles globales y asignaciones por convocatoria; consulta de la bitácora por API; bandeja de correo saliente con interfaz `Mailer` y su trabajador. | ✅ Hecho |
+| 4 | **Configuración de ediciones y convocatorias.** API para ediciones, convocatorias con bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios, cuentas internas y asignaciones; cambio de etapa forzado y automático por calendario, con las cuotas de 3 jurados y 1+ revisores; duplicación de la configuración a otra edición. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 4 | **Configuración de ediciones y convocatorias.** Ediciones, convocatorias y bases bilingües; calendario y cambio de etapa (automático por fecha y forzado), con las cuotas de 3 jurados y 1+ revisores; dotaciones, requisitos documentales y criterios; alta de cuentas internas con activación; asignación de jurados y revisores; duplicar la configuración del año anterior. | RF-CONV-01 a 09, §3, RN-14 | Pendiente |
-| 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
+| 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. La edición se acepta sólo dentro del plazo de la etapa, aunque la convocatoria no haya avanzado; y quien es jurado o revisor de una convocatoria no puede postular en ella. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
 | 6 | **Documentos, envío y acuse.** `BlobStore` en disco por SHA-256; MIME por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (< 100 KB); recordatorios de borrador. | RF-DOC-01 a 07, RF-POST-10 a 12, §4.1, §5.10, RF-NOT-03 y 04 | Pendiente |
 | 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
@@ -76,14 +76,50 @@ procesos— y sólo después las pantallas de cada perfil.
   el log, de donde se toma el enlace de verificación. En el entorno `produccion` el log
   no muestra el cuerpo, de modo que las cuentas no pueden verificarse ni recuperarse
   hasta que exista el SMTP.
-- **Alta de cuentas internas.** El mecanismo (cuenta sin contraseña + enlace de
-  activación) quedó hecho en el paso 3 y se usa desde `fimnme-cli crear-usuario`. El
-  paso 4 lo expone al administrador desde la web y añade las asignaciones de jurados y
-  revisores.
+- **La configuración se hace por API hasta el paso 13.** No hay pantallas de
+  administración todavía: se usa `curl` o cualquier cliente HTTP (ejemplos en el README).
+- **Imagen de cabecera y PDF de las bases** (RF-CONV-02) quedaron para el paso 6, que
+  trae el almacén de archivos.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 4 — qué se entregó
+
+- **Ediciones y convocatorias** (RF-CONV-01, 02 y 08). Alta y edición por API; bases en
+  Markdown en ambos idiomas, con aviso de lo que falta en inglés; límites de obras, de
+  duración y de ligas de video. Una convocatoria nace en borrador con los requisitos
+  documentales y los criterios iniciales de su tipo.
+- **Calendario y etapas** (RF-CONV-03 y 04, §3). Calendario validado (coherente, sin
+  traslapes). Cambio de etapa forzado, sólo al estado contiguo, con motivo obligatorio al
+  retroceder. Avance automático por fecha cada 30 segundos y al arrancar. Ambos pasan por
+  la misma regla.
+- **Cuotas** (RF-CONV-09, RN-14). Sin revisor no se pasa a revisión documental; sin
+  exactamente tres jurados, ni criterios, no se pasa a evaluación. La API anticipa en
+  `siguiente.bloqueadores` qué falta.
+- **Catálogos** (RF-CONV-06 y 07, RF-EVA-10). Dotaciones; requisitos documentales
+  generales y por dotación, con formatos, tamaño y cantidad máximos; criterios de
+  evaluación con su escala. `RequisitosAplicables` resuelve la regla efectiva por
+  dotación.
+- **Cuentas internas y asignaciones** (RF-AUT-07, RF-NOT-08). Alta con enlace de
+  activación por correo; búsqueda de cuentas; asignar y retirar jurados y revisores.
+- **Duplicar** (RF-CONV-05). Copia textos, límites, dotaciones, requisitos y criterios a
+  otra edición.
+- **Sólo lectura al cerrar** (RF-ARCH-03). Cerrada o archivada, la configuración no se
+  modifica; desarchivar exige motivo.
+- **Bitácora.** Cada cambio de configuración y de etapa queda asentado; los automáticos,
+  a nombre del sistema.
+- **Sin migraciones nuevas**: todo cabía en el esquema de §8.3.
+- **Pruebas.** Una convocatoria armada desde cero y llevada por todo su ciclo por la API,
+  con reloj controlado; reglas de transición caso por caso.
+
+**Lo que este paso NO incluye:**
+
+- **Pantallas de administración**: paso 13. La configuración se hace por API.
+- **Imagen de cabecera y PDF de bases**: paso 6.
+- **Desactivar cuentas y cambiar perfiles globales de cuentas existentes.**
+- **Vista previa de la convocatoria** (RF-CONV-11, prioridad S): va con las pantallas.
 
 ## Paso 3 — qué se entregó
 
@@ -199,3 +235,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 10. **`sesion.id` guarda el resumen del identificador, no un UUID en claro** como dice el
     comentario de §8.3, para que una copia de la base no contenga sesiones utilizables
     (ADR 0004).
+11. **Quien postula en una convocatoria no puede ser su jurado ni su revisor.** La
+    especificación no lo dice; se añadió como regla de integridad (ADR 0005).
+12. **Si a la fecha de cierre falta un revisor, la convocatoria no pasa a revisión
+    documental** y el log lo avisa. La alternativa sería avanzar de todos modos; se
+    prefirió que la regla de la cuota no tenga excepciones.
+13. **Requisitos documentales iniciales** de cada tipo de convocatoria (ADR 0005, §6).

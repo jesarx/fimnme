@@ -166,10 +166,15 @@ func main() {
 
 	// Trabajadores internos: se detienen con la misma señal que el servidor.
 	var trabajadores sync.WaitGroup
-	trabajadores.Add(1)
+	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
+	trabajadores.Add(2)
 	go func() {
 		defer trabajadores.Done()
 		trabajador.Ejecutar(ctx)
+	}()
+	go func() {
+		defer trabajadores.Done()
+		etapas.Ejecutar(ctx)
 	}()
 
 	errServidor := make(chan error, 1)

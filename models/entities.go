@@ -10,6 +10,7 @@ package models
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -105,8 +106,11 @@ type Convocatoria struct {
 	BasesMDEN string // bases en Markdown, inglés
 	Estado    EstadoConvocatoria
 	MaxObras  int // 0 = sin límite (Intérpretes); Compositores: 2
-	MaxVideos int
-	Etapas    []Etapa
+	// DuracionMaxProgramaMin es el límite de duración del programa, en
+	// minutos; 0 = sin límite (decisión de la v1, D-11).
+	DuracionMaxProgramaMin int
+	MaxVideos              int
+	Etapas                 []Etapa
 }
 
 // Titulo devuelve el título en el idioma pedido, con respaldo en español.
@@ -292,7 +296,9 @@ type NuevoUsuario struct {
 	Idioma       string
 	PasswordHash string // resumen Argon2id, o PasswordSinDefinir
 	AvisoVersion string // versión del aviso de privacidad aceptada; "" si no aplica
-	Perfil       Perfil // perfil global inicial
+	// Perfil es el perfil global inicial. Vacío para una cuenta que sólo
+	// tendrá perfiles por convocatoria (jurado o revisor).
+	Perfil Perfil
 }
 
 // ---------------------------------------------------------------------------
@@ -366,4 +372,133 @@ type FiltroAuditoria struct {
 	Hasta     time.Time // exclusive
 	Pagina    int       // desde 1
 	Tamano    int
+}
+
+// ---------------------------------------------------------------------------
+// Configuración de una convocatoria
+// ---------------------------------------------------------------------------
+
+// ErrDuplicado indica que ya existe un registro con la misma identidad (el
+// número de una edición, el tipo de convocatoria dentro de una edición, la
+// clave de un requisito…). Los controladores responden 409.
+var ErrDuplicado = errors.New("ya existe un registro con esos datos")
+
+// ErrorValidacion es el error que devuelve el repositorio cuando una operación
+// viola una regla de negocio. Lleva la lista de problemas, con claves de
+// traducción, para que la respuesta los explique campo por campo (422).
+type ErrorValidacion struct {
+	Errores []ErrorCampo
+}
+
+func (e *ErrorValidacion) Error() string {
+	partes := make([]string, 0, len(e.Errores))
+	for _, c := range e.Errores {
+		partes = append(partes, c.Campo+": "+c.Clave)
+	}
+	return "datos inválidos (" + strings.Join(partes, "; ") + ")"
+}
+
+// Dotacion es una plantilla instrumental del catálogo anual de Compositores.
+type Dotacion struct {
+	ID             int64
+	ConvocatoriaID int64
+	NombreES       string
+	NombreEN       string
+	DescripcionES  string
+	DescripcionEN  string
+	Orden          int
+	Activa         bool
+}
+
+// AmbitoRequisito indica a qué se adjunta un documento.
+type AmbitoRequisito string
+
+const (
+	AmbitoPostulacion AmbitoRequisito = "postulacion" // uno por postulación (fotografía)
+	AmbitoObra        AmbitoRequisito = "obra"        // uno por cada obra (partitura…)
+)
+
+// RequisitoDocumental define un documento que se pide, dónde, y si es
+// obligatorio. DotacionID 0 es la regla general de la convocatoria; mayor que
+// cero, la regla específica de esa dotación, que sobrescribe a la general.
+type RequisitoDocumental struct {
+	ID              int64
+	ConvocatoriaID  int64
+	DotacionID      int64
+	Clave           string // fotografia, partitura, autorizacion, particellas, audio…
+	EtiquetaES      string
+	EtiquetaEN      string
+	AyudaES         string
+	AyudaEN         string
+	Ambito          AmbitoRequisito
+	Obligatorio     bool
+	MimesPermitidos []string
+	TamanoMaxBytes  int64
+	MaxArchivos     int
+	Orden           int
+}
+
+// CriterioEvaluacion es un criterio con el que el jurado califica.
+type CriterioEvaluacion struct {
+	ID             int64
+	ConvocatoriaID int64
+	Clave          string // realizacion, artistico…
+	EtiquetaES     string
+	EtiquetaEN     string
+	DescripcionES  string
+	DescripcionEN  string
+	EscalaMin      int
+	EscalaMax      int
+	Obligatorio    bool
+	Orden          int
+}
+
+// AsignacionDetalle es un jurado o revisor de una convocatoria, con su cuenta.
+type AsignacionDetalle struct {
+	ID             int64
+	ConvocatoriaID int64
+	Perfil         Perfil
+	Activo         bool
+	Usuario        Usuario
+	CuentaActivada bool // la persona ya eligió su contraseña
+}
+
+// ConfiguracionConvocatoria reúne todo lo configurable de una convocatoria.
+// Es lo que las reglas necesitan para decidir si puede cambiar de etapa.
+type ConfiguracionConvocatoria struct {
+	Convocatoria Convocatoria
+	Dotaciones   []Dotacion
+	Requisitos   []RequisitoDocumental
+	Criterios    []CriterioEvaluacion
+	Asignaciones []AsignacionDetalle
+}
+
+// Activos cuenta las asignaciones activas de un perfil.
+func (c ConfiguracionConvocatoria) Activos(perfil Perfil) int {
+	n := 0
+	for _, a := range c.Asignaciones {
+		if a.Activo && a.Perfil == perfil {
+			n++
+		}
+	}
+	return n
+}
+
+// DotacionesActivas cuenta las dotaciones que puede elegir un postulante.
+func (c ConfiguracionConvocatoria) DotacionesActivas() int {
+	n := 0
+	for _, d := range c.Dotaciones {
+		if d.Activa {
+			n++
+		}
+	}
+	return n
+}
+
+// CuentaAdmin es una cuenta tal como la ve el administrador al buscar a quién
+// asignar: con sus perfiles globales y si ya está activada.
+type CuentaAdmin struct {
+	Usuario  Usuario
+	Perfiles []Perfil
+	Activada bool
 }
