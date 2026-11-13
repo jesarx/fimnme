@@ -401,5 +401,12 @@
   "estado.postulacion.en_evaluacion": "En evaluación",
   "estado.postulacion.evaluada": "Evaluada",
   "subsanacion.elemento_de_obra": "%s (obra %d)",
-  "error.texto_requerido": "Este texto es obligatorio."
+  "error.texto_requerido": "Este texto es obligatorio.",
+  "error.fuera_de_evaluacion": "La convocatoria no está en etapa de evaluación.",
+  "error.no_esta_en_evaluacion": "La postulación no está en evaluación.",
+  "error.unidad_inexistente": "Esa obra no es una unidad de evaluación de esta postulación.",
+  "error.criterio_inexistente": "Ese criterio no existe en esta convocatoria.",
+  "error.puntaje_fuera_de_escala": "El puntaje está fuera de la escala del criterio.",
+  "error.puntaje_requerido": "Falta el puntaje de este criterio.",
+  "error.revision_pendiente": "Quedan postulaciones sin validar ni descartar en la revisión documental."
 }

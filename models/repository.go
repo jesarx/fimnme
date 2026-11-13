@@ -843,7 +843,12 @@ func configuracion(ctx context.Context, q consultor, convocatoriaID int64) (Conf
 	if cfg.Criterios, err = leerCriterios(ctx, q, convocatoriaID); err != nil {
 		return cfg, err
 	}
-	cfg.Asignaciones, err = leerAsignaciones(ctx, q, convocatoriaID)
+	if cfg.Asignaciones, err = leerAsignaciones(ctx, q, convocatoriaID); err != nil {
+		return cfg, err
+	}
+	err = q.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM postulacion
+		WHERE convocatoria_id = ? AND estado IN ('enviada', 'en_revision', 'en_subsanacion')`, convocatoriaID).Scan(&cfg.SinDictaminar)
 	return cfg, err
 }
 
@@ -1079,6 +1084,22 @@ func (r *Repositorio) CambiarEstadoConvocatoria(ctx context.Context, actor Actor
 		if _, err := tx.ExecContext(ctx, "UPDATE convocatoria SET estado = ?, actualizado_at = ? WHERE id = ?",
 			string(destino), r.marca(), convocatoriaID); err != nil {
 			return err
+		}
+		// Al empezar la evaluación, las postulaciones validadas quedan a la
+		// vista del jurado (RN-20); si la etapa se retrocede, vuelven a la
+		// revisión. Las descartadas nunca llegan al jurado.
+		paso := [2]EstadoDePostulacion{}
+		switch {
+		case destino == EstadoEvaluacion && anterior == EstadoRevisionDocumental:
+			paso = [2]EstadoDePostulacion{PostulacionValidada, PostulacionEnEvaluacion}
+		case destino == EstadoRevisionDocumental && anterior == EstadoEvaluacion:
+			paso = [2]EstadoDePostulacion{PostulacionEnEvaluacion, PostulacionValidada}
+		}
+		if paso[0] != "" {
+			if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE convocatoria_id = ? AND estado = ?",
+				string(paso[1]), convocatoriaID, string(paso[0])); err != nil {
+				return err
+			}
 		}
 		despues := map[string]any{"estado": destino, "automatico": automatico}
 		if motivo != "" {
@@ -2246,7 +2267,8 @@ func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria)
 
 const sqlPostulacion = `
 SELECT p.id, p.convocatoria_id, p.usuario_id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''),
-       p.estado, p.envios, p.creado_at, p.actualizado_at, COALESCE(p.enviada_at, ''), COALESCE(p.motivo_descarte, '')
+       p.estado, p.envios, p.creado_at, p.actualizado_at, COALESCE(p.enviada_at, ''), COALESCE(p.motivo_descarte, ''),
+       COALESCE(p.dictamen, '')
 FROM postulacion p`
 
 // leerPostulacion vuelca una fila de sqlPostulacion en la entidad, sin lo capturado.
@@ -2254,7 +2276,7 @@ func leerPostulacion(f fila) (Postulacion, error) {
 	var p Postulacion
 	var subcategoria, estado, creado, actualizado, enviada string
 	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado,
-		&enviada, &p.MotivoDescarte)
+		&enviada, &p.MotivoDescarte, &p.DictamenFinal)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Postulacion{}, ErrNoEncontrado
 	}
@@ -4190,4 +4212,408 @@ func (r *Repositorio) DiferenciasDelUltimoEnvio(ctx context.Context, postulacion
 		return nil, err
 	}
 	return DiferenciasDeEnvio(snapshots[1], snapshots[0]), nil
+}
+
+// =============================================================================
+// 13. Evaluación por jurado
+// =============================================================================
+//
+// AISLAMIENTO ENTRE JURADOS (RN-15, §8.4). Un jurado nunca ve los puntajes ni
+// las observaciones de otro, ni la suma, en ninguna etapa. SQLite no tiene
+// seguridad por fila: toda la garantía vive aquí, y por eso es estructural.
+//
+//   - JuradoRepo es TODO lo que un jurado alcanza sobre evaluaciones. Se
+//     construye con el id del jurado y lo aplica en el WHERE de cada consulta.
+//     No tiene ningún método capaz de devolver una evaluación ajena.
+//   - SupervisionRepo es el único lugar con consultas que cruzan jurados (la
+//     matriz y la vista v_resultado). Sólo lo usan los controladores de
+//     supervisión.
+//   - Fuera de estos dos tipos no hay SQL que lea las tablas de evaluación.
+//
+// La prueba TestAislamientoEstructuralDelRepositorio comprueba estas tres
+// cosas leyendo este mismo archivo: si alguien añade mañana una consulta que
+// las rompa, la prueba falla.
+
+// JuradoRepo da acceso a las evaluaciones de UN jurado, y sólo a las suyas.
+type JuradoRepo struct {
+	r        *Repositorio
+	juradoID int64
+}
+
+// ParaJurado devuelve el acceso a las evaluaciones del jurado dado. El
+// controlador debe pasar SIEMPRE el id de la cuenta en sesión.
+func (r *Repositorio) ParaJurado(juradoID int64) JuradoRepo {
+	return JuradoRepo{r: r, juradoID: juradoID}
+}
+
+// sqlUnidades lista las unidades de evaluación de una convocatoria: cada
+// postulación en evaluación (Intérpretes) o cada una de sus obras
+// (Compositores, donde sí hay filas de obra que unir).
+const sqlUnidades = `
+SELECT p.id, COALESCE(o.id, 0), p.folio,
+       COALESCE(ds.nombre_completo, de.nombre_ensamble, dc.nombre_completo, ''),
+       COALESCE(o.titulo, ''), COALESCE(o.orden, 0), p.estado, COALESCE(p.dictamen, '')
+FROM postulacion p
+JOIN convocatoria c ON c.id = p.convocatoria_id
+LEFT JOIN obra o ON o.postulacion_id = p.id AND c.tipo = 'compositores'
+LEFT JOIN datos_solista ds ON ds.postulacion_id = p.id
+LEFT JOIN datos_ensamble de ON de.postulacion_id = p.id
+LEFT JOIN datos_compositor dc ON dc.postulacion_id = p.id
+WHERE p.convocatoria_id = ? AND p.estado IN ('en_evaluacion', 'evaluada')
+ORDER BY p.folio, o.orden`
+
+// leerUnidades ejecuta sqlUnidades. Devuelve además el estado y el dictamen
+// final de la postulación de cada unidad.
+func leerUnidades(ctx context.Context, q consultor, convocatoriaID int64) ([]FilaDeResultado, error) {
+	filas, err := q.QueryContext(ctx, sqlUnidades, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer unidades de evaluación: %w", err)
+	}
+	defer filas.Close()
+	var unidades []FilaDeResultado
+	for filas.Next() {
+		var f FilaDeResultado
+		var estado string
+		u := &f.Unidad
+		if err := filas.Scan(&u.PostulacionID, &u.ObraID, &u.Folio, &u.Nombre, &u.Obra, &u.OrdenDeObra, &estado, &f.DictamenFinal); err != nil {
+			return nil, fmt.Errorf("leer unidades de evaluación: %w", err)
+		}
+		f.Estado = EstadoDePostulacion(estado)
+		unidades = append(unidades, f)
+	}
+	return unidades, filas.Err()
+}
+
+// Unidades devuelve la lista de trabajo del jurado en una convocatoria: todas
+// las unidades por evaluar, con el estado de SU evaluación de cada una. De
+// ahí sale su indicador de avance (RF-EVA-07).
+func (j JuradoRepo) Unidades(ctx context.Context, convocatoriaID int64) ([]UnidadPropia, error) {
+	unidades, err := leerUnidades(ctx, j.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	filas, err := j.r.lectura.QueryContext(ctx,
+		"SELECT e.postulacion_id, e.obra_clave, e.enviada FROM evaluacion e WHERE e.jurado_id = ? AND e.convocatoria_id = ?",
+		j.juradoID, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+	}
+	defer filas.Close()
+	type unidad struct{ postulacionID, obraID int64 }
+	enviadas := make(map[unidad]bool)
+	for filas.Next() {
+		var u unidad
+		var enviada bool
+		if err := filas.Scan(&u.postulacionID, &u.obraID, &enviada); err != nil {
+			return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+		}
+		enviadas[u] = enviada
+	}
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+	}
+	propias := make([]UnidadPropia, 0, len(unidades))
+	for _, f := range unidades {
+		enviada, iniciada := enviadas[unidad{f.Unidad.PostulacionID, f.Unidad.ObraID}]
+		propias = append(propias, UnidadPropia{UnidadDeEvaluacion: f.Unidad, Iniciada: iniciada, Enviada: enviada})
+	}
+	return propias, nil
+}
+
+// evaluacionPropia lee la evaluación del jurado a una unidad, con sus
+// puntajes. Si aún no la ha empezado devuelve una evaluación vacía.
+func (j JuradoRepo) evaluacionPropia(ctx context.Context, q consultor, postulacionID, obraID int64) (Evaluacion, error) {
+	e := Evaluacion{PostulacionID: postulacionID, ObraID: obraID, Puntajes: make(map[string]int)}
+	var enviadaAt, actualizado string
+	err := q.QueryRowContext(ctx, `
+		SELECT e.id, COALESCE(e.observaciones, ''), e.enviada, COALESCE(e.enviada_at, ''), e.actualizado_at
+		FROM evaluacion e
+		WHERE e.jurado_id = ? AND e.postulacion_id = ? AND e.obra_clave = ?`,
+		j.juradoID, postulacionID, obraID).Scan(&e.ID, &e.Observaciones, &e.Enviada, &enviadaAt, &actualizado)
+	if errors.Is(err, sql.ErrNoRows) {
+		return e, nil
+	}
+	if err != nil {
+		return e, fmt.Errorf("leer evaluación propia: %w", err)
+	}
+	if e.ActualizadoAt, err = deMarca(actualizado); err != nil {
+		return e, err
+	}
+	if enviadaAt != "" {
+		if e.EnviadaAt, err = deMarca(enviadaAt); err != nil {
+			return e, err
+		}
+	}
+	filas, err := q.QueryContext(ctx, `
+		SELECT c.clave, ep.puntaje
+		FROM evaluacion e
+		JOIN evaluacion_puntaje ep ON ep.evaluacion_id = e.id
+		JOIN criterio_evaluacion c ON c.id = ep.criterio_id
+		WHERE e.jurado_id = ? AND e.id = ?`, j.juradoID, e.ID)
+	if err != nil {
+		return e, fmt.Errorf("leer puntajes propios: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var clave string
+		var puntaje int
+		if err := filas.Scan(&clave, &puntaje); err != nil {
+			return e, fmt.Errorf("leer puntajes propios: %w", err)
+		}
+		e.Puntajes[clave] = puntaje
+	}
+	return e, filas.Err()
+}
+
+// Evaluacion devuelve la evaluación del jurado a una unidad, o una vacía si
+// no la ha empezado.
+func (j JuradoRepo) Evaluacion(ctx context.Context, postulacionID, obraID int64) (Evaluacion, error) {
+	return j.evaluacionPropia(ctx, j.r.lectura, postulacionID, obraID)
+}
+
+// Guardar guarda la evaluación del jurado a una unidad: como borrador, o
+// enviada si la entrada lo pide (RF-EVA-06). Una evaluación enviada puede
+// seguir corrigiéndose mientras dure la etapa, pero ya no vuelve a borrador.
+//
+// Cuando con este envío los tres jurados han enviado todas las unidades de
+// la postulación, ésta pasa a «evaluada» (RN-18).
+func (j JuradoRepo) Guardar(ctx context.Context, actor Actor, postulacionID int64, entrada EntradaEvaluacion) (Evaluacion, error) {
+	var guardada Evaluacion
+	err := j.r.operacion(ctx, "guardar evaluación", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		previa, err := j.evaluacionPropia(ctx, tx, postulacionID, entrada.ObraID)
+		if err != nil {
+			return err
+		}
+		entrada.Observaciones = strings.TrimSpace(entrada.Observaciones)
+		if err := validacion(ValidarEvaluacion(cfg, p, entrada, previa.Enviada)); err != nil {
+			return err
+		}
+		marca := j.r.marca()
+		enviada := previa.Enviada || entrada.Enviar
+		enviadaAt := nuloSiVacio("")
+		if enviada {
+			enviadaAt = nuloSiVacio(marca)
+			if previa.Enviada {
+				enviadaAt = nuloSiVacio(aMarca(previa.EnviadaAt)) // conserva la fecha del primer envío
+			}
+		}
+		evaluacionID := previa.ID
+		if evaluacionID == 0 {
+			res, err := tx.ExecContext(ctx, `
+				INSERT INTO evaluacion (convocatoria_id, jurado_id, postulacion_id, obra_id, obra_clave, observaciones,
+				                        enviada, enviada_at, creado_at, actualizado_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				p.ConvocatoriaID, j.juradoID, p.ID, nuloSiCero(entrada.ObraID), entrada.ObraID,
+				nuloSiVacio(entrada.Observaciones), enviada, enviadaAt, marca, marca)
+			if err != nil {
+				return err
+			}
+			if evaluacionID, err = res.LastInsertId(); err != nil {
+				return err
+			}
+		} else if _, err := tx.ExecContext(ctx, `
+			UPDATE evaluacion SET observaciones = ?, enviada = ?, enviada_at = ?, actualizado_at = ?
+			WHERE jurado_id = ? AND id = ?`,
+			nuloSiVacio(entrada.Observaciones), enviada, enviadaAt, marca, j.juradoID, evaluacionID); err != nil {
+			return err
+		}
+		// Los puntajes se sustituyen completos: los que no vienen se quitan.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM evaluacion_puntaje
+			WHERE evaluacion_id IN (SELECT e.id FROM evaluacion e WHERE e.jurado_id = ? AND e.id = ?)`, j.juradoID, evaluacionID); err != nil {
+			return err
+		}
+		for _, criterio := range cfg.Criterios {
+			puntaje, calificado := entrada.Puntajes[criterio.Clave]
+			if !calificado {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT INTO evaluacion_puntaje (evaluacion_id, criterio_id, puntaje) VALUES (?, ?, ?)",
+				evaluacionID, criterio.ID, puntaje); err != nil {
+				return err
+			}
+		}
+		if enviada {
+			if err := marcarEvaluadaSiCompleta(ctx, tx, cfg, p); err != nil {
+				return err
+			}
+		}
+		if guardada, err = j.evaluacionPropia(ctx, tx, postulacionID, entrada.ObraID); err != nil {
+			return err
+		}
+		// La bitácora registra que el jurado guardó o envió, no qué calificó:
+		// la administra gente que no debe conocer puntajes sueltos por esa vía.
+		accion := "evaluacion.guardar"
+		if entrada.Enviar && !previa.Enviada {
+			accion = "evaluacion.enviar"
+		}
+		return j.r.auditar(ctx, tx, actor, accion, "evaluacion", evaluacionID, nil,
+			map[string]any{"postulacion_id": p.ID, "obra_id": entrada.ObraID})
+	})
+	return guardada, err
+}
+
+// marcarEvaluadaSiCompleta pasa una postulación a «evaluada» cuando los tres
+// jurados activos han enviado todas sus unidades (RN-18).
+//
+// Es la ÚNICA consulta fuera de SupervisionRepo que cuenta evaluaciones de
+// varios jurados. Sólo cuenta cuántas se han enviado: no lee puntajes ni
+// observaciones, y su resultado no se devuelve a nadie; decide un cambio de
+// estado dentro de la transacción.
+func marcarEvaluadaSiCompleta(ctx context.Context, tx *sql.Tx, cfg ConfiguracionConvocatoria, p Postulacion) error {
+	var enviadas int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM evaluacion e
+		JOIN asignacion a ON a.usuario_id = e.jurado_id AND a.convocatoria_id = e.convocatoria_id
+		                 AND a.perfil = 'jurado' AND a.activo = 1
+		WHERE e.postulacion_id = ? AND e.enviada = 1`, p.ID).Scan(&enviadas)
+	if err != nil {
+		return err
+	}
+	if esperadas := len(UnidadesDeEvaluacion(cfg.Convocatoria.Tipo, p)) * CuotaJurados; enviadas < esperadas || p.Estado != PostulacionEnEvaluacion {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ?", string(PostulacionEvaluada), p.ID)
+	return err
+}
+
+// SupervisionRepo reúne las consultas que cruzan a los jurados: la matriz de
+// resultados. Sólo la alcanzan el administrador y el observador.
+type SupervisionRepo struct {
+	r *Repositorio
+}
+
+// Supervision devuelve el acceso a los resultados de la evaluación. NUNCA
+// debe usarse desde un controlador que atienda a un jurado.
+func (r *Repositorio) Supervision() SupervisionRepo {
+	return SupervisionRepo{r: r}
+}
+
+// Matriz devuelve la matriz de resultados de una convocatoria (RF-EVA-08):
+// por cada unidad, lo que calificó cada jurado, la suma de los tres y el
+// promedio, ordenada de mayor a menor total. Sólo cuentan las evaluaciones
+// enviadas.
+//
+// La consulta queda en la bitácora (§8.4): quién miró los resultados y cuándo.
+func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID int64) (MatrizDeResultados, error) {
+	var matriz MatrizDeResultados
+	err := s.r.operacion(ctx, "leer matriz de resultados", func(tx *sql.Tx) error {
+		cfg, err := configuracion(ctx, tx, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		matriz = MatrizDeResultados{Criterios: cfg.Criterios}
+		for _, a := range cfg.Asignaciones {
+			if a.Activo && a.Perfil == PerfilJurado {
+				matriz.Jurados = append(matriz.Jurados, JuradoEnMatriz{ID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos)})
+			}
+		}
+		if matriz.Filas, err = leerUnidades(ctx, tx, convocatoriaID); err != nil {
+			return err
+		}
+		type unidad struct{ postulacionID, obraID int64 }
+		posicion := make(map[unidad]int)
+		for i := range matriz.Filas {
+			matriz.Filas[i].PorJurado = make(map[int64]Evaluacion)
+			posicion[unidad{matriz.Filas[i].Unidad.PostulacionID, matriz.Filas[i].Unidad.ObraID}] = i
+		}
+
+		// Evaluaciones enviadas, con sus puntajes.
+		filas, err := tx.QueryContext(ctx, `
+			SELECT e.postulacion_id, e.obra_clave, e.jurado_id, COALESCE(e.observaciones, ''), COALESCE(e.enviada_at, ''),
+			       COALESCE(c.clave, ''), COALESCE(ep.puntaje, 0)
+			FROM evaluacion e
+			LEFT JOIN evaluacion_puntaje ep ON ep.evaluacion_id = e.id
+			LEFT JOIN criterio_evaluacion c ON c.id = ep.criterio_id
+			WHERE e.convocatoria_id = ? AND e.enviada = 1`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var juradoID int64
+			var observaciones, enviadaAt, clave string
+			var puntaje int
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &juradoID, &observaciones, &enviadaAt, &clave, &puntaje); err != nil {
+				filas.Close()
+				return err
+			}
+			i, existe := posicion[u]
+			if !existe {
+				continue // la postulación ya no está en evaluación
+			}
+			e, vista := matriz.Filas[i].PorJurado[juradoID]
+			if !vista {
+				e = Evaluacion{PostulacionID: u.postulacionID, ObraID: u.obraID, Observaciones: observaciones, Enviada: true, Puntajes: make(map[string]int)}
+				if enviadaAt != "" {
+					if e.EnviadaAt, err = deMarca(enviadaAt); err != nil {
+						filas.Close()
+						return err
+					}
+				}
+			}
+			if clave != "" {
+				e.Puntajes[clave] = puntaje
+			}
+			matriz.Filas[i].PorJurado[juradoID] = e
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+
+		// Suma y promedio: de la vista v_resultado, la única agregación.
+		filas, err = tx.QueryContext(ctx, `
+			SELECT postulacion_id, obra_clave, jurados_que_evaluaron, puntaje_total, COALESCE(puntaje_promedio, 0)
+			FROM v_resultado WHERE convocatoria_id = ?`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var jurados, total int
+			var promedio float64
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &jurados, &total, &promedio); err != nil {
+				filas.Close()
+				return err
+			}
+			if i, existe := posicion[u]; existe {
+				matriz.Filas[i].JuradosQueEvaluaron, matriz.Filas[i].Total, matriz.Filas[i].Promedio = jurados, total, promedio
+			}
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		// De mayor a menor total; a igual total, por folio y orden de obra.
+		slices.SortStableFunc(matriz.Filas, func(a, b FilaDeResultado) int { return b.Total - a.Total })
+		return s.r.auditar(ctx, tx, actor, "evaluacion.consultar", "convocatoria", convocatoriaID, nil, nil)
+	})
+	return matriz, err
+}
+
+// RegistrarDictamenFinal registra el resultado de una postulación:
+// seleccionada, no seleccionada o lista de espera; vacío lo retira. Lo hace
+// el administrador (§2.2). No toca ninguna evaluación ni se comunica al
+// postulante: el resultado se da a conocer fuera del sistema (D-09).
+func (r *Repositorio) RegistrarDictamenFinal(ctx context.Context, actor Actor, postulacionID int64, dictamen string) error {
+	return r.operacion(ctx, "registrar dictamen final", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarDictamenFinal(cfg.Convocatoria, p, dictamen)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET dictamen = ?, actualizado_at = ? WHERE id = ?",
+			nuloSiVacio(dictamen), r.marca(), p.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.dictamen_final", "postulacion", p.ID,
+			map[string]any{"dictamen": p.DictamenFinal}, map[string]any{"dictamen": dictamen})
+	})
 }

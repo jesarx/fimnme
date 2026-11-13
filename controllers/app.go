@@ -233,6 +233,14 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"PUT", "/api/v1/postulaciones/{id}/desbloqueos/{solicitud}", a.conSesion(a.apiResolverDesbloqueo)},
 		{"POST", "/api/v1/postulaciones/{id}/dictamen", a.conSesion(a.apiDictaminarPostulacion)},
 
+		// Evaluación por jurado. Las tres primeras son del jurado, sobre lo
+		// suyo; la matriz de resultados es sólo de supervisión.
+		{"GET", "/api/v1/convocatorias/{id}/evaluacion", a.conSesion(a.apiListaDeJurado)},
+		{"GET", "/api/v1/postulaciones/{id}/evaluacion", a.conSesion(a.apiEvaluacionPropia)},
+		{"PUT", "/api/v1/postulaciones/{id}/evaluacion", a.conSesion(a.apiGuardarEvaluacion)},
+		{"GET", "/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)},
+		{"PUT", "/api/v1/postulaciones/{id}/dictamen-final", a.administra(a.apiDictamenFinal)},
+
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
 		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},

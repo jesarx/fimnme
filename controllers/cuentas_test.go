@@ -72,6 +72,7 @@ type entornoPrueba struct {
 	app      http.Handler
 	reloj    *relojDePrueba
 	red      *redDePrueba // la «Internet» que ve el verificador de ligas
+	rutas    []rutaAPI    // todas las operaciones de la API, para barrerlas
 	clientes int
 }
 
@@ -94,7 +95,7 @@ func nuevoEntorno(t *testing.T) *entornoPrueba {
 		Enlaces: &VerificadorDeEnlaces{Cliente: &http.Client{Transport: red}},
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red}
+	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red, rutas: app.rutasAPI()}
 }
 
 // cliente imita a un navegador: recuerda sus cookies y tiene su propia IP.

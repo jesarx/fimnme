@@ -503,6 +503,10 @@ type ConfiguracionConvocatoria struct {
 	Requisitos   []RequisitoDocumental
 	Criterios    []CriterioEvaluacion
 	Asignaciones []AsignacionDetalle
+	// SinDictaminar cuenta las postulaciones enviadas que la revisión
+	// documental aún no valida ni descarta. Mientras quede alguna, la
+	// convocatoria no pasa a evaluación.
+	SinDictaminar int
 }
 
 // Activos cuenta las asignaciones activas de un perfil.
@@ -821,6 +825,11 @@ type Postulacion struct {
 	Documentos  []Documento // sólo los vigentes
 	Acuses      []Acuse     // uno por envío
 
+	// DictamenFinal es el resultado del proceso: seleccionada,
+	// no_seleccionada o lista_espera; vacío mientras no se registra. Lo
+	// registra el administrador y no se muestra al postulante.
+	DictamenFinal string
+
 	// Revisión documental.
 	EnviadaAt      time.Time     // último envío; cero si es borrador
 	MotivoDescarte string        // sólo si fue descartada
@@ -1025,4 +1034,86 @@ type Bloqueador struct {
 	ObraID    int64                // obra a la que se refiere; 0 si es de la postulación
 	Clave     string               // clave de traducción del motivo
 	Requisito *RequisitoDocumental // el documento que falta, si el bloqueador es de un documento
+}
+
+// ---------------------------------------------------------------------------
+// Evaluación por jurado (§5.6)
+// ---------------------------------------------------------------------------
+
+// Dictámenes finales de una postulación.
+const (
+	DictamenSeleccionada   = "seleccionada"
+	DictamenNoSeleccionada = "no_seleccionada"
+	DictamenListaDeEspera  = "lista_espera"
+)
+
+// UnidadDeEvaluacion es lo que un jurado califica (RN-16). La unidad es
+// asimétrica entre convocatorias: en Intérpretes es la postulación completa
+// (ObraID 0); en Compositores, cada obra por separado.
+type UnidadDeEvaluacion struct {
+	PostulacionID int64
+	ObraID        int64 // 0 en Intérpretes
+	Folio         string
+	Nombre        string // solista, ensamble o compositor
+	Obra          string // título de la obra; vacío en Intérpretes
+	OrdenDeObra   int
+}
+
+// Evaluacion es la calificación de UN jurado a una unidad. Puntajes va por
+// clave de criterio («realizacion», «artistico»).
+type Evaluacion struct {
+	ID            int64
+	PostulacionID int64
+	ObraID        int64
+	Puntajes      map[string]int
+	Observaciones string
+	Enviada       bool
+	EnviadaAt     time.Time
+	ActualizadoAt time.Time
+}
+
+// UnidadPropia es una unidad en la lista de trabajo de un jurado, con el
+// estado de SU evaluación. No lleva nada de los demás jurados.
+type UnidadPropia struct {
+	UnidadDeEvaluacion
+	Iniciada bool // el jurado ya guardó algo
+	Enviada  bool
+}
+
+// EntradaEvaluacion es lo que un jurado guarda: puntajes por clave de
+// criterio, observaciones opcionales y si con esto la da por enviada.
+type EntradaEvaluacion struct {
+	ObraID        int64
+	Puntajes      map[string]int
+	Observaciones string
+	Enviar        bool
+}
+
+// JuradoEnMatriz identifica a un jurado en la matriz de resultados.
+type JuradoEnMatriz struct {
+	ID     int64
+	Nombre string
+}
+
+// FilaDeResultado es una unidad en la matriz de resultados: lo que calificó
+// cada jurado y la suma de los tres.
+type FilaDeResultado struct {
+	Unidad        UnidadDeEvaluacion
+	Estado        EstadoDePostulacion
+	DictamenFinal string
+	// PorJurado trae las evaluaciones ENVIADAS, por id de jurado. Una
+	// evaluación en borrador no aparece: aún no es una calificación.
+	PorJurado           map[int64]Evaluacion
+	JuradosQueEvaluaron int
+	Total               int
+	Promedio            float64
+}
+
+// MatrizDeResultados es la vista de supervisión de la evaluación (RF-EVA-08):
+// puntaje por jurado y criterio, suma, promedio y orden por total. Sólo la
+// ven el administrador y el observador; un jurado, NUNCA.
+type MatrizDeResultados struct {
+	Jurados   []JuradoEnMatriz
+	Criterios []CriterioEvaluacion
+	Filas     []FilaDeResultado // de mayor a menor total
 }

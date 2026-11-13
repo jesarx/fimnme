@@ -135,6 +135,13 @@ type Persistencia interface {
 	DictaminarPostulacion(ctx context.Context, actor Actor, postulacionID int64, dictamen EstadoDePostulacion, motivo string) error
 	DiferenciasDelUltimoEnvio(ctx context.Context, postulacionID int64) ([]CambioDeEnvio, error)
 
+	// Evaluación por jurado. El aislamiento entre jurados es estructural:
+	// ParaJurado sólo da acceso a las evaluaciones de ese jurado; lo que
+	// cruza jurados vive en Supervision, para administrador y observador.
+	ParaJurado(juradoID int64) JuradoRepo
+	Supervision() SupervisionRepo
+	RegistrarDictamenFinal(ctx context.Context, actor Actor, postulacionID int64, dictamen string) error
+
 	// Comprobación en red de las ligas de video.
 	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)
 	EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error)

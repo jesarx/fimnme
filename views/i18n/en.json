@@ -401,5 +401,12 @@
   "estado.postulacion.en_evaluacion": "Under evaluation",
   "estado.postulacion.evaluada": "Evaluated",
   "subsanacion.elemento_de_obra": "%s (work %d)",
-  "error.texto_requerido": "This text is required."
+  "error.texto_requerido": "This text is required.",
+  "error.fuera_de_evaluacion": "The call is not in the evaluation stage.",
+  "error.no_esta_en_evaluacion": "The application is not under evaluation.",
+  "error.unidad_inexistente": "That work is not an evaluation unit of this application.",
+  "error.criterio_inexistente": "That criterion does not exist in this call.",
+  "error.puntaje_fuera_de_escala": "The score is outside the scale of the criterion.",
+  "error.puntaje_requerido": "The score for this criterion is missing.",
+  "error.revision_pendiente": "There are applications that the document review has neither validated nor discarded."
 }

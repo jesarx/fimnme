@@ -31,9 +31,10 @@ import (
 // Pruebas de extremo a extremo del paso 7: revisión documental, subsanación
 // con desbloqueo selectivo, reenvío y dictamen.
 
-// revisor da de alta una cuenta interna, la activa con su enlace y la asigna
-// como revisora de la convocatoria. Devuelve su cliente con sesión.
-func (e *entornoPrueba) revisor(admin *cliente, convocatoriaID int64, email string) *cliente {
+// asignado da de alta una cuenta interna, la activa con su enlace y la asigna
+// a la convocatoria con el perfil dado. Devuelve su cliente con sesión y el
+// id de su cuenta.
+func (e *entornoPrueba) asignado(admin *cliente, convocatoriaID int64, email, perfil string) (*cliente, int64) {
 	e.t.Helper()
 	usuarioID := e.crearInterno(admin, email)
 	token := e.tokenDe(email, models.PlantillaActivacion, "/cuenta/activar")
@@ -41,7 +42,14 @@ func (e *entornoPrueba) revisor(admin *cliente, convocatoriaID int64, email stri
 	redirige(e.t, c.post("/cuenta/activar", url.Values{"token": {token}, "password": {passwordPrueba}}), "/cuenta/ingresar?aviso=activada")
 	c.ingresar(email, passwordPrueba)
 	admin.exige(http.StatusCreated, "POST", fmt.Sprintf("/api/v1/convocatorias/%d/asignaciones", convocatoriaID),
-		obj{"usuario_id": usuarioID, "perfil": "revisor_documental"})
+		obj{"usuario_id": usuarioID, "perfil": perfil})
+	return c, usuarioID
+}
+
+// revisor da de alta y asigna un revisor documental de la convocatoria.
+func (e *entornoPrueba) revisor(admin *cliente, convocatoriaID int64, email string) *cliente {
+	e.t.Helper()
+	c, _ := e.asignado(admin, convocatoriaID, email, "revisor_documental")
 	return c
 }
 

@@ -46,12 +46,12 @@ páginas de manual.
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; autoguardado por campo; datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video; `ValidarParaEnvio()` con la lista de bloqueadores. La captura se acepta sólo dentro del plazo, y quien es jurado o revisor de una convocatoria no postula en ella. | ✅ Hecho |
 | 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
 | 7 | **Revisión documental y subsanación.** Bandeja con filtros y tablero; toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos, documentos y listas; solicitud de subsanación con su correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | ✅ Hecho |
+| 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador, envío y congelación al cierre; avance propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **aislamiento entre jurados probado** con un barrido de todos los endpoints. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
 | 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
 | 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
 
@@ -95,6 +95,38 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 8 — qué se entregó
+
+- **Lista de trabajo del jurado** (RF-EVA-01 y 07). Las unidades por evaluar, el estado de
+  su evaluación de cada una y su avance.
+- **Unidad de evaluación** (RF-EVA-02, RN-16). La postulación en Intérpretes; cada obra en
+  Compositores.
+- **Calificación** (RF-EVA-03, 04 y 06, RN-17 a 19). Criterios de la convocatoria, enteros
+  dentro de su escala; observaciones opcionales; borrador incompleto; envío completo;
+  corrección mientras dure la etapa; congelación al cierre.
+- **Aislamiento entre jurados** (RF-EVA-05, RN-15, §8.4). Estructural: `JuradoRepo` sólo
+  alcanza lo propio; lo que cruza jurados vive en `SupervisionRepo`. Lo vigilan dos
+  pruebas que leen el código y una que barre todos los endpoints con la sesión de cada
+  jurado.
+- **Evaluación no a ciegas** (decisión de la CNMO). El jurado ve la postulación completa
+  y descarga sus documentos.
+- **Paso a evaluación** (RN-20). Las validadas pasan al jurado; no se pasa con
+  postulaciones sin dictaminar.
+- **Postulación evaluada** (RF-EVA-09, RN-18) cuando los tres han enviado todo.
+- **Matriz de resultados** (RF-EVA-08). Puntaje por jurado y criterio, suma, promedio y
+  lugar. Sólo para supervisión; cada consulta queda en la bitácora.
+- **Dictamen final** (RF-CONV-10). Lo registra el administrador; sólo lo ve la supervisión.
+- **Sin migraciones nuevas**: todo cabía en el esquema de §8.3.
+
+Decisiones: [ADR 0011](adr/0011-evaluacion-por-jurado.md).
+
+**Lo que este paso NO incluye:**
+
+- **Excusa por conflicto de interés** (RF-EVA-12, prioridad C).
+- **Correos al jurado** (RF-NOT-09 y 10, prioridad S).
+- **Matriz en CSV**: paso 9.
+- **Pantallas del jurado y de la matriz**: pasos 12 y 13.
 
 ## Paso 7 — qué se entregó
 
@@ -433,3 +465,11 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 30. ~~Tamaños de los demás documentos.~~ **Resuelto (13-nov-2026):** audio, partitura y
     particellas, 30 MB; las particellas, en un solo PDF; autorización (10 MB) y fotografía
     (5 MB), como estaban.
+31. **No se pasa a evaluación con postulaciones sin dictaminar.** Si a la fecha de inicio
+    de la evaluación queda alguna sin validar ni descartar, la convocatoria no avanza y
+    el log lo avisa (ADR 0011, §6).
+32. **Una evaluación enviada puede corregirse** mientras dure la etapa de evaluación; al
+    cerrarse queda congelada. La especificación dice que «la modifica mientras la etapa
+    esté abierta».
+33. **El postulante ve «en evaluación» y «evaluada»**, pero no el dictamen final ni
+    ninguna calificación.

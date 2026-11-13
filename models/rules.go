@@ -697,6 +697,11 @@ func ValidarCambioDeEstado(cfg ConfiguracionConvocatoria, destino EstadoConvocat
 		if len(cfg.Criterios) == 0 {
 			errores = append(errores, ErrorCampo{Campo: "criterios", Clave: "error.sin_criterios"})
 		}
+		// Una postulación que la revisión aún no valida ni descarta quedaría
+		// fuera de la evaluación sin que nadie lo hubiera decidido.
+		if cfg.SinDictaminar > 0 {
+			errores = append(errores, ErrorCampo{Campo: "postulaciones", Clave: "error.revision_pendiente"})
+		}
 	}
 	return errores
 }
@@ -1195,7 +1200,12 @@ func PuedeVerPostulacion(s *Sesion, p Postulacion) bool {
 	}
 	// El revisor ve las postulaciones ENVIADAS de su convocatoria. Un
 	// borrador no ha entrado al proceso: no es asunto suyo.
-	return p.Estado != PostulacionBorrador && s.TieneAsignacion(p.ConvocatoriaID, PerfilRevisorDocumental)
+	if p.Estado != PostulacionBorrador && s.TieneAsignacion(p.ConvocatoriaID, PerfilRevisorDocumental) {
+		return true
+	}
+	// El jurado ve sólo las que pasaron a evaluación (RN-20), y las ve
+	// completas: la evaluación NO es a ciegas (decisión de la CNMO).
+	return EnEvaluacion(p.Estado) && s.TieneAsignacion(p.ConvocatoriaID, PerfilJurado)
 }
 
 // ValidarIntegrantes valida la lista de integrantes de un ensamble (RN-10):
@@ -2197,4 +2207,94 @@ func EstadoParaTitular(estado EstadoDePostulacion) EstadoDePostulacion {
 		return PostulacionEnRevision
 	}
 	return estado
+}
+
+// --- Evaluación por jurado (§5.6) ---------------------------------------------
+
+// EnEvaluacion indica si una postulación está a la vista del jurado: pasó a
+// evaluación o ya fue evaluada por los tres.
+func EnEvaluacion(estado EstadoDePostulacion) bool {
+	return estado == PostulacionEnEvaluacion || estado == PostulacionEvaluada
+}
+
+// PuedeEvaluar indica si la sesión es de un jurado de la convocatoria. El
+// administrador NO puede: no emite ni altera evaluaciones en nombre de un
+// jurado (§2.2).
+func PuedeEvaluar(s *Sesion, convocatoriaID int64) bool {
+	return s != nil && s.TieneAsignacion(convocatoriaID, PerfilJurado)
+}
+
+// UnidadesDeEvaluacion devuelve las unidades que se califican de una
+// postulación, como ids de obra (RN-16): en Intérpretes una sola, la
+// postulación completa (0); en Compositores, cada obra.
+func UnidadesDeEvaluacion(tipo TipoConvocatoria, p Postulacion) []int64 {
+	if tipo == TipoInterpretes {
+		return []int64{0}
+	}
+	unidades := make([]int64, 0, len(p.Obras))
+	for _, obra := range p.Obras {
+		unidades = append(unidades, obra.ID)
+	}
+	return unidades
+}
+
+// ValidarEvaluacion valida lo que un jurado quiere guardar.
+//
+//   - Sólo durante la etapa de evaluación (RN-19): cerrada, queda congelada.
+//   - Sólo sobre postulaciones que pasaron a evaluación (RN-20), y sobre una
+//     unidad que exista en ellas.
+//   - Cada puntaje es de un criterio de la convocatoria y cae en su escala (RN-17).
+//   - Un borrador puede estar incompleto. Para enviarla —o para modificar una
+//     ya enviada— deben estar todos los criterios obligatorios.
+func ValidarEvaluacion(cfg ConfiguracionConvocatoria, p Postulacion, e EntradaEvaluacion, yaEnviada bool) []ErrorCampo {
+	if cfg.Convocatoria.Estado != EstadoEvaluacion {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if !slices.Contains(UnidadesDeEvaluacion(cfg.Convocatoria.Tipo, p), e.ObraID) {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.unidad_inexistente"}}
+	}
+	var errores []ErrorCampo
+	criterios := make(map[string]CriterioEvaluacion)
+	for _, criterio := range cfg.Criterios {
+		criterios[criterio.Clave] = criterio
+	}
+	for _, clave := range slices.Sorted(maps.Keys(e.Puntajes)) {
+		criterio, existe := criterios[clave]
+		switch puntaje := e.Puntajes[clave]; {
+		case !existe:
+			errores = append(errores, ErrorCampo{Campo: clave, Clave: "error.criterio_inexistente"})
+		case puntaje < criterio.EscalaMin || puntaje > criterio.EscalaMax:
+			errores = append(errores, ErrorCampo{Campo: clave, Clave: "error.puntaje_fuera_de_escala"})
+		}
+	}
+	if e.Enviar || yaEnviada {
+		for _, criterio := range cfg.Criterios {
+			if _, calificado := e.Puntajes[criterio.Clave]; criterio.Obligatorio && !calificado {
+				errores = append(errores, ErrorCampo{Campo: criterio.Clave, Clave: "error.puntaje_requerido"})
+			}
+		}
+	}
+	if utf8.RuneCountInString(e.Observaciones) > LongitudMaxMotivo {
+		errores = append(errores, ErrorCampo{Campo: "observaciones", Clave: "error.texto_largo"})
+	}
+	return errores
+}
+
+// ValidarDictamenFinal valida el resultado que el administrador registra para
+// una postulación. Sólo sobre postulaciones que llegaron a evaluación, y con
+// la evaluación en curso o ya cerrada; en el archivo, no (RF-ARCH-03).
+func ValidarDictamenFinal(c Convocatoria, p Postulacion, dictamen string) []ErrorCampo {
+	if c.Estado != EstadoEvaluacion && c.Estado != EstadoCerrada {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if dictamen != "" && dictamen != DictamenSeleccionada && dictamen != DictamenNoSeleccionada && dictamen != DictamenListaDeEspera {
+		return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+	}
+	return nil
 }

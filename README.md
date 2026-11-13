@@ -19,8 +19,12 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 7 de 14: revisión documental y subsanación.** Hoy el sistema tiene:
+**Paso 8 de 14: evaluación por jurado.** Hoy el sistema tiene:
 
+- **Evaluación por API** (para el jurado): lista de trabajo con su avance, calificación
+  por criterios en borrador o enviada, y congelación al cierre. **Un jurado nunca ve lo de
+  otro**: el aislamiento es estructural y lo vigila una prueba que barre todos los
+  endpoints. La **matriz de resultados**, con la suma de los tres, es sólo de supervisión.
 - **Postulación completa por API** (para el postulante): captura con autoguardado, subida
   de documentos, **envío irreversible con folio** y **acuse de recibo en PDF**, que también
   se encola por correo. En todo momento la API dice qué le falta a la postulación.
@@ -299,6 +303,27 @@ curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: applicati
 
 Decisiones de este módulo: [ADR 0010](docs/adr/0010-revision-documental-y-subsanacion.md).
 
+### API de evaluación
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/convocatorias/{id}/evaluacion` | Jurado de la convocatoria | Su lista de trabajo: unidades por evaluar, estado de **su** evaluación y avance |
+| `GET /api/v1/postulaciones/{id}/evaluacion` | Jurado | Su evaluación de una unidad. En Compositores, `?obra_id=` |
+| `PUT /api/v1/postulaciones/{id}/evaluacion` | Jurado | Guarda su evaluación: `puntajes` (por clave de criterio), `observaciones`, `obra_id` y `enviar` |
+| `GET /api/v1/convocatorias/{id}/resultados` | `admin_sistema`, `coordinacion_nacional` | Matriz: puntaje por jurado y criterio, suma, promedio y lugar. Queda en la bitácora |
+| `PUT /api/v1/postulaciones/{id}/dictamen-final` | `admin_sistema` | `dictamen`: `seleccionada`, `no_seleccionada`, `lista_espera` o vacío |
+
+En Intérpretes se califica la postulación completa; en Compositores, cada obra. El jurado
+ve la postulación entera con `GET /api/v1/postulaciones/{id}` y descarga sus documentos.
+El administrador no puede evaluar.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"puntajes":{"realizacion":4,"artistico":5},"observaciones":"Propuesta sólida.","enviar":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/evaluacion
+```
+
+Decisiones de este módulo, y cómo se garantiza el aislamiento entre jurados:
+[ADR 0011](docs/adr/0011-evaluacion-por-jurado.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -341,6 +366,7 @@ controllers/        CONTROLADOR
   postulaciones.go    API de captura de postulaciones
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
+  evaluacion.go       evaluación por jurado y matriz de resultados
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
@@ -353,6 +379,7 @@ views/              VISTA (todo incrustado con //go:embed)
   postulaciones.go    respuestas JSON de las postulaciones y su formulario
   acuse.go            acuse de recibo en PDF, compuesto desde el snapshot
   revision.go         respuestas JSON de la revisión y la subsanación
+  evaluacion.go       respuestas JSON del jurado y de la matriz
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos

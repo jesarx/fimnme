@@ -125,6 +125,11 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 		}
 		cuerpo["revision"] = views.RevisionJSON(p, titular.Usuario, revision, cambios, ahora, nombrar)
 	}
+	// El resultado final sólo lo ve la supervisión: ni el postulante ni el
+	// jurado ni el revisor (el resultado se comunica fuera del sistema).
+	if models.PuedeSupervisar(sesion) {
+		cuerpo["dictamen_final"] = p.DictamenFinal
+	}
 	a.responder(w, estado, cuerpo)
 }
 
