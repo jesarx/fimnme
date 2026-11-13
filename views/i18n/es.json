@@ -408,5 +408,5 @@
   "error.criterio_inexistente": "Ese criterio no existe en esta convocatoria.",
   "error.puntaje_fuera_de_escala": "El puntaje está fuera de la escala del criterio.",
   "error.puntaje_requerido": "Falta el puntaje de este criterio.",
-  "error.revision_pendiente": "Quedan postulaciones sin validar ni descartar en la revisión documental."
+  "error.excusa_vigente": "Te excusaste de evaluar esta unidad. Retira la excusa antes de calificarla."
 }

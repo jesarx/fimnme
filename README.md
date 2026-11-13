@@ -310,12 +310,20 @@ Decisiones de este módulo: [ADR 0010](docs/adr/0010-revision-documental-y-subsa
 | `GET /api/v1/convocatorias/{id}/evaluacion` | Jurado de la convocatoria | Su lista de trabajo: unidades por evaluar, estado de **su** evaluación y avance |
 | `GET /api/v1/postulaciones/{id}/evaluacion` | Jurado | Su evaluación de una unidad. En Compositores, `?obra_id=` |
 | `PUT /api/v1/postulaciones/{id}/evaluacion` | Jurado | Guarda su evaluación: `puntajes` (por clave de criterio), `observaciones`, `obra_id` y `enviar` |
-| `GET /api/v1/convocatorias/{id}/resultados` | `admin_sistema`, `coordinacion_nacional` | Matriz: puntaje por jurado y criterio, suma, promedio y lugar. Queda en la bitácora |
+| `PUT` · `DELETE /api/v1/postulaciones/{id}/excusa` | Jurado | Se excusa por conflicto de interés (`motivo` y, en Compositores, `obra_id`; sin él, toda la postulación), o retira la excusa |
+| `GET /api/v1/convocatorias/{id}/resultados` | `admin_sistema`, `coordinacion_nacional` | Matriz: puntaje por jurado y criterio, excusas, suma, promedio, **puntaje comparable** y lugar. Queda en la bitácora |
 | `PUT /api/v1/postulaciones/{id}/dictamen-final` | `admin_sistema` | `dictamen`: `seleccionada`, `no_seleccionada`, `lista_espera` o vacío |
 
 En Intérpretes se califica la postulación completa; en Compositores, cada obra. El jurado
 ve la postulación entera con `GET /api/v1/postulaciones/{id}` y descarga sus documentos.
 El administrador no puede evaluar.
+
+La matriz ordena por el **puntaje comparable** (`puntaje`): el promedio por jurado,
+llevado a tres. Así, si un jurado se excusa, la postulación no queda debajo por tener una
+calificación menos. Con tres jurados es igual a la suma.
+
+La convocatoria pasa a evaluación aunque queden postulaciones en revisión: se terminan de
+revisar después y, al validarse, se suman a la lista del jurado.
 
 ```bash
 curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"puntajes":{"realizacion":4,"artistico":5},"observaciones":"Propuesta sólida.","enviar":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/evaluacion

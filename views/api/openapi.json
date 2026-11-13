@@ -4454,6 +4454,214 @@
         ]
       }
     },
+    "/api/v1/postulaciones/{id}/excusa": {
+      "put": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "El jurado se excusa de evaluar por conflicto de interés",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "La evaluación propia, ya excusada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La excusa no perjudica a la postulación: la matriz ordena por un puntaje que promedia entre los jurados que sí calificaron.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "En Compositores, la obra; si se omite, todas las de la postulación"
+                  },
+                  "motivo": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "motivo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Retira la excusa",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "La evaluación propia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "obra_id",
+            "in": "query",
+            "required": false,
+            "description": "En Compositores, la obra que se califica; en Intérpretes se omite",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones/{id}/integrantes": {
       "put": {
         "tags": [
@@ -6406,6 +6614,10 @@
               }
             },
             "description": "Archivos públicos cargados; null el que falta"
+          },
+          "postulaciones_sin_dictaminar": {
+            "type": "integer",
+            "description": "Enviadas que la revisión aún no valida ni descarta; no impiden pasar a evaluación"
           }
         },
         "description": "Una convocatoria con toda su configuración"
@@ -7491,6 +7703,15 @@
               "string",
               "null"
             ]
+          },
+          "excusado": {
+            "type": "boolean"
+          },
+          "motivo_excusa": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -7571,6 +7792,9 @@
                 },
                 "enviada": {
                   "type": "boolean"
+                },
+                "excusada": {
+                  "type": "boolean"
                 }
               }
             }
@@ -7579,6 +7803,12 @@
             "type": "object",
             "properties": {
               "enviadas": {
+                "type": "integer"
+              },
+              "excusadas": {
+                "type": "integer"
+              },
+              "pendientes": {
                 "type": "integer"
               },
               "total": {
@@ -7707,6 +7937,12 @@
                           "string",
                           "null"
                         ]
+                      },
+                      "excusado": {
+                        "type": "boolean"
+                      },
+                      "motivo_excusa": {
+                        "type": "string"
                       }
                     }
                   }
@@ -7719,6 +7955,13 @@
                 },
                 "promedio": {
                   "type": "number"
+                },
+                "excusados": {
+                  "type": "integer"
+                },
+                "puntaje": {
+                  "type": "number",
+                  "description": "Suma llevada a tres jurados; por él se ordena, para que una excusa no perjudique"
                 }
               }
             }

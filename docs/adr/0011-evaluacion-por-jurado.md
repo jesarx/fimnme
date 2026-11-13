@@ -83,26 +83,69 @@ Compositores, cada obra. `models.UnidadesDeEvaluacion` lo resuelve, y la unidad 
 - Una evaluación enviada **puede corregirse** mientras dure la etapa, pero no dejarse
   incompleta ni volver a borrador. Conserva la fecha de su primer envío.
 - **Cerrada la etapa, queda congelada.** El jurado sigue viendo la suya.
-- La postulación pasa a **evaluada** cuando los tres jurados activos han enviado todas
-  sus unidades: en Compositores, las de todas las obras.
+- La postulación pasa a **evaluada** cuando los tres jurados activos han atendido todas
+  sus unidades —cada uno la envió o se excusó—: en Compositores, las de todas las obras.
 
-## 6. Paso a evaluación
+## 6. Paso a evaluación: la revisión no la detiene
 
-**Decisión** (RN-20). Al pasar la convocatoria a evaluación, las postulaciones `validada`
-pasan a `en_evaluacion`. Si la etapa se retrocede, vuelven a `validada`.
+**Decisión** (RN-20; decisión de la CNMO del 13 de noviembre de 2026). Al pasar la
+convocatoria a evaluación, las postulaciones `validada` pasan a `en_evaluacion`. Si la
+etapa se retrocede, vuelven a `validada`.
 
-**No se pasa a evaluación con postulaciones sin dictaminar** (enviadas, en revisión o en
-subsanación): quedarían fuera sin que nadie lo hubiera decidido. Como con las demás
-cuotas, vale igual para el cambio forzado y para el avance por calendario, que se detiene
-y lo avisa en el log.
+**La convocatoria pasa a evaluación aunque queden postulaciones por subsanar o por
+dictaminar.** La revisión documental sigue durante la evaluación: el revisor dictamina,
+solicita subsanaciones y valida o descarta igual que antes. Una postulación que se valida
+con la evaluación ya en marcha **pasa directo al jurado** y aparece en su lista de
+trabajo; su avance lo refleja (el total crece).
 
-## 7. Matriz de resultados
+La configuración de la convocatoria informa cuántas quedan por dictaminar
+(`postulaciones_sin_dictaminar`), para que el administrador lo tenga a la vista. No es un
+requisito.
+
+*(La primera versión de este paso impedía pasar a evaluación con postulaciones
+pendientes. Se quitó: obligaba a detener a todo el jurado por una sola subsanación.)*
+
+**A tener presente.** Al **cerrar** la evaluación, una postulación que siga en revisión
+queda fuera. El sistema no lo impide; conviene mirar `postulaciones_sin_dictaminar` antes
+de cerrar.
+
+## 7. Matriz de resultados y excusas
 
 **Decisión** (RF-EVA-08). Para administrador y observador: por unidad, lo que calificó
-cada jurado, la suma de los tres, el promedio y el lugar, de mayor a menor total.
+cada jurado, quién se excusó, la suma, el promedio, el puntaje comparable y el lugar.
 
 **Sólo cuentan las evaluaciones enviadas.** Un borrador aparece como «sin enviar», sin
 puntajes: aún no es una calificación.
+
+### Excusa por conflicto de interés
+
+**Decisión** (RF-EVA-12; decisión de la CNMO). Un jurado puede excusarse de calificar una
+unidad, con motivo. En Compositores puede excusarse de una obra o, sin indicar obra, de
+toda la postulación: el conflicto suele ser con la persona.
+
+- La excusa surte efecto al declararla. Lo que el jurado hubiera calificado de esa unidad
+  se retira. El motivo lo ve la supervisión en la matriz; **no** va a la bitácora (suele
+  nombrar a una persona) ni llega a los demás jurados.
+- Con la excusa vigente no se califica: primero hay que retirarla.
+- Una unidad excusada cuenta como **atendida**: no queda pendiente en el avance del jurado
+  y no impide que la postulación pase a «evaluada».
+
+**Una excusa no perjudica a la postulación.** Si se ordenara por la suma, dos jurados
+sumarían menos que tres sin que la propuesta fuera peor. Por eso la matriz ordena por un
+**puntaje comparable**: el promedio por jurado, llevado a la cuota de tres
+(`models.PuntajeComparable`).
+
+| Unidad | Calificaron | Suma | Puntaje comparable |
+|---|---|---|---|
+| A: 3+3, 3+3, 3+3 | 3 | 18 | 18 |
+| B: 4+4, 4+4, y una excusa | 2 | 16 | **24** |
+
+B va primero, aunque sume menos. Con tres jurados el puntaje comparable es la suma: nada
+cambia para quien no tiene excusas. La matriz muestra las dos cifras, y el promedio.
+
+*(La especificación dice que la excusa «la resuelve el administrador». Aquí surte efecto
+al declararla y el administrador la ve; no hay un paso de aprobación. Queda como punto por
+confirmar.)*
 
 ## 8. Dictamen final
 
@@ -115,7 +158,5 @@ El administrador **no puede evaluar** (§2.2): no tiene acceso a las rutas del j
 
 ## Lo que no se hizo
 
-- **Excusa por conflicto de interés** (RF-EVA-12, prioridad C). El esquema ya tiene las
-  columnas.
 - **Correos al jurado** de inicio de etapa y recordatorio (RF-NOT-09 y 10, prioridad S).
 - **Exportación de la matriz a CSV**: llega con los reportes (paso 9).

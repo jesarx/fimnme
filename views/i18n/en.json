@@ -408,5 +408,5 @@
   "error.criterio_inexistente": "That criterion does not exist in this call.",
   "error.puntaje_fuera_de_escala": "The score is outside the scale of the criterion.",
   "error.puntaje_requerido": "The score for this criterion is missing.",
-  "error.revision_pendiente": "There are applications that the document review has neither validated nor discarded."
+  "error.excusa_vigente": "You recused yourself from this unit. Withdraw the recusal before scoring it."
 }

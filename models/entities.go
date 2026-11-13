@@ -1070,6 +1070,10 @@ type Evaluacion struct {
 	Enviada       bool
 	EnviadaAt     time.Time
 	ActualizadoAt time.Time
+	// Excusado: el jurado declaró un conflicto de interés y no califica esta
+	// unidad (RF-EVA-12). No lleva puntajes y no cuenta en el resultado.
+	Excusado     bool
+	MotivoExcusa string
 }
 
 // UnidadPropia es una unidad en la lista de trabajo de un jurado, con el
@@ -1078,6 +1082,7 @@ type UnidadPropia struct {
 	UnidadDeEvaluacion
 	Iniciada bool // el jurado ya guardó algo
 	Enviada  bool
+	Excusada bool // el jurado se excusó de calificarla
 }
 
 // EntradaEvaluacion es lo que un jurado guarda: puntajes por clave de
@@ -1103,17 +1108,22 @@ type FilaDeResultado struct {
 	DictamenFinal string
 	// PorJurado trae las evaluaciones ENVIADAS, por id de jurado. Una
 	// evaluación en borrador no aparece: aún no es una calificación.
-	PorJurado           map[int64]Evaluacion
+	PorJurado map[int64]Evaluacion
+	// Excusas trae el motivo de cada jurado que se excusó, por id de jurado.
+	Excusas             map[int64]string
 	JuradosQueEvaluaron int
-	Total               int
-	Promedio            float64
+	Total               int     // suma de los puntajes enviados
+	Promedio            float64 // promedio de los puntajes, en la escala del criterio
+	// Comparable es la suma llevada a tres jurados (PuntajeComparable): es
+	// por lo que se ordena, para que una excusa no perjudique a nadie.
+	Comparable float64
 }
 
 // MatrizDeResultados es la vista de supervisión de la evaluación (RF-EVA-08):
-// puntaje por jurado y criterio, suma, promedio y orden por total. Sólo la
-// ven el administrador y el observador; un jurado, NUNCA.
+// puntaje por jurado y criterio, suma, promedio y orden por puntaje
+// comparable. Sólo la ven el administrador y el observador; un jurado, NUNCA.
 type MatrizDeResultados struct {
 	Jurados   []JuradoEnMatriz
 	Criterios []CriterioEvaluacion
-	Filas     []FilaDeResultado // de mayor a menor total
+	Filas     []FilaDeResultado // de mayor a menor puntaje comparable
 }

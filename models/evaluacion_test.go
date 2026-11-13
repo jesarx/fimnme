@@ -144,14 +144,76 @@ func TestPermisosDeEvaluacion(t *testing.T) {
 		t.Error("un jurado no ve postulaciones de otra convocatoria")
 	}
 
-	// No se pasa a evaluación con postulaciones sin dictaminar.
+	// Las postulaciones sin dictaminar NO detienen el paso a evaluación
+	// (decisión de la CNMO): se revisan después y se suman al jurado.
 	cfg := configuracionCompleta(EstadoRevisionDocumental)
+	cfg.SinDictaminar = 3
 	if obtenido := claves(ValidarCambioDeEstado(cfg, EstadoEvaluacion, "", ahoraDePrueba)); obtenido != "[]" {
-		t.Fatalf("la configuración completa debe poder pasar a evaluación: %s", obtenido)
+		t.Errorf("con postulaciones sin dictaminar se pasa a evaluación de todos modos: %s", obtenido)
 	}
-	cfg.SinDictaminar = 1
-	if obtenido := claves(ValidarCambioDeEstado(cfg, EstadoEvaluacion, "", ahoraDePrueba)); obtenido != "[error.revision_pendiente]" {
-		t.Errorf("con una postulación sin dictaminar: %s", obtenido)
+}
+
+// Una excusa por conflicto de interés no perjudica a la postulación: se
+// ordena por el promedio entre los jurados que sí calificaron.
+func TestExcusaYPuntajeComparable(t *testing.T) {
+	for _, c := range []struct {
+		total, jurados int
+		esperado       float64
+	}{
+		{24, 3, 24},   // tres jurados: la suma tal cual
+		{16, 2, 24},   // dos con el mismo criterio: equivale a 24
+		{9, 1, 27},    // uno solo
+		{17, 2, 25.5}, // puede no ser entero
+		{20, 3, 20},
+		{0, 0, 0}, // nadie ha calificado
+	} {
+		if obtenido := PuntajeComparable(c.total, c.jurados); obtenido != c.esperado {
+			t.Errorf("suma %d de %d jurados: %v, se esperaba %v", c.total, c.jurados, obtenido, c.esperado)
+		}
+	}
+	// Con dos jurados que dan 8 y 8, la suma (16) quedaría debajo de una
+	// postulación mediocre con tres jurados (6, 6 y 6 = 18). El comparable no.
+	if PuntajeComparable(16, 2) <= PuntajeComparable(18, 3) {
+		t.Error("una excusa no debe hacer que una postulación mejor calificada quede debajo")
+	}
+
+	cfg := configuracionDeEnvio(TipoCompositores)
+	cfg.Convocatoria.Estado, cfg.Criterios = EstadoEvaluacion, CriteriosIniciales()
+	p := postulacionCompleta(TipoCompositores, "") // obras 10 y 11
+	p.Estado = PostulacionEnEvaluacion
+	for nombre, c := range map[string]struct {
+		obraID int64
+		motivo string
+		error  string
+	}{
+		"de una obra":               {10, "Fui su maestro.", "[]"},
+		"de toda la postulación":    {0, "Fui su maestro.", "[]"},
+		"sin motivo":                {10, "  ", "[error.texto_requerido]"},
+		"de una obra que no existe": {99, "x", "[error.unidad_inexistente]"},
+	} {
+		if obtenido := claves(ValidarExcusa(cfg, p, c.obraID, c.motivo)); obtenido != c.error {
+			t.Errorf("excusa %s: %s, se esperaba %s", nombre, obtenido, c.error)
+		}
+	}
+	// En Compositores, sin obra, la excusa cubre todas las obras; en
+	// Intérpretes cubre la postulación.
+	if u := UnidadesParaExcusa(TipoCompositores, p, 0); len(u) != 2 {
+		t.Errorf("excusa de toda la postulación en Compositores: %v", u)
+	}
+	if u := UnidadesParaExcusa(TipoInterpretes, p, 0); len(u) != 1 || u[0] != 0 {
+		t.Errorf("excusa en Intérpretes: %v", u)
+	}
+	if UnidadesParaExcusa(TipoInterpretes, p, 10) != nil {
+		t.Error("en Intérpretes no hay excusa por obra")
+	}
+	cerrada := cfg
+	cerrada.Convocatoria.Estado = EstadoCerrada
+	if claves(ValidarExcusa(cerrada, p, 10, "x")) != "[error.fuera_de_evaluacion]" {
+		t.Error("cerrada la etapa ya no hay excusas")
+	}
+	// Con la excusa vigente no se califica: primero hay que retirarla.
+	if claves(ValidarSinExcusa(Evaluacion{Excusado: true})) != "[error.excusa_vigente]" || ValidarSinExcusa(Evaluacion{}) != nil {
+		t.Error("una unidad con excusa vigente no se califica")
 	}
 }
 

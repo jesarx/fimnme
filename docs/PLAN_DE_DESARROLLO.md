@@ -111,8 +111,11 @@ páginas de manual.
   jurado.
 - **Evaluación no a ciegas** (decisión de la CNMO). El jurado ve la postulación completa
   y descarga sus documentos.
-- **Paso a evaluación** (RN-20). Las validadas pasan al jurado; no se pasa con
-  postulaciones sin dictaminar.
+- **Paso a evaluación** (RN-20). Las validadas pasan al jurado. La convocatoria avanza
+  aunque queden postulaciones en revisión: se validan después y se suman.
+- **Excusa por conflicto de interés** (RF-EVA-12). El jurado se excusa de una unidad, con
+  motivo; la matriz ordena por un puntaje que promedia entre quienes sí calificaron, para
+  que la excusa no perjudique.
 - **Postulación evaluada** (RF-EVA-09, RN-18) cuando los tres han enviado todo.
 - **Matriz de resultados** (RF-EVA-08). Puntaje por jurado y criterio, suma, promedio y
   lugar. Sólo para supervisión; cada consulta queda en la bitácora.
@@ -123,7 +126,6 @@ Decisiones: [ADR 0011](adr/0011-evaluacion-por-jurado.md).
 
 **Lo que este paso NO incluye:**
 
-- **Excusa por conflicto de interés** (RF-EVA-12, prioridad C).
 - **Correos al jurado** (RF-NOT-09 y 10, prioridad S).
 - **Matriz en CSV**: paso 9.
 - **Pantallas del jurado y de la matriz**: pasos 12 y 13.
@@ -465,11 +467,19 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 30. ~~Tamaños de los demás documentos.~~ **Resuelto (13-nov-2026):** audio, partitura y
     particellas, 30 MB; las particellas, en un solo PDF; autorización (10 MB) y fotografía
     (5 MB), como estaban.
-31. **No se pasa a evaluación con postulaciones sin dictaminar.** Si a la fecha de inicio
-    de la evaluación queda alguna sin validar ni descartar, la convocatoria no avanza y
-    el log lo avisa (ADR 0011, §6).
+31. ~~Paso a evaluación con postulaciones sin dictaminar.~~ **Resuelto (13-nov-2026):** la
+    convocatoria avanza aunque falte alguna por subsanar; la revisión sigue durante la
+    evaluación y la postulación, al validarse, se suma a lo que el jurado tiene por
+    calificar (ADR 0011, §6).
 32. **Una evaluación enviada puede corregirse** mientras dure la etapa de evaluación; al
     cerrarse queda congelada. La especificación dice que «la modifica mientras la etapa
     esté abierta».
 33. **El postulante ve «en evaluación» y «evaluada»**, pero no el dictamen final ni
     ninguna calificación.
+34. **La excusa de un jurado surte efecto al declararla**, sin aprobación del
+    administrador, que la ve en la matriz con su motivo. La especificación dice que «el
+    administrador resuelve» (ADR 0011, §7).
+35. **La matriz ordena por puntaje comparable** (promedio por jurado, llevado a tres), no
+    por la suma, para que una excusa no perjudique. Con tres jurados es la suma.
+36. **Al cerrar la evaluación, lo que siga en revisión queda fuera.** El sistema no lo
+    impide; la configuración muestra cuántas postulaciones quedan por dictaminar.

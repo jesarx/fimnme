@@ -19,6 +19,7 @@
 package models
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -4166,14 +4167,18 @@ func (r *Repositorio) DictaminarPostulacion(ctx context.Context, actor Actor, po
 		}
 		marca := r.marca()
 		var validadaAt, motivoDescarte sql.NullString
+		estado := dictamen
 		if dictamen == PostulacionValidada {
 			validadaAt = nuloSiVacio(marca)
+			// Si la evaluación ya empezó, la postulación validada se suma de
+			// inmediato a lo que el jurado tiene por calificar.
+			estado = EstadoAlValidar(cfg.Convocatoria.Estado)
 		} else {
 			motivoDescarte = nuloSiVacio(motivo)
 		}
 		if _, err := tx.ExecContext(ctx,
 			"UPDATE postulacion SET estado = ?, validada_at = ?, motivo_descarte = ?, actualizado_at = ? WHERE id = ?",
-			string(dictamen), validadaAt, motivoDescarte, marca, p.ID); err != nil {
+			string(estado), validadaAt, motivoDescarte, marca, p.ID); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -4183,7 +4188,7 @@ func (r *Repositorio) DictaminarPostulacion(ctx context.Context, actor Actor, po
 		// El motivo del descarte sí queda en la bitácora: es un acto del
 		// proceso, no un dato personal.
 		return r.auditar(ctx, tx, actor, "postulacion.dictaminar", "postulacion", p.ID,
-			map[string]any{"estado": p.Estado}, map[string]any{"estado": dictamen, "motivo": motivo})
+			map[string]any{"estado": p.Estado}, map[string]any{"estado": estado, "motivo": motivo})
 	})
 }
 
@@ -4293,29 +4298,30 @@ func (j JuradoRepo) Unidades(ctx context.Context, convocatoriaID int64) ([]Unida
 		return nil, err
 	}
 	filas, err := j.r.lectura.QueryContext(ctx,
-		"SELECT e.postulacion_id, e.obra_clave, e.enviada FROM evaluacion e WHERE e.jurado_id = ? AND e.convocatoria_id = ?",
+		"SELECT e.postulacion_id, e.obra_clave, e.enviada, e.excusado FROM evaluacion e WHERE e.jurado_id = ? AND e.convocatoria_id = ?",
 		j.juradoID, convocatoriaID)
 	if err != nil {
 		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
 	}
 	defer filas.Close()
 	type unidad struct{ postulacionID, obraID int64 }
-	enviadas := make(map[unidad]bool)
+	type avance struct{ enviada, excusada bool }
+	avances := make(map[unidad]avance)
 	for filas.Next() {
 		var u unidad
-		var enviada bool
-		if err := filas.Scan(&u.postulacionID, &u.obraID, &enviada); err != nil {
+		var a avance
+		if err := filas.Scan(&u.postulacionID, &u.obraID, &a.enviada, &a.excusada); err != nil {
 			return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
 		}
-		enviadas[u] = enviada
+		avances[u] = a
 	}
 	if err := filas.Err(); err != nil {
 		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
 	}
 	propias := make([]UnidadPropia, 0, len(unidades))
 	for _, f := range unidades {
-		enviada, iniciada := enviadas[unidad{f.Unidad.PostulacionID, f.Unidad.ObraID}]
-		propias = append(propias, UnidadPropia{UnidadDeEvaluacion: f.Unidad, Iniciada: iniciada, Enviada: enviada})
+		a, iniciada := avances[unidad{f.Unidad.PostulacionID, f.Unidad.ObraID}]
+		propias = append(propias, UnidadPropia{UnidadDeEvaluacion: f.Unidad, Iniciada: iniciada, Enviada: a.enviada, Excusada: a.excusada})
 	}
 	return propias, nil
 }
@@ -4326,10 +4332,11 @@ func (j JuradoRepo) evaluacionPropia(ctx context.Context, q consultor, postulaci
 	e := Evaluacion{PostulacionID: postulacionID, ObraID: obraID, Puntajes: make(map[string]int)}
 	var enviadaAt, actualizado string
 	err := q.QueryRowContext(ctx, `
-		SELECT e.id, COALESCE(e.observaciones, ''), e.enviada, COALESCE(e.enviada_at, ''), e.actualizado_at
+		SELECT e.id, COALESCE(e.observaciones, ''), e.enviada, COALESCE(e.enviada_at, ''), e.actualizado_at,
+		       e.excusado, COALESCE(e.motivo_excusa, '')
 		FROM evaluacion e
 		WHERE e.jurado_id = ? AND e.postulacion_id = ? AND e.obra_clave = ?`,
-		j.juradoID, postulacionID, obraID).Scan(&e.ID, &e.Observaciones, &e.Enviada, &enviadaAt, &actualizado)
+		j.juradoID, postulacionID, obraID).Scan(&e.ID, &e.Observaciones, &e.Enviada, &enviadaAt, &actualizado, &e.Excusado, &e.MotivoExcusa)
 	if errors.Is(err, sql.ErrNoRows) {
 		return e, nil
 	}
@@ -4386,6 +4393,9 @@ func (j JuradoRepo) Guardar(ctx context.Context, actor Actor, postulacionID int6
 		}
 		previa, err := j.evaluacionPropia(ctx, tx, postulacionID, entrada.ObraID)
 		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarSinExcusa(previa)); err != nil {
 			return err
 		}
 		entrada.Observaciones = strings.TrimSpace(entrada.Observaciones)
@@ -4457,8 +4467,90 @@ func (j JuradoRepo) Guardar(ctx context.Context, actor Actor, postulacionID int6
 	return guardada, err
 }
 
+// Excusarse registra que el jurado no califica una unidad por conflicto de
+// interés (RF-EVA-12). En Compositores, sin obra indicada, se excusa de todas
+// las obras de la postulación. Lo que hubiera calificado de esas unidades se
+// retira: una excusa no convive con una calificación.
+//
+// La excusa no perjudica a la postulación: la matriz ordena por un puntaje
+// que promedia entre los jurados que sí calificaron (PuntajeComparable).
+func (j JuradoRepo) Excusarse(ctx context.Context, actor Actor, postulacionID, obraID int64, motivo string) error {
+	return j.r.operacion(ctx, "excusarse de evaluar", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarExcusa(cfg, p, obraID, motivo)); err != nil {
+			return err
+		}
+		marca := j.r.marca()
+		for _, unidad := range UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID) {
+			previa, err := j.evaluacionPropia(ctx, tx, postulacionID, unidad)
+			if err != nil {
+				return err
+			}
+			if previa.ID == 0 {
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO evaluacion (convocatoria_id, jurado_id, postulacion_id, obra_id, obra_clave,
+					                        excusado, motivo_excusa, creado_at, actualizado_at)
+					VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+					p.ConvocatoriaID, j.juradoID, p.ID, nuloSiCero(unidad), unidad, motivo, marca, marca)
+			} else {
+				if _, err := tx.ExecContext(ctx, `
+					DELETE FROM evaluacion_puntaje
+					WHERE evaluacion_id IN (SELECT e.id FROM evaluacion e WHERE e.jurado_id = ? AND e.id = ?)`, j.juradoID, previa.ID); err != nil {
+					return err
+				}
+				_, err = tx.ExecContext(ctx, `
+					UPDATE evaluacion
+					SET excusado = 1, motivo_excusa = ?, enviada = 0, enviada_at = NULL, observaciones = NULL, actualizado_at = ?
+					WHERE jurado_id = ? AND id = ?`, motivo, marca, j.juradoID, previa.ID)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if err := marcarEvaluadaSiCompleta(ctx, tx, cfg, p); err != nil {
+			return err
+		}
+		// El motivo no va a la bitácora: suele nombrar a una persona.
+		return j.r.auditar(ctx, tx, actor, "evaluacion.excusarse", "postulacion", p.ID, nil, map[string]any{"obra_id": obraID})
+	})
+}
+
+// RetirarExcusa deshace una excusa: el jurado vuelve a tener la unidad por
+// calificar. Si la postulación ya figuraba como evaluada, regresa a
+// evaluación, porque vuelve a faltarle una calificación.
+func (j JuradoRepo) RetirarExcusa(ctx context.Context, actor Actor, postulacionID, obraID int64) error {
+	return j.r.operacion(ctx, "retirar excusa", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		// Se exige lo mismo que para excusarse, salvo el motivo.
+		if err := validacion(ValidarExcusa(cfg, p, obraID, "retiro")); err != nil {
+			return err
+		}
+		for _, unidad := range UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID) {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE evaluacion SET excusado = 0, motivo_excusa = NULL, actualizado_at = ?
+				WHERE jurado_id = ? AND postulacion_id = ? AND obra_clave = ? AND excusado = 1`,
+				j.r.marca(), j.juradoID, p.ID, unidad); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ? AND estado = ?",
+			string(PostulacionEnEvaluacion), p.ID, string(PostulacionEvaluada)); err != nil {
+			return err
+		}
+		return j.r.auditar(ctx, tx, actor, "evaluacion.retirar_excusa", "postulacion", p.ID, nil, map[string]any{"obra_id": obraID})
+	})
+}
+
 // marcarEvaluadaSiCompleta pasa una postulación a «evaluada» cuando los tres
-// jurados activos han enviado todas sus unidades (RN-18).
+// jurados activos han atendido todas sus unidades (RN-18): cada uno la envió
+// o se excusó de calificarla.
 //
 // Es la ÚNICA consulta fuera de SupervisionRepo que cuenta evaluaciones de
 // varios jurados. Sólo cuenta cuántas se han enviado: no lee puntajes ni
@@ -4470,7 +4562,7 @@ func marcarEvaluadaSiCompleta(ctx context.Context, tx *sql.Tx, cfg Configuracion
 		SELECT COUNT(*) FROM evaluacion e
 		JOIN asignacion a ON a.usuario_id = e.jurado_id AND a.convocatoria_id = e.convocatoria_id
 		                 AND a.perfil = 'jurado' AND a.activo = 1
-		WHERE e.postulacion_id = ? AND e.enviada = 1`, p.ID).Scan(&enviadas)
+		WHERE e.postulacion_id = ? AND (e.enviada = 1 OR e.excusado = 1)`, p.ID).Scan(&enviadas)
 	if err != nil {
 		return err
 	}
@@ -4494,9 +4586,9 @@ func (r *Repositorio) Supervision() SupervisionRepo {
 }
 
 // Matriz devuelve la matriz de resultados de una convocatoria (RF-EVA-08):
-// por cada unidad, lo que calificó cada jurado, la suma de los tres y el
-// promedio, ordenada de mayor a menor total. Sólo cuentan las evaluaciones
-// enviadas.
+// por cada unidad, lo que calificó cada jurado, quién se excusó, la suma, el
+// promedio y el puntaje comparable, por el que se ordena. Sólo cuentan las
+// evaluaciones enviadas.
 //
 // La consulta queda en la bitácora (§8.4): quién miró los resultados y cuándo.
 func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID int64) (MatrizDeResultados, error) {
@@ -4518,7 +4610,7 @@ func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID
 		type unidad struct{ postulacionID, obraID int64 }
 		posicion := make(map[unidad]int)
 		for i := range matriz.Filas {
-			matriz.Filas[i].PorJurado = make(map[int64]Evaluacion)
+			matriz.Filas[i].PorJurado, matriz.Filas[i].Excusas = make(map[int64]Evaluacion), make(map[int64]string)
 			posicion[unidad{matriz.Filas[i].Unidad.PostulacionID, matriz.Filas[i].Unidad.ObraID}] = i
 		}
 
@@ -4566,6 +4658,30 @@ func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID
 			return err
 		}
 
+		// Excusas: quién no califica qué, y por qué.
+		filas, err = tx.QueryContext(ctx, `
+			SELECT e.postulacion_id, e.obra_clave, e.jurado_id, COALESCE(e.motivo_excusa, '')
+			FROM evaluacion e WHERE e.convocatoria_id = ? AND e.excusado = 1`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var juradoID int64
+			var motivo string
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &juradoID, &motivo); err != nil {
+				filas.Close()
+				return err
+			}
+			if i, existe := posicion[u]; existe {
+				matriz.Filas[i].Excusas[juradoID] = motivo
+			}
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+
 		// Suma y promedio: de la vista v_resultado, la única agregación.
 		filas, err = tx.QueryContext(ctx, `
 			SELECT postulacion_id, obra_clave, jurados_que_evaluaron, puntaje_total, COALESCE(puntaje_promedio, 0)
@@ -4589,8 +4705,14 @@ func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID
 		if err := filas.Err(); err != nil {
 			return err
 		}
-		// De mayor a menor total; a igual total, por folio y orden de obra.
-		slices.SortStableFunc(matriz.Filas, func(a, b FilaDeResultado) int { return b.Total - a.Total })
+		// De mayor a menor puntaje COMPARABLE, no por la suma: así una unidad
+		// que calificaron dos jurados, porque el tercero se excusó, compite en
+		// igualdad con las que calificaron tres. A igual puntaje, por folio y
+		// orden de obra.
+		for i := range matriz.Filas {
+			matriz.Filas[i].Comparable = PuntajeComparable(matriz.Filas[i].Total, matriz.Filas[i].JuradosQueEvaluaron)
+		}
+		slices.SortStableFunc(matriz.Filas, func(a, b FilaDeResultado) int { return cmp.Compare(b.Comparable, a.Comparable) })
 		return s.r.auditar(ctx, tx, actor, "evaluacion.consultar", "convocatoria", convocatoriaID, nil, nil)
 	})
 	return matriz, err

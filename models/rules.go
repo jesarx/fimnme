@@ -21,6 +21,7 @@ package models
 import (
 	"fmt"
 	"maps"
+	"math"
 	"net/mail"
 	"net/netip"
 	"net/url"
@@ -697,11 +698,8 @@ func ValidarCambioDeEstado(cfg ConfiguracionConvocatoria, destino EstadoConvocat
 		if len(cfg.Criterios) == 0 {
 			errores = append(errores, ErrorCampo{Campo: "criterios", Clave: "error.sin_criterios"})
 		}
-		// Una postulación que la revisión aún no valida ni descarta quedaría
-		// fuera de la evaluación sin que nadie lo hubiera decidido.
-		if cfg.SinDictaminar > 0 {
-			errores = append(errores, ErrorCampo{Campo: "postulaciones", Clave: "error.revision_pendiente"})
-		}
+		// Las postulaciones que la revisión aún no dictamina NO detienen el
+		// paso a evaluación: se revisan después y se suman al jurado.
 	}
 	return errores
 }
@@ -1913,12 +1911,30 @@ func textoRequerido(texto, campo string) []ErrorCampo {
 	return nil
 }
 
+// AdmiteRevision indica si en esta etapa de la convocatoria puede hacerse
+// revisión documental: en la etapa de revisión y TAMBIÉN durante la
+// evaluación (decisión de la CNMO). La convocatoria pasa a evaluación aunque
+// queden postulaciones por subsanar o por dictaminar; se terminan de revisar
+// después y, al validarse, se suman a lo que el jurado tiene por calificar.
+func AdmiteRevision(estado EstadoConvocatoria) bool {
+	return estado == EstadoRevisionDocumental || estado == EstadoEvaluacion
+}
+
+// EstadoAlValidar es el estado en que queda una postulación al validarla: si
+// la evaluación ya empezó pasa directamente al jurado (RN-20).
+func EstadoAlValidar(estado EstadoConvocatoria) EstadoDePostulacion {
+	if estado == EstadoEvaluacion {
+		return PostulacionEnEvaluacion
+	}
+	return PostulacionValidada
+}
+
 // ValidarAccionDeRevision comprueba que pueda revisarse una postulación: la
-// convocatoria debe estar en revisión documental y la postulación, enviada y
+// convocatoria debe admitir revisión y la postulación estar enviada y
 // sin una subsanación en curso (mientras el postulante corrige, el revisor
 // espera).
 func ValidarAccionDeRevision(c Convocatoria, p Postulacion) []ErrorCampo {
-	if c.Estado != EstadoRevisionDocumental {
+	if !AdmiteRevision(c.Estado) {
 		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
 	}
 	if p.Estado != PostulacionEnviada && p.Estado != PostulacionEnRevision {
@@ -2061,14 +2077,14 @@ func ValidarRespuestaDeDesbloqueo(concedida bool, motivo string) []ErrorCampo {
 // ValidarDictamenDePostulacion valida el dictamen con que termina la revisión
 // de una postulación: validada o descartada (RF-REV-08).
 //
-//   - Sólo durante la revisión documental.
+//   - Durante la revisión documental o la evaluación (AdmiteRevision).
 //   - Descartar exige motivo.
 //   - No se valida una postulación con un documento dictaminado inválido.
 //   - Mientras el postulante tiene una subsanación abierta no se dictamina:
 //     se espera a que reenvíe o a que venza el plazo. Vencida, sí (RF-REV-09).
 //   - Un dictamen ya emitido puede corregirse mientras dure la etapa.
 func ValidarDictamenDePostulacion(c Convocatoria, p Postulacion, dictamen EstadoDePostulacion, motivo string, ahora time.Time) []ErrorCampo {
-	if c.Estado != EstadoRevisionDocumental {
+	if !AdmiteRevision(c.Estado) {
 		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
 	}
 	switch p.Estado {
@@ -2297,4 +2313,62 @@ func ValidarDictamenFinal(c Convocatoria, p Postulacion, dictamen string) []Erro
 		return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
 	}
 	return nil
+}
+
+// --- Excusa por conflicto de interés (RF-EVA-12) ------------------------------
+
+// UnidadesParaExcusa devuelve las unidades de las que un jurado se excusa. En
+// Intérpretes, la postulación. En Compositores, la obra indicada o, si no se
+// indica ninguna, todas las de la postulación: el conflicto suele ser con la
+// persona, no con una obra.
+func UnidadesParaExcusa(tipo TipoConvocatoria, p Postulacion, obraID int64) []int64 {
+	unidades := UnidadesDeEvaluacion(tipo, p)
+	if tipo == TipoCompositores && obraID == 0 {
+		return unidades
+	}
+	if slices.Contains(unidades, obraID) {
+		return []int64{obraID}
+	}
+	return nil
+}
+
+// ValidarExcusa valida que un jurado se excuse de evaluar: durante la etapa
+// de evaluación, sobre una postulación a su vista, de una unidad que exista,
+// y diciendo por qué.
+func ValidarExcusa(cfg ConfiguracionConvocatoria, p Postulacion, obraID int64, motivo string) []ErrorCampo {
+	if cfg.Convocatoria.Estado != EstadoEvaluacion {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if len(UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID)) == 0 {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.unidad_inexistente"}}
+	}
+	return textoRequerido(motivo, "motivo")
+}
+
+// ValidarSinExcusa impide calificar una unidad de la que el jurado se excusó:
+// primero debe retirar la excusa. Evita que una calificación se cuele por
+// descuido donde se declaró un conflicto de interés.
+func ValidarSinExcusa(previa Evaluacion) []ErrorCampo {
+	if previa.Excusado {
+		return []ErrorCampo{{Campo: "excusa", Clave: "error.excusa_vigente"}}
+	}
+	return nil
+}
+
+// PuntajeComparable convierte la suma de una unidad en un puntaje que puede
+// compararse entre unidades aunque no las hayan calificado los mismos
+// jurados: el promedio por jurado, llevado a la cuota de tres.
+//
+// Es lo que hace que una excusa no perjudique a nadie (decisión de la CNMO):
+// si un jurado se excusa, la suma de los otros dos sería menor que la de tres
+// sin que la propuesta sea peor. Con dos jurados que suman 16, el puntaje
+// comparable es 24: lo que habrían sumado tres con el mismo criterio.
+func PuntajeComparable(total, juradosQueEvaluaron int) float64 {
+	if juradosQueEvaluaron == 0 {
+		return 0
+	}
+	return math.Round(float64(total)*float64(CuotaJurados)/float64(juradosQueEvaluaron)*100) / 100
 }

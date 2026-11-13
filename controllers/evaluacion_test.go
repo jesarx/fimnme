@@ -105,11 +105,7 @@ func hastaEvaluacion(t *testing.T) *evaluacionDePrueba {
 	admin.estado(interpretes, "revision_documental", "Inicio de la revisión, en la prueba")
 	admin.estado(compositores, "revision_documental", "Inicio de la revisión, en la prueba")
 
-	// Mientras quede una postulación sin dictaminar, no se pasa a evaluación.
 	x.revisora.exige(http.StatusOK, "POST", x.rutaLuis+"/dictamen", obj{"dictamen": "validada"})
-	if campos := admin.rechaza("POST", fmt.Sprintf("/api/v1/convocatorias/%d/estado", interpretes), obj{"estado": "evaluacion"}); fmt.Sprint(campos) != "[postulaciones]" {
-		t.Fatalf("pasar a evaluación con una postulación sin dictaminar: %v", campos)
-	}
 	x.revisora.exige(http.StatusOK, "POST", x.rutaAna+"/dictamen", obj{"dictamen": "descartada", "motivo": "No cumple las bases."})
 	revisorCom.exige(http.StatusOK, "POST", x.rutaEva+"/dictamen", obj{"dictamen": "validada"})
 	return x
@@ -141,7 +137,7 @@ func TestEvaluacionPorJurado(t *testing.T) {
 	trabajo := j1.exige(http.StatusOK, "GET", lista1, nil)
 	unidades := lista(trabajo, "unidades")
 	if len(unidades) != 1 || unidades[0]["folio"] != "FIM50-INT-0001" || unidades[0]["obra_id"] != nil || unidades[0]["iniciada"] != false ||
-		trabajo["abierta"] != true || fmt.Sprint(trabajo["progreso"]) != "map[enviadas:0 total:1]" || len(lista(trabajo, "criterios")) != 2 {
+		trabajo["abierta"] != true || fmt.Sprint(trabajo["progreso"]) != "map[enviadas:0 excusadas:0 pendientes:1 total:1]" || len(lista(trabajo, "criterios")) != 2 {
 		t.Fatalf("lista de trabajo del jurado: %v", trabajo)
 	}
 	if estado, _ := j1.api("GET", x.rutaAna, nil); estado != http.StatusNotFound {
@@ -214,7 +210,7 @@ func TestEvaluacionPorJurado(t *testing.T) {
 	if estado, _ := j1.api("PUT", x.rutaLuis+"/evaluacion", obj{"puntajes": obj{"realizacion": 4.5}}); estado != http.StatusBadRequest {
 		t.Errorf("un puntaje con decimales no es válido: %d", estado)
 	}
-	if progreso := j1.exige(http.StatusOK, "GET", lista1, nil); fmt.Sprint(progreso["progreso"]) != "map[enviadas:0 total:1]" || lista(progreso, "unidades")[0]["iniciada"] != true {
+	if progreso := j1.exige(http.StatusOK, "GET", lista1, nil); fmt.Sprint(progreso["progreso"]) != "map[enviadas:0 excusadas:0 pendientes:1 total:1]" || lista(progreso, "unidades")[0]["iniciada"] != true {
 		t.Errorf("avance con un borrador: %v", progreso["progreso"])
 	}
 
@@ -230,7 +226,7 @@ func TestEvaluacionPorJurado(t *testing.T) {
 	if corregida["enviada"] != true || corregida["enviada_at"] != enviada["enviada_at"] || fmt.Sprint(corregida["puntajes"]) != "map[artistico:5 realizacion:3]" {
 		t.Errorf("corrección de una evaluación enviada: %v", corregida)
 	}
-	if progreso := j1.exige(http.StatusOK, "GET", lista1, nil); fmt.Sprint(progreso["progreso"]) != "map[enviadas:1 total:1]" {
+	if progreso := j1.exige(http.StatusOK, "GET", lista1, nil); fmt.Sprint(progreso["progreso"]) != "map[enviadas:1 excusadas:0 pendientes:0 total:1]" {
 		t.Errorf("avance tras enviar: %v", progreso["progreso"])
 	}
 
@@ -339,7 +335,7 @@ func TestEvaluacionPorObra(t *testing.T) {
 	trabajo := j1.exige(http.StatusOK, "GET", ruta, nil)
 	unidades := lista(trabajo, "unidades")
 	if len(unidades) != 2 || id(unidades[0]["obra_id"]) != x.obrasDeEva[0] || unidades[0]["obra"] != "Cuarteto n.º 1" || unidades[1]["obra"] != "Cuarteto n.º 2" ||
-		unidades[0]["folio"] != "FIM50-COM-0001" || fmt.Sprint(trabajo["progreso"]) != "map[enviadas:0 total:2]" {
+		unidades[0]["folio"] != "FIM50-COM-0001" || fmt.Sprint(trabajo["progreso"]) != "map[enviadas:0 excusadas:0 pendientes:2 total:2]" {
 		t.Fatalf("unidades de Compositores: %v", unidades)
 	}
 	cinco := func(obraID int64) obj {
@@ -360,7 +356,7 @@ func TestEvaluacionPorObra(t *testing.T) {
 	if primera["enviada"] != true || segunda["enviada"] != false || fmt.Sprint(segunda["puntajes"]) != "map[realizacion:2]" {
 		t.Errorf("evaluaciones por obra: %v / %v", primera, segunda)
 	}
-	if trabajo = j1.exige(http.StatusOK, "GET", ruta, nil); fmt.Sprint(trabajo["progreso"]) != "map[enviadas:1 total:2]" {
+	if trabajo = j1.exige(http.StatusOK, "GET", ruta, nil); fmt.Sprint(trabajo["progreso"]) != "map[enviadas:1 excusadas:0 pendientes:1 total:2]" {
 		t.Errorf("avance por obra: %v", trabajo["progreso"])
 	}
 	// La postulación queda evaluada cuando los tres han enviado LAS DOS obras.
@@ -566,5 +562,173 @@ func TestSupervisionSoloDesdeResultados(t *testing.T) {
 	}
 	if !strings.Contains(string(fuente), `"/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)`) || strings.Count(string(fuente), "apiResultados") != 1 {
 		t.Error("la ruta de resultados debe ir envuelta en a.supervisa, y ser la única que llega a apiResultados")
+	}
+}
+
+// Una excusa por conflicto de interés no perjudica a la postulación: se
+// ordena por el promedio entre los jurados que sí calificaron (RF-EVA-12).
+func TestExcusaDelJurado(t *testing.T) {
+	x := hastaEvaluacion(t)
+	x.admin.estado(x.compositores, "evaluacion", "")
+	j1, j2, j3 := x.juradosCom[0], x.juradosCom[1], x.juradosCom[2]
+	primera, segunda := x.obrasDeEva[0], x.obrasDeEva[1]
+	trabajo := fmt.Sprintf("/api/v1/convocatorias/%d/evaluacion", x.compositores)
+	califica := func(obraID int64, realizacion, artistico int) obj {
+		return obj{"obra_id": obraID, "puntajes": obj{"realizacion": realizacion, "artistico": artistico}, "enviar": true}
+	}
+
+	// La primera obra la califican los tres: 3+3, 3+3 y 3+3 = 18.
+	for _, jurado := range x.juradosCom {
+		evaluar(t, jurado, x.rutaEva, califica(primera, 3, 3))
+	}
+	// La segunda: el jurado 3 se excusa; los otros dos dan 4+4 y 4+4 = 16.
+	evaluar(t, j1, x.rutaEva, califica(segunda, 4, 4))
+	evaluar(t, j2, x.rutaEva, califica(segunda, 4, 4))
+	if campos := j3.rechaza("PUT", x.rutaEva+"/excusa", obj{"obra_id": segunda}); fmt.Sprint(campos) != "[motivo]" {
+		t.Errorf("excusa sin motivo: %v", campos)
+	}
+	if campos := j3.rechaza("PUT", x.rutaEva+"/excusa", obj{"obra_id": 9999, "motivo": "x"}); fmt.Sprint(campos) != "[obra_id]" {
+		t.Errorf("excusa de una obra inexistente: %v", campos)
+	}
+	// Sólo un jurado de la convocatoria se excusa.
+	for nombre, caso := range map[string]struct {
+		c      *cliente
+		estado int
+	}{"administrador": {x.admin, 403}, "jurado de otra convocatoria": {x.juradosInt[0], 404}, "titular": {x.eva, 403}} {
+		if estado, _ := caso.c.api("PUT", x.rutaEva+"/excusa", obj{"obra_id": segunda, "motivo": "x"}); estado != caso.estado {
+			t.Errorf("excusa como %s: %d, se esperaba %d", nombre, estado, caso.estado)
+		}
+	}
+	// El jurado 3 había empezado a calificarla: al excusarse, eso se retira.
+	evaluar(t, j3, x.rutaEva, obj{"obra_id": segunda, "puntajes": obj{"realizacion": 1}, "observaciones": "Borrador"})
+	excusada := j3.exige(http.StatusOK, "PUT", x.rutaEva+"/excusa", obj{"obra_id": segunda, "motivo": "Fue mi alumna."})
+	if excusada["excusado"] != true || excusada["motivo_excusa"] != "Fue mi alumna." || excusada["enviada"] != false ||
+		len(excusada["puntajes"].(obj)) != 0 || excusada["observaciones"] != "" {
+		t.Errorf("unidad excusada: %v", excusada)
+	}
+	// Excusada, ya no está pendiente; y no puede calificarse sin retirar la excusa.
+	lista3 := j3.exige(http.StatusOK, "GET", trabajo, nil)
+	if fmt.Sprint(lista3["progreso"]) != "map[enviadas:1 excusadas:1 pendientes:0 total:2]" || lista(lista3, "unidades")[1]["excusada"] != true {
+		t.Errorf("avance con una excusa: %v", lista3["progreso"])
+	}
+	if campos := j3.rechaza("PUT", x.rutaEva+"/evaluacion", califica(segunda, 5, 5)); fmt.Sprint(campos) != "[excusa]" {
+		t.Errorf("calificar con la excusa vigente: %v", campos)
+	}
+	// Con la excusa, la postulación ya está atendida por los tres: evaluada.
+	if p := x.admin.exige(http.StatusOK, "GET", x.rutaEva, nil); p["estado"] != "evaluada" {
+		t.Errorf("una excusa cuenta como unidad atendida: %v", p["estado"])
+	}
+
+	// La matriz: la obra con excusa suma menos (16 contra 18), pero su
+	// puntaje comparable es mayor (24 contra 18) y va PRIMERO.
+	filas := lista(x.admin.exige(http.StatusOK, "GET", fmt.Sprintf("/api/v1/convocatorias/%d/resultados", x.compositores), nil), "filas")
+	arriba, abajo := filas[0], filas[1]
+	if id(arriba["obra_id"]) != segunda || id(arriba["total"]) != 16 || arriba["puntaje"].(float64) != 24 || id(arriba["jurados_que_evaluaron"]) != 2 ||
+		id(arriba["excusados"]) != 1 || arriba["promedio"].(float64) != 4 || id(arriba["lugar"]) != 1 {
+		t.Errorf("la obra con excusa debe ir primero, por su promedio: %v", arriba)
+	}
+	if id(abajo["obra_id"]) != primera || id(abajo["total"]) != 18 || abajo["puntaje"].(float64) != 18 || id(abajo["excusados"]) != 0 || abajo["promedio"].(float64) != 3 {
+		t.Errorf("la obra calificada por los tres: %v", abajo)
+	}
+	excusa := lista(arriba, "evaluaciones")[2]
+	if excusa["excusado"] != true || excusa["motivo_excusa"] != "Fue mi alumna." || excusa["enviada"] != false || excusa["puntajes"] != nil {
+		t.Errorf("la excusa en la matriz: %v", excusa)
+	}
+	// El motivo no llega a la bitácora ni a los otros jurados.
+	for _, asiento := range x.e.asientos("evaluacion.excusarse") {
+		if strings.Contains(fmt.Sprint(asiento.Despues), "alumna") {
+			t.Error("el motivo de la excusa no debe quedar en la bitácora")
+		}
+	}
+	if strings.Contains(j1.bajar(trabajo).Body.String()+j1.bajar(x.rutaEva+"/evaluacion?obra_id="+fmt.Sprint(segunda)).Body.String(), "alumna") {
+		t.Error("la excusa de un jurado no debe llegar a otro")
+	}
+
+	// Retirar la excusa: la unidad vuelve a estar pendiente y la postulación
+	// regresa a evaluación hasta que la califique.
+	retirada := j3.exige(http.StatusOK, "DELETE", fmt.Sprintf("%s/excusa?obra_id=%d", x.rutaEva, segunda), nil)
+	if retirada["excusado"] != false || retirada["motivo_excusa"] != nil {
+		t.Errorf("excusa retirada: %v", retirada)
+	}
+	if p := x.admin.exige(http.StatusOK, "GET", x.rutaEva, nil); p["estado"] != "en_evaluacion" {
+		t.Errorf("al retirar la excusa vuelve a faltar una calificación: %v", p["estado"])
+	}
+	evaluar(t, j3, x.rutaEva, califica(segunda, 1, 1))
+	filas = lista(x.admin.exige(http.StatusOK, "GET", fmt.Sprintf("/api/v1/convocatorias/%d/resultados", x.compositores), nil), "filas")
+	if id(filas[0]["obra_id"]) != primera || id(filas[1]["total"]) != 18 || filas[1]["puntaje"].(float64) != 18 || id(filas[1]["excusados"]) != 0 {
+		t.Errorf("tras calificarla los tres, el orden vuelve a ser por la suma: %v", filas)
+	}
+
+	// Sin obra_id, en Compositores la excusa cubre toda la postulación.
+	todas := j2.exige(http.StatusOK, "PUT", x.rutaEva+"/excusa", obj{"motivo": "Somos socios."})
+	lista2 := j2.exige(http.StatusOK, "GET", trabajo, nil)
+	if todas["excusado"] != true || fmt.Sprint(lista2["progreso"]) != "map[enviadas:0 excusadas:2 pendientes:0 total:2]" {
+		t.Errorf("excusa de toda la postulación: %v", lista2["progreso"])
+	}
+	// En Intérpretes la excusa es de la postulación.
+	x.admin.estado(x.interpretes, "evaluacion", "")
+	if e := x.juradosInt[0].exige(http.StatusOK, "PUT", x.rutaLuis+"/excusa", obj{"motivo": "Es mi hermano."}); e["excusado"] != true || e["obra_id"] != nil {
+		t.Errorf("excusa en Intérpretes: %v", e)
+	}
+}
+
+// La convocatoria pasa a evaluación aunque queden postulaciones en revisión;
+// al validarse después, se suman a lo que el jurado tiene por calificar.
+func TestValidacionTardiaSeSumaALaEvaluacion(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin, interpretes, _, _, _ := e.convocatoriasAbiertas()
+	si := obj{"confirmo": true, "acepto_bases": true}
+	luis, ana := e.postulanteVerificado("luis@ejemplo.mx"), e.postulanteVerificado("ana@ejemplo.mx")
+	rutaLuis, _ := e.solistaCompleto(luis, interpretes, "luis")
+	rutaAna, _ := e.solistaCompleto(ana, interpretes, "ana")
+	luis.exige(http.StatusOK, "POST", rutaLuis+"/envio", si)
+	ana.exige(http.StatusOK, "POST", rutaAna+"/envio", si)
+	revisora := e.revisor(admin, interpretes, "rita@ejemplo.mx")
+	var jurados []*cliente
+	for i := 1; i <= 3; i++ {
+		c, _ := e.asignado(admin, interpretes, fmt.Sprintf("jurado-%d@ejemplo.mx", i), "jurado")
+		jurados = append(jurados, c)
+	}
+	admin.estado(interpretes, "revision_documental", "Inicio de la revisión, en la prueba")
+	revisora.exige(http.StatusOK, "POST", rutaLuis+"/dictamen", obj{"dictamen": "validada"})
+	// La de Ana queda en subsanación.
+	revisora.exige(http.StatusCreated, "POST", rutaAna+"/subsanaciones", obj{"fecha_limite": "2026-12-15T06:00:00Z",
+		"problemas": []obj{{"clase": "campo", "campo": "datos.telefono", "problema": "Falta la clave lada."}}})
+
+	// Aun así la convocatoria pasa a evaluación; la configuración avisa de
+	// cuántas quedan por dictaminar.
+	cfg := admin.estado(interpretes, "evaluacion", "")
+	if cfg["estado"] != "evaluacion" || id(cfg["postulaciones_sin_dictaminar"]) != 1 {
+		t.Fatalf("paso a evaluación con una postulación pendiente: %v %v", cfg["estado"], cfg["postulaciones_sin_dictaminar"])
+	}
+	trabajo := fmt.Sprintf("/api/v1/convocatorias/%d/evaluacion", interpretes)
+	if lista1 := jurados[0].exige(http.StatusOK, "GET", trabajo, nil); len(lista(lista1, "unidades")) != 1 {
+		t.Fatalf("el jurado empieza con la que ya estaba validada: %v", lista1["unidades"])
+	}
+	if estado, _ := jurados[0].api("GET", rutaAna, nil); estado != http.StatusNotFound {
+		t.Errorf("la que sigue en revisión aún no existe para el jurado: %d", estado)
+	}
+
+	// La revisión continúa durante la evaluación: Ana corrige y reenvía, y
+	// la revisora la valida.
+	guardar(t, ana, rutaAna, obj{"datos.telefono": "+52 55 1234 5678"})
+	ana.exige(http.StatusOK, "POST", rutaAna+"/envio", si)
+	validada := revisora.exige(http.StatusOK, "POST", rutaAna+"/dictamen", obj{"dictamen": "validada"})
+	if validada["estado"] != "en_evaluacion" {
+		t.Errorf("validada durante la evaluación, pasa directo al jurado: %v", validada["estado"])
+	}
+	// Y aparece en la lista de los jurados, que pueden calificarla.
+	lista1 := jurados[0].exige(http.StatusOK, "GET", trabajo, nil)
+	if len(lista(lista1, "unidades")) != 2 || fmt.Sprint(lista1["progreso"]) != "map[enviadas:0 excusadas:0 pendientes:2 total:2]" {
+		t.Errorf("la validada tardía se suma a lo que hay por calificar: %v", lista1["progreso"])
+	}
+	evaluar(t, jurados[0], rutaAna, obj{"puntajes": obj{"realizacion": 5, "artistico": 5}, "enviar": true})
+	if cfg := admin.exige(http.StatusOK, "GET", fmt.Sprintf("/api/v1/convocatorias/%d", interpretes), nil); id(cfg["postulaciones_sin_dictaminar"]) != 0 {
+		t.Errorf("ya no queda nada por dictaminar: %v", cfg["postulaciones_sin_dictaminar"])
+	}
+	// Una descartada durante la evaluación no llega al jurado.
+	eva := e.postulanteVerificado("eva@ejemplo.mx")
+	if campos := eva.rechaza("POST", fmt.Sprintf("/api/v1/convocatorias/%d/postulaciones", interpretes), obj{"subcategoria": "solista"}); fmt.Sprint(campos) != "[convocatoria]" {
+		t.Errorf("en evaluación ya no se abren postulaciones: %v", campos)
 	}
 }

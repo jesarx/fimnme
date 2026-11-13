@@ -56,6 +56,7 @@ func EvaluacionJSON(e models.Evaluacion) map[string]any {
 	return map[string]any{
 		"postulacion_id": e.PostulacionID, "obra_id": ceroANulo(e.ObraID), "puntajes": puntajes,
 		"observaciones": e.Observaciones, "iniciada": e.ID != 0, "enviada": e.Enviada,
+		"excusado": e.Excusado, "motivo_excusa": textoONulo(e.MotivoExcusa),
 		"enviada_at": marcaJSON(e.EnviadaAt), "actualizado_at": marcaJSON(e.ActualizadoAt),
 	}
 }
@@ -65,23 +66,30 @@ func EvaluacionJSON(e models.Evaluacion) map[string]any {
 // 34 de 87», RF-EVA-07). abierta indica si aún puede calificar.
 func ListaDeJuradoJSON(unidades []models.UnidadPropia, criterios []models.CriterioEvaluacion, abierta bool) any {
 	lista := make([]map[string]any, 0, len(unidades))
-	enviadas := 0
+	enviadas, excusadas := 0, 0
 	for _, u := range unidades {
 		unidad := unidadJSON(u.UnidadDeEvaluacion)
-		unidad["iniciada"], unidad["enviada"] = u.Iniciada, u.Enviada
+		unidad["iniciada"], unidad["enviada"], unidad["excusada"] = u.Iniciada, u.Enviada, u.Excusada
 		lista = append(lista, unidad)
-		if u.Enviada {
+		switch {
+		case u.Excusada:
+			excusadas++
+		case u.Enviada:
 			enviadas++
 		}
 	}
 	return map[string]any{
 		"abierta": abierta, "criterios": criteriosJSON(criterios), "unidades": lista,
-		"progreso": map[string]any{"enviadas": enviadas, "total": len(unidades)},
+		// pendientes: lo que al jurado le falta por enviar. Una unidad de la
+		// que se excusó no está pendiente.
+		"progreso": map[string]any{"enviadas": enviadas, "excusadas": excusadas, "total": len(unidades),
+			"pendientes": len(unidades) - enviadas - excusadas},
 	}
 }
 
 // MatrizJSON es la matriz de resultados, para supervisión (RF-EVA-08): por
-// unidad, lo que calificó cada jurado, la suma, el promedio y el lugar.
+// unidad, lo que calificó cada jurado, quién se excusó, la suma, el promedio,
+// el puntaje comparable y el lugar.
 func MatrizJSON(m models.MatrizDeResultados) any {
 	jurados := make([]map[string]any, 0, len(m.Jurados))
 	for _, j := range m.Jurados {
@@ -92,13 +100,18 @@ func MatrizJSON(m models.MatrizDeResultados) any {
 		evaluaciones := make([]map[string]any, 0, len(m.Jurados))
 		for _, j := range m.Jurados {
 			e, enviada := f.PorJurado[j.ID]
+			if motivo, excusado := f.Excusas[j.ID]; excusado {
+				// Conflicto de interés: no califica, y no cuenta en el puntaje.
+				evaluaciones = append(evaluaciones, map[string]any{"jurado_id": j.ID, "enviada": false, "excusado": true, "motivo_excusa": motivo})
+				continue
+			}
 			if !enviada {
 				// Sin enviar: ni puntajes ni observaciones cuentan todavía.
-				evaluaciones = append(evaluaciones, map[string]any{"jurado_id": j.ID, "enviada": false})
+				evaluaciones = append(evaluaciones, map[string]any{"jurado_id": j.ID, "enviada": false, "excusado": false})
 				continue
 			}
 			evaluaciones = append(evaluaciones, map[string]any{
-				"jurado_id": j.ID, "enviada": true, "puntajes": e.Puntajes,
+				"jurado_id": j.ID, "enviada": true, "excusado": false, "puntajes": e.Puntajes,
 				"observaciones": e.Observaciones, "enviada_at": marcaJSON(e.EnviadaAt),
 			})
 		}
@@ -107,6 +120,9 @@ func MatrizJSON(m models.MatrizDeResultados) any {
 		fila["estado"], fila["dictamen_final"] = string(f.Estado), textoONulo(f.DictamenFinal)
 		fila["evaluaciones"] = evaluaciones
 		fila["jurados_que_evaluaron"], fila["total"], fila["promedio"] = f.JuradosQueEvaluaron, f.Total, f.Promedio
+		// puntaje: la suma llevada a tres jurados. Es por lo que se ordena,
+		// para que una excusa no perjudique a la postulación.
+		fila["excusados"], fila["puntaje"] = len(f.Excusas), f.Comparable
 		filas = append(filas, fila)
 	}
 	return map[string]any{"jurados": jurados, "criterios": criteriosJSON(m.Criterios), "filas": filas}

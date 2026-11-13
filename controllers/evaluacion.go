@@ -130,6 +130,66 @@ func (a *App) apiGuardarEvaluacion(w http.ResponseWriter, r *http.Request) {
 	a.responder(w, http.StatusOK, views.EvaluacionJSON(evaluacion))
 }
 
+// PUT /api/v1/postulaciones/{id}/excusa   — el jurado se excusa por conflicto de interés
+//
+// Cuerpo: {"obra_id", "motivo"}. En Compositores, sin obra_id se excusa de
+// todas las obras de la postulación. La excusa no perjudica a la postulación:
+// su puntaje se promedia entre los jurados que sí la calificaron.
+func (a *App) apiExcusarse(w http.ResponseWriter, r *http.Request) {
+	var entrada struct {
+		ObraID int64  `json:"obra_id"`
+		Motivo string `json:"motivo"`
+	}
+	if _, ok := a.idDeRuta(w, r); !ok || !a.leerJSON(w, r, &entrada) {
+		return
+	}
+	jurado, id, ok := a.unidadDeLaPeticion(w, r)
+	if !ok {
+		return
+	}
+	if a.falloDatos(w, r, jurado.Excusarse(r.Context(), a.actorDe(r), id, entrada.ObraID, entrada.Motivo)) {
+		return
+	}
+	a.responderEvaluacionPropia(w, r, jurado, id, entrada.ObraID)
+}
+
+// DELETE /api/v1/postulaciones/{id}/excusa   — retira la excusa
+//
+// En Compositores, ?obra_id= indica la obra; sin él, todas.
+func (a *App) apiRetirarExcusa(w http.ResponseWriter, r *http.Request) {
+	jurado, id, ok := a.unidadDeLaPeticion(w, r)
+	if !ok {
+		return
+	}
+	obraID, err := enteroOpcional(r.URL.Query().Get("obra_id"))
+	if err != nil {
+		a.errorAPI(w, r, http.StatusBadRequest, "parametro_invalido", "obra_id")
+		return
+	}
+	if a.falloDatos(w, r, jurado.RetirarExcusa(r.Context(), a.actorDe(r), id, obraID)) {
+		return
+	}
+	a.responderEvaluacionPropia(w, r, jurado, id, obraID)
+}
+
+// responderEvaluacionPropia responde con la evaluación del jurado a una
+// unidad. Si la excusa cubrió todas las obras de una postulación de
+// Compositores (obraID 0), responde con la de la primera obra.
+func (a *App) responderEvaluacionPropia(w http.ResponseWriter, r *http.Request, jurado models.JuradoRepo, postulacionID, obraID int64) {
+	if obraID == 0 {
+		if p, err := a.datos.PostulacionPorID(r.Context(), postulacionID); err == nil {
+			if cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), p.ConvocatoriaID); err == nil {
+				obraID = models.UnidadesDeEvaluacion(cfg.Convocatoria.Tipo, p)[0]
+			}
+		}
+	}
+	evaluacion, err := jurado.Evaluacion(r.Context(), postulacionID, obraID)
+	if a.falloDatos(w, r, err) {
+		return
+	}
+	a.responder(w, http.StatusOK, views.EvaluacionJSON(evaluacion))
+}
+
 // GET /api/v1/convocatorias/{id}/resultados   — matriz de resultados (supervisión)
 //
 // Puntaje por jurado y criterio, suma de los tres, promedio y orden por

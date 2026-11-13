@@ -217,10 +217,19 @@ func TestReglasDeLaSubsanacion(t *testing.T) {
 		}
 	}
 	// Fuera de la etapa de revisión, o con la postulación en otro estado, no se solicita.
-	fuera := cfg
-	fuera.Convocatoria.Estado = EstadoEvaluacion
-	if obtenido := claves(ValidarNuevaSubsanacion(p, fuera, valida, ahoraDePrueba)); obtenido != "[error.fuera_de_revision]" {
-		t.Errorf("fuera de la etapa de revisión: %s", obtenido)
+	// La revisión sigue durante la evaluación (decisión de la CNMO): una
+	// postulación pendiente se termina de revisar después. Cerrada, ya no.
+	enEvaluacion := cfg
+	enEvaluacion.Convocatoria.Estado = EstadoEvaluacion
+	if obtenido := claves(ValidarNuevaSubsanacion(p, enEvaluacion, valida, ahoraDePrueba)); obtenido != "[]" {
+		t.Errorf("subsanación durante la evaluación: %s", obtenido)
+	}
+	for _, estado := range []EstadoConvocatoria{EstadoPostulacion, EstadoCerrada, EstadoArchivada} {
+		fuera := cfg
+		fuera.Convocatoria.Estado = estado
+		if obtenido := claves(ValidarNuevaSubsanacion(p, fuera, valida, ahoraDePrueba)); obtenido != "[error.fuera_de_revision]" {
+			t.Errorf("subsanación con la convocatoria en %s: %s", estado, obtenido)
+		}
 	}
 	for _, estado := range []EstadoDePostulacion{PostulacionBorrador, PostulacionEnSubsanacion, PostulacionValidada, PostulacionDescartada} {
 		otra := p
@@ -264,7 +273,8 @@ func TestDictamenDePostulacion(t *testing.T) {
 	conInvalido.Documentos[0].Dictamen = "invalido"
 	subsanando := enSubsanacion(campoSenalado("datos.telefono", 0))
 	vencida := ahoraDePrueba.Add(8 * 24 * time.Hour)
-	fuera := convocatoriaDePrueba(1, TipoCompositores, EstadoEvaluacion)
+	fuera := convocatoriaDePrueba(1, TipoCompositores, EstadoCerrada)
+	enEvaluacion := convocatoriaDePrueba(1, TipoCompositores, EstadoEvaluacion)
 	casos := []struct {
 		nombre   string
 		c        Convocatoria
@@ -282,7 +292,8 @@ func TestDictamenDePostulacion(t *testing.T) {
 		{"descartar con un documento inválido", c, conInvalido, PostulacionDescartada, "No subsanó.", ahoraDePrueba, "[]"},
 		{"con la subsanación en curso", c, subsanando, PostulacionDescartada, "No subsanó.", ahoraDePrueba, "[error.subsanacion_en_curso]"},
 		{"con la subsanación vencida", c, subsanando, PostulacionDescartada, "No subsanó.", vencida, "[]"},
-		{"fuera de la etapa de revisión", fuera, p, PostulacionValidada, "", ahoraDePrueba, "[error.fuera_de_revision]"},
+		{"con la convocatoria cerrada", fuera, p, PostulacionValidada, "", ahoraDePrueba, "[error.fuera_de_revision]"},
+		{"durante la evaluación también se dictamina", enEvaluacion, p, PostulacionValidada, "", ahoraDePrueba, "[]"},
 	}
 	for _, caso := range casos {
 		if obtenido := claves(ValidarDictamenDePostulacion(caso.c, caso.p, caso.dictamen, caso.motivo, caso.ahora)); obtenido != caso.error {
@@ -389,5 +400,15 @@ func TestDiferenciasDeEnvio(t *testing.T) {
 	// Al revés: una obra que desaparece.
 	if cambios := DiferenciasDeEnvio(nuevo, anterior); !strings.Contains(fmt.Sprint(cambios), "{campo obras 12 Obra nueva }") {
 		t.Errorf("una obra retirada debe aparecer como cambio: %+v", cambios)
+	}
+}
+
+// Al validar durante la evaluación, la postulación pasa directo al jurado.
+func TestEstadoAlValidar(t *testing.T) {
+	if EstadoAlValidar(EstadoRevisionDocumental) != PostulacionValidada || EstadoAlValidar(EstadoEvaluacion) != PostulacionEnEvaluacion {
+		t.Error("al validar: «validada» en revisión documental; «en evaluación» si la evaluación ya empezó")
+	}
+	if !AdmiteRevision(EstadoRevisionDocumental) || !AdmiteRevision(EstadoEvaluacion) || AdmiteRevision(EstadoPostulacion) || AdmiteRevision(EstadoCerrada) {
+		t.Error("la revisión se admite en revisión documental y en evaluación")
 	}
 }
