@@ -1,0 +1,102 @@
+.\" Este archivo es parte de FIMNME (CNMO / INBAL).
+.\" Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+.\" SPDX-License-Identifier: GPL-3.0-only
+.TH FIMNME-WEB 1 "noviembre de 2026" "FIMNME" "Plataforma de postulaciones FIMNME"
+.SH NOMBRE
+fimnme-web \- servidor HTTP de la plataforma de postulaciones FIMNME
+.SH SINOPSIS
+.B fimnme-web
+[\fIOPCIONES\fR]
+.SH DESCRIPCIÓN
+.B fimnme-web
+atiende la plataforma de postulaciones del Foro Internacional de Música Nueva
+Manuel Enríquez: sirve las páginas, la API REST
+.RB ( /api/v1 )
+y ejecuta los trabajadores internos (envío del correo saliente, limpieza de
+sesiones vencidas y avance de etapa por calendario).
+.PP
+Es un servicio público. Escucha por omisión en
+.B 127.0.0.1:8080
+y debe quedar
+.B siempre
+detrás de un proxy inverso con TLS (Caddy o nginx); nunca se expone
+directamente a Internet.
+.PP
+El servidor no modifica el esquema de la base de datos. Si encuentra
+migraciones sin aplicar, o una base más nueva que el binario, se niega a
+arrancar; las migraciones se aplican con
+.BR fimnme-cli (1).
+.SH OPCIONES
+Cada opción puede darse también con la variable de entorno que se indica.
+.TP
+.BR \-s ", " \-\-serve " \fIIP\fR"
+Dirección IP en la que escucha. Por omisión 127.0.0.1.
+.RB ( FIMNME_SERVE )
+.TP
+.BR \-p ", " \-\-port " \fIPUERTO\fR"
+Puerto TCP en el que escucha. Por omisión 8080.
+.RB ( FIMNME_PORT )
+.TP
+.BR \-\-datos " \fIDIRECTORIO\fR"
+Directorio de datos: la base SQLite
+.RI ( fimnme.db )
+y el acervo de archivos. Por omisión
+.IR data .
+.RB ( FIMNME_DATOS )
+.TP
+.BR \-\-entorno " \fIENTORNO\fR"
+.B desarrollo
+o
+.BR produccion .
+En desarrollo se muestra una franja de advertencia, se pide a los buscadores
+no indexar el sitio y el log incluye el cuerpo de los correos. Por omisión
+.BR produccion .
+.RB ( FIMNME_ENTORNO )
+.TP
+.BR \-\-url\-base " \fIURL\fR"
+Dirección pública del sitio, sin barra final, con la que se arman los enlaces
+de los correos. Obligatoria en producción.
+.RB ( FIMNME_URL_BASE )
+.TP
+.BR \-\-correo\-por\-minuto " \fIN\fR"
+Máximo de correos que se envían por minuto. Por omisión 30.
+.RB ( FIMNME_CORREO_POR_MINUTO )
+.TP
+.B \-\-version
+Muestra la versión y la licencia, y termina.
+.TP
+.BR \-h ", " \-\-help
+Muestra la ayuda y termina.
+.SH SEÑALES
+.TP
+.BR SIGINT ", " SIGTERM
+Apagado ordenado: deja terminar las peticiones en curso (hasta 15 segundos)
+y cierra la base de datos.
+.SH ARCHIVOS
+.TP
+.I /etc/fimnme/fimnme-web.env
+Configuración del servicio (variables de entorno), leída por systemd.
+.TP
+.I /var/lib/fimnme/fimnme.db
+Base de datos SQLite, con sus archivos
+.I \-wal
+y
+.IR \-shm .
+.SH ESTADO DE SALIDA
+.TP
+.B 0
+Terminación normal.
+.TP
+.B 1
+No se pudo arrancar o el servidor se detuvo por un error.
+.TP
+.B 2
+Configuración incorrecta.
+.SH VÉASE TAMBIÉN
+.BR fimnme-cli (1)
+.PP
+La descripción de la API está en
+.IR /api/v1/openapi.json .
+.SH LICENCIA
+Software libre bajo la Licencia Pública General de GNU, versión 3. No hay
+garantía, en la medida en que lo permita la ley.

@@ -22,6 +22,13 @@ procesos— y sólo después las pantallas de cada perfil.
 - pruebas de extremo a extremo sobre una base SQLite temporal, y ejemplos con `curl`
   para probarlo a mano en el VPS.
 
+**Guía de programación.** Desde el 13 de noviembre de 2026 rige además la guía de
+programación de la CNMO para proyectos afines, en lo que aplica a este sistema
+([ADR 0006](adr/0006-adopcion-de-la-guia-soshe-peelee.md)). Al adoptarla se revisó lo ya
+hecho en los pasos 1 a 4: aviso de licencia GNU completo, abstracción de la persistencia
+en el Modelo, descripción OpenAPI de la API, convenciones de `--version` y de opciones, y
+páginas de manual.
+
 ## Pasos
 
 ### Hecho
@@ -241,3 +248,8 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     documental** y el log lo avisa. La alternativa sería avanzar de todos modos; se
     prefirió que la regla de la cuota no tenga excepciones.
 13. **Requisitos documentales iniciales** de cada tipo de convocatoria (ADR 0005, §6).
+14. **Dictaminación a ciegas.** La guía de programación prevé ocultar al jurado los datos
+    del postulante «si la convocatoria lo requiere»; la especificación de FIMNME no lo
+    pide. Debe decidirse antes del paso 8.
+15. **Forma de los comentarios.** Se conservan con `//` (lo idiomático en Go). Si la CNMO
+    quiere los bloques `/* … */` del estilo del kernel, la conversión es mecánica.

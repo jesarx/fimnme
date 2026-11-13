@@ -14,6 +14,8 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 | [`docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md`](docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md) | Requerimientos y modelo de datos. |
 | [`docs/PLAN_DE_DESARROLLO.md`](docs/PLAN_DE_DESARROLLO.md) | Plan por pasos y estado de avance. |
 | [`docs/adr/`](docs/adr/) | Registros de decisiones de arquitectura (ADR). |
+| [`docs/man/`](docs/man/) | Páginas de manual: `fimnme-web(1)` y `fimnme-cli(1)`. |
+| `/api/v1/openapi.json` | Descripción de la API (OpenAPI 3.1), servida por el propio sistema. |
 
 ## Estado actual
 
@@ -180,7 +182,8 @@ cmd/
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
-  repository.go       persistencia: TODO el SQL del sistema
+  persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
+  repository.go       persistencia sobre SQLite: TODO el SQL del sistema
   seguridad.go        Argon2id y secretos de un solo uso
   migrations/         migraciones NNNN_nombre.sql, incrustadas en el binario
 controllers/        CONTROLADOR
@@ -199,6 +202,7 @@ views/              VISTA (todo incrustado con //go:embed)
   correo.go           armado de los correos a partir de sus plantillas
   datos.go            respuestas JSON y CSV de la API
   configuracion.go    respuestas JSON de la configuración
+  api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos
   i18n/               es.json, en.json
@@ -399,7 +403,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Variable | Bandera | Por omisión | Significado |
 |---|---|---|---|
 | `FIMNME_SERVE` | `-s`, `--serve` | `127.0.0.1` | IP en la que escucha. Manténgala en `127.0.0.1`: el servicio va siempre detrás del proxy. |
-| `FIMNME_PORT` | `--port` | `8080` | Puerto local. Debe coincidir con el del proxy. |
+| `FIMNME_PORT` | `-p`, `--port` | `8080` | Puerto local. Debe coincidir con el del proxy. |
 | `FIMNME_ENTORNO` | `--entorno` | `produccion` | `desarrollo` muestra la franja de advertencia y bloquea la indexación. |
 | `FIMNME_DATOS` | `--datos` | `data` | Directorio de datos. En el VPS la unidad de systemd lo fija en `/var/lib/fimnme`. |
 | `FIMNME_URL_BASE` | `--url-base` | — | Dirección pública del sitio, sin barra final (`https://dev.fimnme.example`). Con ella se arman los enlaces de los correos. En `desarrollo`, si falta, se usa la dirección local y se avisa en el log; en `produccion` el servicio no arranca sin ella. |
@@ -414,6 +418,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Reiniciar | `sudo systemctl restart fimnme-web` |
 | Detener | `sudo systemctl stop fimnme-web` |
 | Versión instalada | `/opt/fimnme/bin/fimnme-web --version` |
+| Manual de los binarios | `man fimnme-web` · `man fimnme-cli` |
 | Aplicar migraciones a mano | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme migrate` |
 | Ver los correos (no se envían aún) | `journalctl -u fimnme-web \| grep "correo NO enviado"` |
 

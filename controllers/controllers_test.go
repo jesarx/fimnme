@@ -1,11 +1,26 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -61,7 +76,7 @@ func repoDePrueba(t *testing.T) *models.Repositorio {
 
 // appSobre arma la aplicación completa (rutas + middleware) sobre una fuente
 // de datos, con el log silenciado.
-func appSobre(t *testing.T, datos Datos) http.Handler {
+func appSobre(t *testing.T, datos models.Persistencia) http.Handler {
 	t.Helper()
 	vistas, err := views.Nuevo()
 	if err != nil {
@@ -81,7 +96,7 @@ func appDePrueba(t *testing.T) http.Handler {
 // datosCaidos simula una base de datos que no responde. Incrusta la interfaz
 // para heredar su conjunto de métodos y redefine sólo los que estas pruebas
 // usan; llamar a cualquier otro provocaría un pánico, que es lo deseable.
-type datosCaidos struct{ Datos }
+type datosCaidos struct{ models.Persistencia }
 
 var errBaseCaida = errors.New("base caída")
 
@@ -362,5 +377,50 @@ func TestSondasConLaBaseCaida(t *testing.T) {
 		if strings.Contains(w.Body.String(), errBaseCaida.Error()) {
 			t.Errorf("GET %s: el detalle interno del error llegó al visitante", ruta)
 		}
+	}
+}
+
+// La descripción OpenAPI es el contrato público de la API: debe describir
+// exactamente las operaciones que el servidor atiende, ni una más ni una menos.
+func TestOpenAPICoincideConLasRutas(t *testing.T) {
+	documento, err := views.OpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var openapi struct {
+		OpenAPI string                                `json:"openapi"`
+		Paths   map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(documento, &openapi); err != nil {
+		t.Fatalf("openapi.json no es JSON válido: %v", err)
+	}
+	if !strings.HasPrefix(openapi.OpenAPI, "3.1") {
+		t.Errorf("versión de OpenAPI inesperada: %q", openapi.OpenAPI)
+	}
+	descritas := map[string]bool{}
+	for ruta, operaciones := range openapi.Paths {
+		for metodo := range operaciones {
+			descritas[strings.ToUpper(metodo)+" "+ruta] = true
+		}
+	}
+	vistas, err := views.Nuevo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := Nueva(Config{Vistas: vistas, Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	for _, ruta := range app.rutasAPI() {
+		operacion := ruta.metodo + " " + ruta.patron
+		if !descritas[operacion] {
+			t.Errorf("la operación %s existe en el servidor y falta en openapi.json", operacion)
+		}
+		delete(descritas, operacion)
+	}
+	for operacion := range descritas {
+		t.Errorf("openapi.json describe %s, que el servidor no atiende", operacion)
+	}
+	// Y el documento se sirve tal cual, sin sesión.
+	w := pedir(t, appDePrueba(t), httptest.NewRequest(http.MethodGet, "/api/v1/openapi.json", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), "application/json") || w.Body.Len() != len(documento) {
+		t.Errorf("GET /api/v1/openapi.json: estado %d, %d bytes", w.Code, w.Body.Len())
 	}
 }

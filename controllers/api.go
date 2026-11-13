@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -24,6 +38,22 @@ const (
 	// filasMaximasCSV acota una exportación para que no agote la memoria.
 	filasMaximasCSV = 50000
 )
+
+// apiOpenAPI entrega la descripción de la API en formato OpenAPI 3.1. Es
+// pública: describe el contrato, no contiene datos.
+//
+//	GET /api/v1/openapi.json
+func (a *App) apiOpenAPI(w http.ResponseWriter, r *http.Request) {
+	documento, err := views.OpenAPI()
+	if err != nil {
+		a.log.Error("leer la descripción OpenAPI", "error", err)
+		a.errorAPI(w, r, http.StatusInternalServerError, "error_interno")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(documento)
+}
 
 // responderJSON escribe una respuesta correcta de la API.
 func (a *App) responderJSON(w http.ResponseWriter, datos any) {

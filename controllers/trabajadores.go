@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -18,14 +32,6 @@ import (
 // responden a una petición. Por ahora, el envío del correo saliente y la
 // limpieza de sesiones vencidas.
 
-// BandejaSalida es lo que el trabajador de correo necesita de la persistencia.
-type BandejaSalida interface {
-	CorreosPendientes(ctx context.Context, limite int) ([]models.CorreoSaliente, error)
-	MarcarCorreoEnviado(ctx context.Context, correo models.CorreoSaliente, messageID string) error
-	MarcarCorreoFallido(ctx context.Context, correo models.CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error
-	PurgarSesionesVencidas(ctx context.Context) (int64, error)
-}
-
 // Ritmo del trabajador.
 const (
 	intervaloBandeja = 5 * time.Second // cada cuánto se revisa la bandeja
@@ -39,7 +45,7 @@ const (
 // un máximo por minuto (RF-SMTP-07). Ningún proceso de negocio espera a que
 // un correo salga.
 type TrabajadorCorreo struct {
-	Bandeja BandejaSalida
+	Bandeja models.Persistencia
 	Mailer  models.Mailer
 	Log     *slog.Logger
 	// PorMinuto es el máximo de envíos por minuto. Las ráfagas disparan los
@@ -165,14 +171,6 @@ func (m MailerRegistro) Enviar(_ context.Context, correo models.CorreoSaliente) 
 
 // --- Avance de etapa por calendario (§3) --------------------------------------
 
-// Calendario es lo que el trabajador de etapas necesita de la persistencia.
-type Calendario interface {
-	ConvocatoriasEnCurso(ctx context.Context) ([]int64, error)
-	ConfiguracionDeConvocatoria(ctx context.Context, convocatoriaID int64) (models.ConfiguracionConvocatoria, error)
-	CambiarEstadoConvocatoria(ctx context.Context, actor models.Actor, convocatoriaID int64,
-		destino models.EstadoConvocatoria, motivo string, automatico bool) (models.EstadoConvocatoria, error)
-}
-
 // Ritmo del trabajador de etapas.
 const (
 	intervaloEtapas = 30 * time.Second // cada cuánto se revisa el calendario
@@ -185,7 +183,7 @@ const (
 // de cierre de la postulación no hay un revisor asignado, la convocatoria no
 // avanza, y se deja un aviso en el log hasta que se corrija.
 type TrabajadorEtapas struct {
-	Datos Calendario
+	Datos models.Persistencia
 	Log   *slog.Logger
 	// Ahora es el reloj; nil usa el del sistema.
 	Ahora func() time.Time

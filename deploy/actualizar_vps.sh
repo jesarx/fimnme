@@ -7,7 +7,8 @@
 # recién compilados y la unidad de systemd.
 #
 # Secuencia:
-#   1. Instala fimnme-web y fimnme-cli en /opt/fimnme/bin y la unidad de systemd.
+#   1. Instala fimnme-web y fimnme-cli en /opt/fimnme/bin, la unidad de systemd
+#      y las páginas de manual.
 #   2. Detiene el servicio (las peticiones en curso terminan).
 #   3. Aplica las migraciones pendientes del esquema, como el usuario «fimnme».
 #   4. Arranca el servicio y comprueba que quedó activo.
@@ -39,6 +40,9 @@ install -o root -g root -m 0755 "$origen/fimnme-web" /opt/fimnme/bin/fimnme-web
 install -o root -g root -m 0755 "$origen/fimnme-cli" /opt/fimnme/bin/fimnme-cli
 install -o root -g root -m 0644 "$origen/fimnme-web.service" /etc/systemd/system/fimnme-web.service
 install -d -o fimnme -g fimnme -m 0750 "$datos"
+# Páginas de manual: «man fimnme-web» y «man fimnme-cli».
+install -d -o root -g root -m 0755 /usr/local/share/man/man1
+install -o root -g root -m 0644 "$origen/fimnme-web.1" "$origen/fimnme-cli.1" /usr/local/share/man/man1/
 systemctl daemon-reload
 
 # 2. y 3. Con el servicio detenido, se migra la base como su dueño. Ejecutar

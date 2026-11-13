@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // fimnme-web es el servidor HTTP de la plataforma: sirve el frontal integrado
@@ -43,6 +57,16 @@ func entorno(nombre, porOmision string) string {
 	return porOmision
 }
 
+// avisoVersion es lo que imprime --version, según la convención de GNU: nombre
+// y versión del programa, su licencia y la advertencia de que no hay garantía.
+func avisoVersion(programa string) string {
+	return programa + " " + version + `
+Licencia GPLv3: GNU GPL versión 3 <https://www.gnu.org/licenses/gpl-3.0.html>.
+Esto es software libre: usted es libre de cambiarlo y redistribuirlo.
+NO HAY GARANTÍA, en la medida en que lo permita la ley.
+`
+}
+
 // enteroDeEntorno lee un entero de una variable de entorno; si falta o no es
 // un número, devuelve el valor por omisión.
 func enteroDeEntorno(nombre string, porOmision int) int {
@@ -66,7 +90,10 @@ func main() {
 	const ayudaServe = "dirección IP en la que escucha el servidor (FIMNME_SERVE)"
 	flag.StringVar(&ip, "s", entorno("FIMNME_SERVE", "127.0.0.1"), ayudaServe+" (abreviatura de --serve)")
 	flag.StringVar(&ip, "serve", entorno("FIMNME_SERVE", "127.0.0.1"), ayudaServe)
-	flag.StringVar(&puerto, "port", entorno("FIMNME_PORT", "8080"), "puerto TCP en el que escucha el servidor (FIMNME_PORT)")
+	// -p y --port son la misma bandera.
+	const ayudaPort = "puerto TCP en el que escucha el servidor (FIMNME_PORT)"
+	flag.StringVar(&puerto, "p", entorno("FIMNME_PORT", "8080"), ayudaPort+" (abreviatura de --port)")
+	flag.StringVar(&puerto, "port", entorno("FIMNME_PORT", "8080"), ayudaPort)
 	flag.StringVar(&modo, "entorno", entorno("FIMNME_ENTORNO", controllers.EntornoProduccion),
 		"entorno de ejecución: desarrollo o produccion (FIMNME_ENTORNO)")
 	flag.StringVar(&dirDatos, "datos", entorno("FIMNME_DATOS", "data"),
@@ -79,7 +106,7 @@ func main() {
 	flag.Parse()
 
 	if mostrarVersion {
-		fmt.Println("fimnme-web", version)
+		fmt.Print(avisoVersion("fimnme-web"))
 		return
 	}
 
