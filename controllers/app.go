@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Package controllers contiene el Controlador de la arquitectura MVC:
@@ -25,80 +39,10 @@ const (
 	EntornoProduccion = "produccion"
 )
 
-// Datos es lo que los controladores necesitan de la persistencia. La interfaz
-// se define aquí, del lado de quien la consume, y la satisface
-// *models.Repositorio; los controladores nunca ven SQL ni conexiones.
-type Datos interface {
-	// Sonda.
-	Verificar(ctx context.Context) error
-
-	// Convocatorias públicas.
-	ConvocatoriasPublicas(ctx context.Context) ([]models.Convocatoria, error)
-	ConvocatoriaPublica(ctx context.Context, numeroEdicion int, tipo models.TipoConvocatoria) (models.Convocatoria, error)
-
-	// Cuentas.
-	CrearUsuario(ctx context.Context, actor models.Actor, n models.NuevoUsuario, token *models.NuevoToken, correos ...models.CorreoSaliente) (int64, error)
-	UsuarioPorEmail(ctx context.Context, email string) (models.Usuario, string, error)
-	ResumenDePassword(ctx context.Context, usuarioID int64) (string, error)
-	ActualizarDatosPersonales(ctx context.Context, actor models.Actor, usuarioID int64, nombre, apellidos, idioma string) error
-	CambiarPassword(ctx context.Context, actor models.Actor, usuarioID int64, resumen, sesionAConservar string) error
-	CambiarEmail(ctx context.Context, actor models.Actor, usuarioID int64, email string, token models.NuevoToken, correos ...models.CorreoSaliente) error
-
-	// Sesiones e inicios de sesión.
-	AbrirSesion(ctx context.Context, actor models.Actor, usuarioID int64, idResumen string, expira time.Time) error
-	RegistrarIngresoFallido(ctx context.Context, actor models.Actor, usuarioID int64, bloqueado bool) error
-	FallosDeIngreso(ctx context.Context, usuarioID int64) (int, time.Time, error)
-	SesionPorID(ctx context.Context, idResumen string) (*models.Sesion, error)
-	RenovarSesion(ctx context.Context, idResumen string, expira time.Time) error
-	CerrarSesion(ctx context.Context, actor models.Actor, idResumen string) error
-	PurgarSesionesVencidas(ctx context.Context) (int64, error)
-
-	// Enlaces de un solo uso.
-	EmitirToken(ctx context.Context, actor models.Actor, usuarioID int64, token models.NuevoToken, correos ...models.CorreoSaliente) error
-	UltimaExpiracionDeToken(ctx context.Context, usuarioID int64, proposito models.PropositoToken) (time.Time, error)
-	TokenVigente(ctx context.Context, resumen string, proposito models.PropositoToken) (models.Usuario, error)
-	VerificarEmailConToken(ctx context.Context, actor models.Actor, resumen string) (int64, error)
-	DefinirPasswordConToken(ctx context.Context, actor models.Actor, resumenToken string, proposito models.PropositoToken, resumenPassword string) (int64, error)
-
-	// Correo saliente.
-	PlantillaCorreo(ctx context.Context, clave, idioma string) (models.PlantillaCorreo, error)
-	CorreosPendientes(ctx context.Context, limite int) ([]models.CorreoSaliente, error)
-	MarcarCorreoEnviado(ctx context.Context, correo models.CorreoSaliente, messageID string) error
-	MarcarCorreoFallido(ctx context.Context, correo models.CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error
-
-	// Bitácora.
-	ConsultarAuditoria(ctx context.Context, filtro models.FiltroAuditoria) ([]models.AsientoAuditoria, int, error)
-
-	// Configuración de ediciones y convocatorias.
-	ListarEdiciones(ctx context.Context) ([]models.Edicion, error)
-	EdicionPorID(ctx context.Context, id int64) (models.Edicion, error)
-	CrearEdicion(ctx context.Context, actor models.Actor, e models.Edicion) (int64, error)
-	ActualizarEdicion(ctx context.Context, actor models.Actor, e models.Edicion) error
-	ConvocatoriasDeEdicion(ctx context.Context, edicionID int64) ([]models.Convocatoria, error)
-	ConvocatoriasEnCurso(ctx context.Context) ([]int64, error)
-	ConfiguracionDeConvocatoria(ctx context.Context, convocatoriaID int64) (models.ConfiguracionConvocatoria, error)
-	CrearConvocatoriaConfigurada(ctx context.Context, actor models.Actor, c models.Convocatoria,
-		requisitos []models.RequisitoDocumental, criterios []models.CriterioEvaluacion) (int64, error)
-	ActualizarConvocatoria(ctx context.Context, actor models.Actor, c models.Convocatoria) error
-	DefinirEtapas(ctx context.Context, actor models.Actor, convocatoriaID int64, etapas []models.Etapa) error
-	CambiarEstadoConvocatoria(ctx context.Context, actor models.Actor, convocatoriaID int64,
-		destino models.EstadoConvocatoria, motivo string, automatico bool) (models.EstadoConvocatoria, error)
-	DuplicarConvocatoria(ctx context.Context, actor models.Actor, origenID, edicionID int64) (int64, error)
-	GuardarDotacion(ctx context.Context, actor models.Actor, d models.Dotacion) (id, convocatoriaID int64, err error)
-	GuardarRequisito(ctx context.Context, actor models.Actor, rq models.RequisitoDocumental) (id, convocatoriaID int64, err error)
-	BorrarRequisito(ctx context.Context, actor models.Actor, id int64) error
-	GuardarCriterio(ctx context.Context, actor models.Actor, c models.CriterioEvaluacion) (id, convocatoriaID int64, err error)
-	BorrarCriterio(ctx context.Context, actor models.Actor, id int64) error
-	Asignar(ctx context.Context, actor models.Actor, convocatoriaID, usuarioID int64, perfil models.Perfil) (int64, error)
-	RetirarAsignacion(ctx context.Context, actor models.Actor, id int64) (int64, error)
-	UsuarioPorID(ctx context.Context, id int64) (models.CuentaAdmin, error)
-	BuscarUsuarios(ctx context.Context, texto string, pagina, tamano int) ([]models.CuentaAdmin, int, error)
-}
-
 // Config son las dependencias y ajustes de la aplicación.
 type Config struct {
 	Vistas  *views.Motor
-	Datos   Datos
+	Datos   models.Persistencia
 	Entorno string
 	Log     *slog.Logger
 	// URLBase es la dirección pública del sitio (p. ej. https://postula.ejemplo.mx),
@@ -106,6 +50,11 @@ type Config struct {
 	// configuración y NUNCA de la cabecera Host de la petición, que el
 	// visitante controla.
 	URLBase string
+	// Almacen guarda el contenido de los documentos y de los acuses.
+	Almacen models.BlobStore
+	// Enlaces comprueba en red las ligas de video antes de un envío. Con nil
+	// no se comprueban: quedan «pendientes» para el revisor.
+	Enlaces *VerificadorDeEnlaces
 	// Ahora es el reloj; nil usa el del sistema. Las pruebas lo sustituyen.
 	Ahora func() time.Time
 }
@@ -114,10 +63,12 @@ type Config struct {
 // arrancar y después sólo se lee, por lo que es segura entre peticiones.
 type App struct {
 	vistas   *views.Motor
-	datos    Datos
+	datos    models.Persistencia
 	entorno  string
 	log      *slog.Logger
 	urlBase  string
+	almacen  models.BlobStore
+	enlaces  *VerificadorDeEnlaces
 	ahora    func() time.Time
 	limiteIP *limitador // intentos por IP sobre los formularios de cuenta
 }
@@ -134,6 +85,8 @@ func Nueva(c Config) *App {
 		entorno:  c.Entorno,
 		log:      c.Log,
 		urlBase:  strings.TrimRight(c.URLBase, "/"),
+		almacen:  c.Almacen,
+		enlaces:  c.Enlaces,
 		ahora:    ahora,
 		limiteIP: nuevoLimitador(intentosPorMinuto, ahora),
 	}
@@ -151,6 +104,8 @@ func (a *App) Manejador() http.Handler {
 	// Páginas públicas.
 	mux.HandleFunc("GET /{$}", a.inicio)
 	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}", a.convocatoria)
+	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}/bases.pdf", a.basesPDF)
+	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}/imagen", a.imagenDeConvocatoria)
 	mux.HandleFunc("GET /aviso-de-privacidad", a.avisoPrivacidad)
 
 	// Cuenta sin sesión: registro, ingreso y enlaces de un solo uso.
@@ -178,35 +133,11 @@ func (a *App) Manejador() http.Handler {
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)
 
-	// API REST: responde JSON.
-	mux.HandleFunc("GET /api/v1/sesion", a.conSesion(a.apiSesion))
-	mux.HandleFunc("GET /api/v1/auditoria", a.conSesion(a.apiAuditoria))
-
-	// API de configuración (RF-CONV): leen administrador y observador;
-	// escribe sólo el administrador.
-	mux.HandleFunc("GET /api/v1/ediciones", a.supervisa(a.apiEdiciones))
-	mux.HandleFunc("POST /api/v1/ediciones", a.administra(a.apiCrearEdicion))
-	mux.HandleFunc("GET /api/v1/ediciones/{id}", a.supervisa(a.apiEdicion))
-	mux.HandleFunc("PUT /api/v1/ediciones/{id}", a.administra(a.apiActualizarEdicion))
-	mux.HandleFunc("POST /api/v1/ediciones/{id}/convocatorias", a.administra(a.apiCrearConvocatoria))
-	mux.HandleFunc("GET /api/v1/convocatorias/{id}", a.supervisa(a.apiConvocatoria))
-	mux.HandleFunc("PUT /api/v1/convocatorias/{id}", a.administra(a.apiActualizarConvocatoria))
-	mux.HandleFunc("PUT /api/v1/convocatorias/{id}/etapas", a.administra(a.apiDefinirEtapas))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/estado", a.administra(a.apiCambiarEstado))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/duplicar", a.administra(a.apiDuplicarConvocatoria))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/dotaciones", a.administra(a.apiCrearDotacion))
-	mux.HandleFunc("PUT /api/v1/dotaciones/{id}", a.administra(a.apiActualizarDotacion))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/requisitos", a.administra(a.apiCrearRequisito))
-	mux.HandleFunc("PUT /api/v1/requisitos/{id}", a.administra(a.apiActualizarRequisito))
-	mux.HandleFunc("DELETE /api/v1/requisitos/{id}", a.administra(a.apiBorrarRequisito))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/criterios", a.administra(a.apiCrearCriterio))
-	mux.HandleFunc("PUT /api/v1/criterios/{id}", a.administra(a.apiActualizarCriterio))
-	mux.HandleFunc("DELETE /api/v1/criterios/{id}", a.administra(a.apiBorrarCriterio))
-	mux.HandleFunc("POST /api/v1/convocatorias/{id}/asignaciones", a.administra(a.apiAsignar))
-	mux.HandleFunc("DELETE /api/v1/asignaciones/{id}", a.administra(a.apiRetirarAsignacion))
-	mux.HandleFunc("GET /api/v1/usuarios", a.administra(a.apiUsuarios))
-	mux.HandleFunc("POST /api/v1/usuarios", a.administra(a.apiCrearUsuario))
-	mux.HandleFunc("POST /api/v1/usuarios/{id}/activacion", a.administra(a.apiReenviarActivacion))
+	// API REST: responde JSON. Sus rutas viven en una tabla (rutasAPI) para
+	// poder cotejarlas contra la descripción OpenAPI.
+	for _, ruta := range a.rutasAPI() {
+		mux.HandleFunc(ruta.metodo+" "+ruta.patron, ruta.manejador)
+	}
 
 	// Estáticos incrustados y sondas de vida para el proxy y systemd.
 	mux.Handle("GET /static/", a.vistas.Estaticos())
@@ -227,6 +158,74 @@ func (a *App) Manejador() http.Handler {
 		a.cargarSesion,    // antes del idioma: la preferencia de la cuenta manda
 		resolverIdioma,
 	)
+}
+
+// rutaAPI es una operación de la API REST.
+type rutaAPI struct {
+	metodo    string
+	patron    string
+	manejador http.HandlerFunc
+}
+
+// rutasAPI es la lista completa de operaciones de /api/v1, cada una con su
+// control de acceso: conSesion (cualquier cuenta), supervisa (administrador y
+// observador) o administra (sólo administrador). Toda operación que se añada
+// aquí debe describirse también en views/api/openapi.json; la prueba
+// TestOpenAPICoincideConLasRutas falla si falta en cualquiera de los dos lados.
+func (a *App) rutasAPI() []rutaAPI {
+	return []rutaAPI{
+		{"GET", "/api/v1/openapi.json", a.apiOpenAPI},
+		{"GET", "/api/v1/catalogos", a.apiCatalogos},
+		{"GET", "/api/v1/sesion", a.conSesion(a.apiSesion)},
+		{"GET", "/api/v1/auditoria", a.conSesion(a.apiAuditoria)},
+		{"GET", "/api/v1/ediciones", a.supervisa(a.apiEdiciones)},
+		{"POST", "/api/v1/ediciones", a.administra(a.apiCrearEdicion)},
+		{"GET", "/api/v1/ediciones/{id}", a.supervisa(a.apiEdicion)},
+		{"PUT", "/api/v1/ediciones/{id}", a.administra(a.apiActualizarEdicion)},
+		{"POST", "/api/v1/ediciones/{id}/convocatorias", a.administra(a.apiCrearConvocatoria)},
+		{"GET", "/api/v1/convocatorias/{id}", a.supervisa(a.apiConvocatoria)},
+		{"PUT", "/api/v1/convocatorias/{id}", a.administra(a.apiActualizarConvocatoria)},
+		{"PUT", "/api/v1/convocatorias/{id}/etapas", a.administra(a.apiDefinirEtapas)},
+		{"POST", "/api/v1/convocatorias/{id}/estado", a.administra(a.apiCambiarEstado)},
+		{"POST", "/api/v1/convocatorias/{id}/duplicar", a.administra(a.apiDuplicarConvocatoria)},
+		{"POST", "/api/v1/convocatorias/{id}/dotaciones", a.administra(a.apiCrearDotacion)},
+		{"PUT", "/api/v1/dotaciones/{id}", a.administra(a.apiActualizarDotacion)},
+		{"POST", "/api/v1/convocatorias/{id}/requisitos", a.administra(a.apiCrearRequisito)},
+		{"PUT", "/api/v1/requisitos/{id}", a.administra(a.apiActualizarRequisito)},
+		{"DELETE", "/api/v1/requisitos/{id}", a.administra(a.apiBorrarRequisito)},
+		{"POST", "/api/v1/convocatorias/{id}/criterios", a.administra(a.apiCrearCriterio)},
+		{"PUT", "/api/v1/criterios/{id}", a.administra(a.apiActualizarCriterio)},
+		{"DELETE", "/api/v1/criterios/{id}", a.administra(a.apiBorrarCriterio)},
+		{"POST", "/api/v1/convocatorias/{id}/asignaciones", a.administra(a.apiAsignar)},
+		{"DELETE", "/api/v1/asignaciones/{id}", a.administra(a.apiRetirarAsignacion)},
+		{"GET", "/api/v1/usuarios", a.administra(a.apiUsuarios)},
+		{"POST", "/api/v1/usuarios", a.administra(a.apiCrearUsuario)},
+		{"POST", "/api/v1/usuarios/{id}/activacion", a.administra(a.apiReenviarActivacion)},
+
+		// Postulaciones: cada cuenta sobre las suyas.
+		{"GET", "/api/v1/postulaciones", a.conSesion(a.apiMisPostulaciones)},
+		{"POST", "/api/v1/convocatorias/{id}/postulaciones", a.conSesion(a.apiCrearPostulacion)},
+		{"GET", "/api/v1/postulaciones/{id}", a.conSesion(a.apiPostulacion)},
+		{"PATCH", "/api/v1/postulaciones/{id}", a.conSesion(a.apiGuardarPostulacion)},
+		{"PUT", "/api/v1/postulaciones/{id}/subcategoria", a.conSesion(a.apiCambiarSubcategoria)},
+		{"PUT", "/api/v1/postulaciones/{id}/integrantes", a.conSesion(a.apiDefinirIntegrantes)},
+		{"PUT", "/api/v1/postulaciones/{id}/videos", a.conSesion(a.apiDefinirVideos)},
+		{"POST", "/api/v1/postulaciones/{id}/obras", a.conSesion(a.apiAgregarObra)},
+		{"PUT", "/api/v1/postulaciones/{id}/obras/orden", a.conSesion(a.apiOrdenarObras)},
+		{"PATCH", "/api/v1/obras/{id}", a.conSesion(a.apiGuardarObra)},
+		{"DELETE", "/api/v1/obras/{id}", a.conSesion(a.apiBorrarObra)},
+
+		// Documentos, envío y acuse.
+		{"POST", "/api/v1/postulaciones/{id}/documentos", a.conSesion(a.apiSubirDocumento)},
+		{"DELETE", "/api/v1/documentos/{id}", a.conSesion(a.apiQuitarDocumento)},
+		{"GET", "/api/v1/documentos/{id}/archivo", a.conSesion(a.apiDescargarDocumento)},
+		{"POST", "/api/v1/postulaciones/{id}/envio", a.conSesion(a.apiEnviarPostulacion)},
+		{"GET", "/api/v1/postulaciones/{id}/acuses/{version}", a.conSesion(a.apiDescargarAcuse)},
+
+		// Archivos públicos de una convocatoria: bases en PDF e imagen.
+		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
+		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},
+	}
 }
 
 // plazoSonda acota la comprobación de la base en /readyz.

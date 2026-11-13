@@ -14,11 +14,22 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 | [`docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md`](docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md) | Requerimientos y modelo de datos. |
 | [`docs/PLAN_DE_DESARROLLO.md`](docs/PLAN_DE_DESARROLLO.md) | Plan por pasos y estado de avance. |
 | [`docs/adr/`](docs/adr/) | Registros de decisiones de arquitectura (ADR). |
+| [`docs/man/`](docs/man/) | Páginas de manual: `fimnme-web(1)` y `fimnme-cli(1)`. |
+| `/api/v1/openapi.json` | Descripción de la API (OpenAPI 3.1), servida por el propio sistema. |
 
 ## Estado actual
 
-**Paso 4 de 14: configuración de ediciones y convocatorias.** Hoy el sistema tiene:
+**Paso 6 de 14: documentos, envío y acuse.** Hoy el sistema tiene:
 
+- **Postulación completa por API** (para el postulante): captura con autoguardado, subida
+  de documentos, **envío irreversible con folio** y **acuse de recibo en PDF**, que también
+  se encola por correo. En todo momento la API dice qué le falta a la postulación.
+- **Acervo de archivos** en disco, direccionado por SHA-256, con versiones (nada se
+  sobrescribe) y descargas registradas.
+- **Comprobación de las ligas de video** en red y **recordatorios** a quien tiene un
+  borrador sin enviar.
+- **Bases en PDF e imagen de cabecera** de cada convocatoria, públicas.
+- **Identidad visual** del 48º Foro, con su pie institucional, mientras se diseña la del 49º.
 - **Configuración por API** (para el administrador): ediciones, convocatorias con sus
   bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios
   de evaluación, cuentas internas y asignación de jurados y revisores.
@@ -31,8 +42,9 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La configuración aún no tiene pantallas.** Se hace por la API (`curl` o cualquier
-> cliente HTTP); el panel de administración llega en el paso 13.
+> **La configuración y la captura aún no tienen pantallas.** Se hacen por la API (`curl`
+> o cualquier cliente HTTP); el formulario del postulante llega en el paso 11 y el panel
+> de administración en el paso 13.
 >
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
@@ -155,6 +167,97 @@ A partir de ahí la convocatoria **avanza sola** al llegar cada fecha, siempre q
 las reglas; si no, se queda donde está y el log lo avisa. Las reglas de cada transición
 están en el [ADR 0005](docs/adr/0005-configuracion-de-convocatorias.md).
 
+### API de postulaciones
+
+Para cualquier cuenta con sesión, sobre **sus propias** postulaciones; lo ajeno responde
+`404`. `admin_sistema` y `coordinacion_nacional` pueden consultar cualquiera, sin
+editarla. Sólo se captura con la convocatoria en etapa de postulación y dentro de su
+plazo.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/catalogos` | Público. Países (códigos ISO 3166-1), entidades federativas, opciones de género y de estreno |
+| `GET /api/v1/postulaciones` | Las postulaciones de la cuenta, de todas las ediciones |
+| `POST /api/v1/convocatorias/{id}/postulaciones` | Abre un borrador. En Intérpretes: `subcategoria` (`solista` o `ensamble`). Una por convocatoria y cuenta |
+| `GET /api/v1/postulaciones/{id}` | La postulación completa: `campos`, `integrantes`, `videos`, `obras`, la `definicion` de su formulario, las `secciones` con sus pendientes y los `bloqueadores` del envío |
+| `PATCH /api/v1/postulaciones/{id}` | Autoguardado: `{"campos": {"datos.telefono": "…", "concierto.entidad": "CDMX"}}`. Guarda lo válido y devuelve en `errores` lo rechazado; `null` vacía un campo |
+| `PUT /api/v1/postulaciones/{id}/subcategoria` | De solista a ensamble o al revés: `subcategoria` y `"confirmar": true`. **Borra los datos generales** |
+| `PUT /api/v1/postulaciones/{id}/integrantes` | Sustituye la lista: `integrantes` con `nombre` e `instrumento` (sólo ensambles) |
+| `PUT /api/v1/postulaciones/{id}/videos` | Sustituye las ligas: `urls` (sólo Intérpretes; `https`, sin repetir) |
+| `POST /api/v1/postulaciones/{id}/obras` | Añade una obra vacía |
+| `PUT /api/v1/postulaciones/{id}/obras/orden` | Fija el orden del programa: `ids` |
+| `PATCH` · `DELETE /api/v1/obras/{id}` | Autoguardado de una obra (`{"campos": {"obra.titulo": "…"}}`), o la quita |
+
+Los nombres de los campos (`datos.*`, `concierto.*`, `obra.*`) no hay que memorizarlos:
+cada postulación trae en `definicion` la lista de los suyos, con tipo, obligatoriedad,
+límites y etiqueta en el idioma de la cuenta.
+
+Ejemplo, con la sesión de un postulante en `cookies.txt` y la convocatoria 1 de la
+demostración (Intérpretes, abierta):
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"subcategoria":"solista"}' http://127.0.0.1:8080/api/v1/convocatorias/1/postulaciones
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PATCH -d '{"campos":{"datos.nombre_completo":"Ana López","datos.pais_residencia":"MX","datos.entidad_residencia":"JAL","concierto.entidad":"OAX"}}' http://127.0.0.1:8080/api/v1/postulaciones/1
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"urls":["https://vimeo.com/123456"]}' http://127.0.0.1:8080/api/v1/postulaciones/1/videos
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST http://127.0.0.1:8080/api/v1/postulaciones/1/obras
+```
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/v1/postulaciones/1
+```
+
+La última respuesta lista en `bloqueadores` todo lo que falta, y en `requisitos` los
+documentos que se piden: a la postulación y a cada obra, según su dotación. Las decisiones
+de este módulo están en el [ADR 0007](docs/adr/0007-captura-de-postulaciones.md).
+
+### API de documentos, envío y acuse
+
+| Método y ruta | Qué hace |
+|---|---|
+| `POST /api/v1/postulaciones/{id}/documentos` | Sube un documento. Formulario `multipart/form-data` con `clave` (el requisito: `fotografia`, `partitura`, `autorizacion`, `particellas`, `audio`…), `obra_id` si es de una obra y, **al final**, `archivo`. Si ya había uno, lo reemplaza y conserva el anterior como versión |
+| `DELETE /api/v1/documentos/{id}` | Retira un documento del borrador (no lo borra) |
+| `GET /api/v1/documentos/{id}/archivo` | Descarga un documento. Con `?descargar=1` se ofrece como descarga en vez de mostrarse. Queda registrada |
+| `POST /api/v1/postulaciones/{id}/envio` | **Envía la postulación; es irreversible.** Cuerpo: `{"confirmo": true, "acepto_bases": true}`. Si falta algo responde `422` con código `incompleta` y la lista |
+| `GET /api/v1/postulaciones/{id}/acuses/{version}` | Descarga el acuse en PDF |
+| `PUT` · `DELETE /api/v1/convocatorias/{id}/archivos/{clase}` | Sólo `admin_sistema`. Carga o retira `bases_pdf_es`, `bases_pdf_en` o `imagen` (formulario con `archivo`) |
+
+El formato de cada archivo se reconoce **por su contenido**, no por la extensión. Se
+admiten PDF, JPEG, PNG, WAV, FLAC y MP3, según lo que pida cada requisito.
+
+Las bases y la imagen se publican, sin sesión, en `/convocatorias/{edicion}/{tipo}/bases.pdf`
+(con `?idioma=es` o `?idioma=en`) y `/convocatorias/{edicion}/{tipo}/imagen`.
+
+Ejemplo: subir la fotografía y la partitura de la obra 1, enviar y bajar el acuse.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F clave=fotografia -F archivo=@retrato.jpg http://127.0.0.1:8080/api/v1/postulaciones/1/documentos
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F clave=partitura -F obra_id=1 -F archivo=@partitura.pdf http://127.0.0.1:8080/api/v1/postulaciones/1/documentos
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"confirmo":true,"acepto_bases":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/envio
+```
+
+```bash
+curl -b cookies.txt -o acuse.pdf http://127.0.0.1:8080/api/v1/postulaciones/1/acuses/1
+```
+
+Para enviar, el correo de la cuenta debe estar confirmado: en desarrollo, el enlace de
+verificación está en el log (véase «Correos en desarrollo»). Decisiones de este módulo:
+[ADR 0009](docs/adr/0009-documentos-envio-y-acuse.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -180,7 +283,10 @@ cmd/
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
-  repository.go       persistencia: TODO el SQL del sistema
+  blobs.go            almacén de archivos en disco, direccionado por SHA-256
+  catalogos.go        catálogos fijos: países y entidades federativas
+  persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
+  repository.go       persistencia sobre SQLite: TODO el SQL del sistema
   seguridad.go        Argon2id y secretos de un solo uso
   migrations/         migraciones NNNN_nombre.sql, incrustadas en el binario
 controllers/        CONTROLADOR
@@ -191,7 +297,10 @@ controllers/        CONTROLADOR
   cuenta.go           registro, ingreso, recuperación, activación, «Mi cuenta»
   api.go              API REST /api/v1: sesión y bitácora
   configuracion.go    API de configuración de ediciones y convocatorias
-  trabajadores.go     correo saliente, limpieza de sesiones y avance de etapa
+  postulaciones.go    API de captura de postulaciones
+  documentos.go       subida y descarga de documentos, envío, acuse y bases
+  enlaces.go          comprobación en red de las ligas de video
+  trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
   views.go            motor de plantillas
   i18n.go             traducciones y formato de fechas
@@ -199,10 +308,15 @@ views/              VISTA (todo incrustado con //go:embed)
   correo.go           armado de los correos a partir de sus plantillas
   datos.go            respuestas JSON y CSV de la API
   configuracion.go    respuestas JSON de la configuración
+  postulaciones.go    respuestas JSON de las postulaciones y su formulario
+  acuse.go            acuse de recibo en PDF, compuesto desde el snapshot
+  api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos
   i18n/               es.json, en.json
 deploy/             systemd, proxy inverso y guiones de instalación y actualización
+internal/
+  pdf/                escritor mínimo de PDF, con la biblioteca estándar (el acuse)
 docs/               perfil de dominio, requerimientos, plan y ADR
 ```
 
@@ -399,7 +513,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Variable | Bandera | Por omisión | Significado |
 |---|---|---|---|
 | `FIMNME_SERVE` | `-s`, `--serve` | `127.0.0.1` | IP en la que escucha. Manténgala en `127.0.0.1`: el servicio va siempre detrás del proxy. |
-| `FIMNME_PORT` | `--port` | `8080` | Puerto local. Debe coincidir con el del proxy. |
+| `FIMNME_PORT` | `-p`, `--port` | `8080` | Puerto local. Debe coincidir con el del proxy. |
 | `FIMNME_ENTORNO` | `--entorno` | `produccion` | `desarrollo` muestra la franja de advertencia y bloquea la indexación. |
 | `FIMNME_DATOS` | `--datos` | `data` | Directorio de datos. En el VPS la unidad de systemd lo fija en `/var/lib/fimnme`. |
 | `FIMNME_URL_BASE` | `--url-base` | — | Dirección pública del sitio, sin barra final (`https://dev.fimnme.example`). Con ella se arman los enlaces de los correos. En `desarrollo`, si falta, se usa la dirección local y se avisa en el log; en `produccion` el servicio no arranca sin ella. |
@@ -414,6 +528,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Reiniciar | `sudo systemctl restart fimnme-web` |
 | Detener | `sudo systemctl stop fimnme-web` |
 | Versión instalada | `/opt/fimnme/bin/fimnme-web --version` |
+| Manual de los binarios | `man fimnme-web` · `man fimnme-cli` |
 | Aplicar migraciones a mano | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme migrate` |
 | Ver los correos (no se envían aún) | `journalctl -u fimnme-web \| grep "correo NO enviado"` |
 
@@ -422,10 +537,14 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 > destinatario y asunto, y las cuentas no podrán verificarse ni recuperarse hasta que
 > exista el SMTP (paso 14).
 
-### Copia de seguridad de la base
+### Copia de seguridad de los datos
+
+`/var/lib/fimnme` contiene **la base** (`fimnme.db` y sus archivos `-wal` y `-shm`) y **el
+acervo de archivos** (`blobs/`): las partituras, el audio, las fotografías y los acuses.
+Una cosa sin la otra no sirve: se respaldan siempre juntas.
 
 Los respaldos automatizados y el servidor espejo llegan en los pasos 10 y 14. Mientras
-tanto, para copiar la base **sin riesgo de corrupción** detenga el servicio y copie el
+tanto, para copiar los datos **sin riesgo de corrupción** detenga el servicio y copie el
 directorio completo (el archivo `-wal` puede contener datos aún no integrados):
 
 ```bash

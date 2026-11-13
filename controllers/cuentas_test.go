@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -57,6 +71,7 @@ type entornoPrueba struct {
 	repo     *models.Repositorio
 	app      http.Handler
 	reloj    *relojDePrueba
+	red      *redDePrueba // la «Internet» que ve el verificador de ligas
 	clientes int
 }
 
@@ -69,11 +84,17 @@ func nuevoEntorno(t *testing.T) *entornoPrueba {
 	if err != nil {
 		t.Fatal(err)
 	}
+	red := &redDePrueba{estados: map[string]int{}}
+	almacen, err := models.AbrirAlmacenEnDisco(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	app := Nueva(Config{
-		Vistas: vistas, Datos: repo, Entorno: EntornoDesarrollo, URLBase: urlBasePrueba, Ahora: reloj.Ahora,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Vistas: vistas, Datos: repo, Entorno: EntornoDesarrollo, URLBase: urlBasePrueba, Ahora: reloj.Ahora, Almacen: almacen,
+		Enlaces: &VerificadorDeEnlaces{Cliente: &http.Client{Transport: red}},
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj}
+	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red}
 }
 
 // cliente imita a un navegador: recuerda sus cookies y tiene su propia IP.
@@ -605,7 +626,9 @@ func TestActivacionPerfilesYAuditoria(t *testing.T) {
 	if _, cuerpo := admin.json("/api/v1/auditoria?accion=cuenta.activada&desde=2026-11-12&hasta=2026-11-12"); cuerpo["total"].(float64) != 2 {
 		t.Errorf("filtro por día: %v", cuerpo["total"])
 	}
-	if _, cuerpo := admin.json("/api/v1/auditoria?desde=2026-11-13"); cuerpo["total"].(float64) != 0 {
+	// Se filtra además por acción: los asientos de la siembra de la base de
+	// pruebas llevan la fecha real del sistema, no la del reloj de prueba.
+	if _, cuerpo := admin.json("/api/v1/auditoria?accion=cuenta.activada&desde=2026-11-13"); cuerpo["total"].(float64) != 0 {
 		t.Errorf("filtro «desde» posterior: %v", cuerpo["total"])
 	}
 	for _, mala := range []string{"pagina=0", "tamano=1000", "desde=ayer", "entidad_id=x", "formato=xml"} {

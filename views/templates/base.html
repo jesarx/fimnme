@@ -27,9 +27,9 @@
 
 <header class="cabecera">
   <div class="cabecera__interior ancho">
-    <a class="marca" href="/" aria-label="{{.T "sitio.sigla"}} · {{.T "sitio.inicio"}}">
-      <span class="marca__sigla">{{.T "sitio.sigla"}}</span>
-      <span class="marca__nombre">{{.T "sitio.plataforma"}}</span>
+    <a class="marca" href="/" aria-label="{{.T "sitio.nombre"}} · {{.T "sitio.inicio"}}">
+      <span class="marca__logo">{{template "logo_foro"}}</span>
+      <span class="marca__texto"><span>{{.T "marca.linea1"}}</span> <span>{{.T "marca.linea2"}}</span> <b>{{.T "marca.linea3"}}</b></span>
     </a>
     <nav class="menu" aria-label="{{.T "nav.principal"}}">
       <a href="/"{{if eq .Ruta "/"}} aria-current="page"{{end}}>{{.T "nav.convocatorias"}}</a>
@@ -56,11 +56,34 @@
 {{template "contenido" .}}
 </main>
 
+{{- /*
+  Pie institucional, con la estructura del sitio del Foro: datos y enlaces a
+  la izquierda, logotipos de la Secretaría de Cultura y del INBAL a la
+  derecha, y una franja final con el aviso de derechos.
+*/}}
 <footer class="pie">
-  <div class="ancho pie__interior">
-    <p class="pie__institucion">{{.T "pie.institucion"}}</p>
-    <p><a href="/aviso-de-privacidad">{{.T "pie.aviso"}}</a> · {{.T "pie.licencia"}}</p>
+  <div class="ancho pie__filas">
+    <div class="pie__datos">
+      <p class="pie__titulo">{{.T "sitio.nombre"}}</p>
+      <p class="pie__texto">{{.T "sitio.plataforma"}}<br>{{.T "pie.cnmo"}}</p>
+      <span class="pie__cnmo" role="img" aria-label="{{.T "pie.cnmo"}}">{{template "logo_cnmo"}}</span>
+      <ul class="pie__enlaces" aria-label="{{.T "pie.enlaces"}}">
+        <li><a href="/">{{.T "nav.convocatorias"}}</a></li>
+        <li><a href="/aviso-de-privacidad">{{.T "pie.aviso"}}</a></li>
+        <li><a href="https://forodemusicanueva.inba.gob.mx/" rel="noopener">{{.T "pie.sitio_foro"}}</a></li>
+      </ul>
+    </div>
+    <div class="pie__logos">
+      <a href="https://www.gob.mx/cultura" rel="noopener"><img src="{{estatico "img/cultura.svg"}}" alt="{{.T "pie.cultura"}}" width="270" height="80"></a>
+      <a href="https://inba.gob.mx/" rel="noopener"><img src="{{estatico "img/inbal.svg"}}" alt="{{.T "pie.inbal"}}" width="250" height="80"></a>
+    </div>
   </div>
 </footer>
+<div class="pie2">
+  <div class="ancho">
+    <p>{{.T "pie.derechos" anio}}</p>
+    <p>{{.T "pie.licencia"}}</p>
+  </div>
+</div>
 </body>
 </html>

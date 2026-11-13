@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // fimnme-cli es la herramienta de mantenimiento de la plataforma: todo lo que
@@ -8,6 +22,8 @@
 //
 // Órdenes disponibles hoy:
 //
+//	fimnme-cli                sin argumentos y sin base: la inicializa
+//	fimnme-cli init           inicializa la base (crea el esquema)
 //	fimnme-cli migrate        aplica las migraciones pendientes del esquema
 //	fimnme-cli crear-usuario  crea una cuenta interna y da su enlace de activación
 //	fimnme-cli sembrar-demo   carga una edición de demostración (sólo desarrollo)
@@ -19,10 +35,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
+	"path/filepath"
 
 	"github.com/jesarx/fimnme/models"
 )
@@ -35,6 +54,16 @@ const (
 	salidaError = 1
 	salidaUso   = 2
 )
+
+// avisoVersion es lo que imprime --version, según la convención de GNU: nombre
+// y versión del programa, su licencia y la advertencia de que no hay garantía.
+func avisoVersion(programa string) string {
+	return programa + " " + version + `
+Licencia GPLv3: GNU GPL versión 3 <https://www.gnu.org/licenses/gpl-3.0.html>.
+Esto es software libre: usted es libre de cambiarlo y redistribuirlo.
+NO HAY GARANTÍA, en la medida en que lo permita la ley.
+`
+}
 
 // entorno devuelve una variable de entorno o su valor por omisión.
 func entorno(nombre, porOmision string) string {
@@ -51,7 +80,10 @@ func ayuda(banderas *flag.FlagSet) {
 Uso:
   fimnme-cli [--datos DIRECTORIO] ORDEN [opciones de la orden]
 
+Sin ORDEN, y si el directorio de datos aún no tiene base, la inicializa.
+
 Órdenes:
+  init           Inicializa la base de datos: la crea y aplica el esquema.
   migrate        Aplica, en orden, las migraciones pendientes del esquema.
   crear-usuario  Crea una cuenta interna y muestra su enlace de activación.
                  Así se da de alta al primer administrador:
@@ -93,6 +125,20 @@ func main() {
 		os.Exit(salidaUso)
 	}
 	if banderas.NArg() < 1 {
+		// Sin argumentos, y sobre un directorio de datos que aún no tiene
+		// base, la herramienta inicializa el entorno: crea la base y aplica
+		// el esquema. Es el primer paso de una instalación nueva. Si la base
+		// ya existe NO se toca: aplicar migraciones a una base en uso es
+		// siempre un acto explícito («migrate»).
+		if _, err := os.Stat(filepath.Join(*dirDatos, models.NombreBase)); errors.Is(err, fs.ErrNotExist) {
+			fmt.Printf("No hay base de datos en %s: se inicializa.\n", *dirDatos)
+			if err := conRepositorio(*dirDatos, migrar); err != nil {
+				fmt.Fprintln(os.Stderr, "ERROR:", err)
+				os.Exit(salidaError)
+			}
+			fmt.Println("\nEntorno inicializado. Siguiente paso: crear al primer administrador con «crear-usuario».")
+			return
+		}
 		ayuda(banderas)
 		os.Exit(salidaUso)
 	}
@@ -100,9 +146,11 @@ func main() {
 	var err error
 	switch orden := banderas.Arg(0); orden {
 	case "version":
-		fmt.Println("fimnme-cli", version)
+		fmt.Print(avisoVersion("fimnme-cli"))
 		return
-	case "migrate":
+	case "init", "migrate":
+		// «init» inicializa una base nueva y «migrate» actualiza una
+		// existente; hacen lo mismo: aplicar las migraciones que falten.
 		err = conRepositorio(*dirDatos, migrar)
 	case "crear-usuario":
 		err = conRepositorio(*dirDatos, crearUsuario(banderas.Args()[1:]))

@@ -21,6 +21,13 @@ dev.fimnme.example {
 	# (En Caddy 2.8 o posterior la directiva se llama basic_auth; el nombre
 	# anterior sigue funcionando.)
 
+	# Tamaño máximo de una petición. Los postulantes suben partituras y audio:
+	# la aplicación admite archivos de hasta 200 MB. Caddy pasa la subida a la
+	# aplicación conforme llega, sin guardarla antes.
+	request_body {
+		max_size 210MB
+	}
+
 	# Caddy añade X-Forwarded-For y X-Forwarded-Proto y conserva la cabecera
 	# Host; la aplicación los necesita para la cookie segura, HSTS y la
 	# protección CSRF.

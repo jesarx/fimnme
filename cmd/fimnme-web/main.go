@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // fimnme-web es el servidor HTTP de la plataforma: sirve el frontal integrado
@@ -20,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -41,6 +56,16 @@ func entorno(nombre, porOmision string) string {
 		return valor
 	}
 	return porOmision
+}
+
+// avisoVersion es lo que imprime --version, según la convención de GNU: nombre
+// y versión del programa, su licencia y la advertencia de que no hay garantía.
+func avisoVersion(programa string) string {
+	return programa + " " + version + `
+Licencia GPLv3: GNU GPL versión 3 <https://www.gnu.org/licenses/gpl-3.0.html>.
+Esto es software libre: usted es libre de cambiarlo y redistribuirlo.
+NO HAY GARANTÍA, en la medida en que lo permita la ley.
+`
 }
 
 // enteroDeEntorno lee un entero de una variable de entorno; si falta o no es
@@ -66,7 +91,10 @@ func main() {
 	const ayudaServe = "dirección IP en la que escucha el servidor (FIMNME_SERVE)"
 	flag.StringVar(&ip, "s", entorno("FIMNME_SERVE", "127.0.0.1"), ayudaServe+" (abreviatura de --serve)")
 	flag.StringVar(&ip, "serve", entorno("FIMNME_SERVE", "127.0.0.1"), ayudaServe)
-	flag.StringVar(&puerto, "port", entorno("FIMNME_PORT", "8080"), "puerto TCP en el que escucha el servidor (FIMNME_PORT)")
+	// -p y --port son la misma bandera.
+	const ayudaPort = "puerto TCP en el que escucha el servidor (FIMNME_PORT)"
+	flag.StringVar(&puerto, "p", entorno("FIMNME_PORT", "8080"), ayudaPort+" (abreviatura de --port)")
+	flag.StringVar(&puerto, "port", entorno("FIMNME_PORT", "8080"), ayudaPort)
 	flag.StringVar(&modo, "entorno", entorno("FIMNME_ENTORNO", controllers.EntornoProduccion),
 		"entorno de ejecución: desarrollo o produccion (FIMNME_ENTORNO)")
 	flag.StringVar(&dirDatos, "datos", entorno("FIMNME_DATOS", "data"),
@@ -79,7 +107,7 @@ func main() {
 	flag.Parse()
 
 	if mostrarVersion {
-		fmt.Println("fimnme-web", version)
+		fmt.Print(avisoVersion("fimnme-web"))
 		return
 	}
 
@@ -134,8 +162,19 @@ func main() {
 			"consecuencia", "sólo servirán desde esta misma máquina")
 	}
 
+	// Almacén de archivos: los documentos y los acuses viven en disco, junto
+	// a la base, direccionados por su SHA-256.
+	almacen, err := models.AbrirAlmacenEnDisco(filepath.Join(dirDatos, "blobs"))
+	if err != nil {
+		log.Error("no se pudo abrir el almacén de archivos", "error", err)
+		repositorio.Cerrar()
+		os.Exit(1)
+	}
+	verificador := controllers.NuevoVerificadorDeEnlaces()
+
 	app := controllers.Nueva(controllers.Config{
 		Vistas: vistas, Datos: repositorio, Entorno: modo, Log: log, URLBase: urlBase,
+		Almacen: almacen, Enlaces: verificador,
 	})
 
 	// Transporte de correo. Aún no existe el SMTP propio (paso 14 del plan):
@@ -151,7 +190,8 @@ func main() {
 		Addr:    net.JoinHostPort(ip, puerto),
 		Handler: app.Manejador(),
 		// Plazos que impiden que conexiones lentas o abandonadas retengan
-		// recursos. Se revisarán al implementar la subida de archivos grandes.
+		// recursos. La subida de archivos, que puede tardar mucho más, amplía
+		// los suyos petición por petición (controllers/documentos.go).
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -167,15 +207,11 @@ func main() {
 	// Trabajadores internos: se detienen con la misma señal que el servidor.
 	var trabajadores sync.WaitGroup
 	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
-	trabajadores.Add(2)
-	go func() {
-		defer trabajadores.Done()
-		trabajador.Ejecutar(ctx)
-	}()
-	go func() {
-		defer trabajadores.Done()
-		etapas.Ejecutar(ctx)
-	}()
+	enlaces := &controllers.TrabajadorEnlaces{Datos: repositorio, Verificador: verificador, Log: log}
+	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
+	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar} {
+		trabajadores.Go(func() { ejecutar(ctx) })
+	}
 
 	errServidor := make(chan error, 1)
 	go func() {

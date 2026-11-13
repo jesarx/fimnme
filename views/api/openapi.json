@@ -1,0 +1,5492 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FIMNME — API de la plataforma de postulaciones",
+    "version": "1",
+    "description": "API REST de la plataforma de postulaciones del Foro Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).\n\nAutenticación: la cookie de sesión que entrega el inicio de sesión (POST /cuenta/ingresar). Toda petición que modifica estado debe venir del propio sitio (protección CSRF por las cabeceras Sec-Fetch-Site u Origin).\n\nCada operación indica en «x-perfiles» qué perfiles pueden usarla. Los mensajes de error se entregan en el idioma de la petición.",
+    "license": {
+      "name": "GPL-3.0-only",
+      "identifier": "GPL-3.0-only"
+    }
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/v1/asignaciones/{id}": {
+      "delete": {
+        "tags": [
+          "Asignaciones"
+        ],
+        "summary": "Retira una asignación (no borra lo ya hecho)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auditoria": {
+      "get": {
+        "tags": [
+          "Bitácora"
+        ],
+        "summary": "Consulta la bitácora de auditoría",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de la bitácora; con formato=csv, un archivo CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaAuditoria"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "accion",
+            "in": "query",
+            "required": false,
+            "description": "Acción exacta, p. ej. sesion.ingreso",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad",
+            "in": "query",
+            "required": false,
+            "description": "Entidad afectada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_id",
+            "in": "query",
+            "required": false,
+            "description": "Id de la entidad",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "description": "Id de la cuenta que actuó",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "json (por omisión) o csv",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página, desde 1",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tamano",
+            "in": "query",
+            "required": false,
+            "description": "Elementos por página (1 a 200; 50 por omisión)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/catalogos": {
+      "get": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Catálogos fijos del formulario",
+        "x-perfiles": [
+          "publico"
+        ],
+        "responses": {
+          "200": {
+            "description": "Países (códigos ISO 3166-1 alfa-2), entidades federativas, géneros, tipos de estreno y subcategorías",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/convocatorias/{id}": {
+      "get": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Configuración completa de una convocatoria",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Edita textos y límites",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "titulo_es": {
+                    "type": "string"
+                  },
+                  "titulo_en": {
+                    "type": "string"
+                  },
+                  "bases_md_es": {
+                    "type": "string",
+                    "description": "Bases en Markdown"
+                  },
+                  "bases_md_en": {
+                    "type": "string"
+                  },
+                  "max_obras": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Compositores: 2 por omisión; Intérpretes: sin límite"
+                  },
+                  "duracion_max_programa_min": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Omitido = sin límite"
+                  },
+                  "max_videos": {
+                    "type": "integer",
+                    "description": "0 a 3; 3 por omisión"
+                  }
+                },
+                "required": [
+                  "titulo_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/archivos/{clase}": {
+      "put": {
+        "tags": [
+          "Configuración"
+        ],
+        "summary": "Carga las bases en PDF o la imagen de cabecera",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Bases: PDF de hasta 20 MB, uno por idioma. Imagen: JPEG o PNG de hasta 5 MB. Se publican en /convocatorias/{edicion}/{tipo}/bases.pdf y /convocatorias/{edicion}/{tipo}/imagen.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "clase",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bases_pdf_es",
+                "bases_pdf_en",
+                "imagen"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Formulario con un solo campo",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "archivo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "El archivo. Debe ser el ÚLTIMO campo del formulario"
+                  }
+                },
+                "required": [
+                  "archivo"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Configuración"
+        ],
+        "summary": "Retira las bases en PDF o la imagen de cabecera",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "clase",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bases_pdf_es",
+                "bases_pdf_en",
+                "imagen"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/asignaciones": {
+      "post": {
+        "tags": [
+          "Asignaciones"
+        ],
+        "summary": "Asigna un jurado o un revisor",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "usuario_id": {
+                    "type": "integer"
+                  },
+                  "perfil": {
+                    "type": "string",
+                    "enum": [
+                      "jurado",
+                      "revisor_documental"
+                    ]
+                  }
+                },
+                "required": [
+                  "usuario_id",
+                  "perfil"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/criterios": {
+      "post": {
+        "tags": [
+          "Criterios de evaluación"
+        ],
+        "summary": "Crea un elemento en la convocatoria",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "etiqueta_es": {
+                    "type": "string"
+                  },
+                  "etiqueta_en": {
+                    "type": "string"
+                  },
+                  "descripcion_es": {
+                    "type": "string"
+                  },
+                  "descripcion_en": {
+                    "type": "string"
+                  },
+                  "escala_min": {
+                    "type": "integer"
+                  },
+                  "escala_max": {
+                    "type": "integer"
+                  },
+                  "obligatorio": {
+                    "type": "boolean",
+                    "description": "Omitido = obligatorio"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "etiqueta_es",
+                  "escala_min",
+                  "escala_max"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/dotaciones": {
+      "post": {
+        "tags": [
+          "Dotaciones"
+        ],
+        "summary": "Crea un elemento en la convocatoria",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre_es": {
+                    "type": "string"
+                  },
+                  "nombre_en": {
+                    "type": "string"
+                  },
+                  "descripcion_es": {
+                    "type": "string"
+                  },
+                  "descripcion_en": {
+                    "type": "string"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  },
+                  "activa": {
+                    "type": "boolean",
+                    "description": "Omitida = activa. Para retirarla del catálogo: false"
+                  }
+                },
+                "required": [
+                  "nombre_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/duplicar": {
+      "post": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Copia la configuración a otra edición",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Convocatoria nueva, en borrador",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "edicion_id": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "edicion_id"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/estado": {
+      "post": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Cambia de etapa (forzado)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sólo al estado inmediato anterior o siguiente. Las condiciones de cada transición están en el ADR 0005.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "estado": {
+                    "$ref": "#/components/schemas/EstadoConvocatoria"
+                  },
+                  "motivo": {
+                    "type": "string",
+                    "description": "Obligatorio para retroceder"
+                  }
+                },
+                "required": [
+                  "estado"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/etapas": {
+      "put": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Sustituye el calendario",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "etapas": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Etapa"
+                    }
+                  }
+                },
+                "required": [
+                  "etapas"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/postulaciones": {
+      "post": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Abre una postulación en borrador",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Una por convocatoria y por cuenta. La convocatoria debe estar en etapa de postulación y dentro de su plazo. No puede postular quien es jurado o revisor de esa convocatoria, ni una cuenta con perfil de observador.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "subcategoria": {
+                    "type": "string",
+                    "enum": [
+                      "solista",
+                      "ensamble"
+                    ],
+                    "description": "Obligatoria en Intérpretes; no aplica en Compositores"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/requisitos": {
+      "post": {
+        "tags": [
+          "Requisitos documentales"
+        ],
+        "summary": "Crea un elemento en la convocatoria",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dotacion_id": {
+                    "type": "integer",
+                    "description": "0 = regla general de la convocatoria"
+                  },
+                  "clave": {
+                    "type": "string"
+                  },
+                  "etiqueta_es": {
+                    "type": "string"
+                  },
+                  "etiqueta_en": {
+                    "type": "string"
+                  },
+                  "ayuda_es": {
+                    "type": "string"
+                  },
+                  "ayuda_en": {
+                    "type": "string"
+                  },
+                  "ambito": {
+                    "type": "string",
+                    "enum": [
+                      "postulacion",
+                      "obra"
+                    ]
+                  },
+                  "obligatorio": {
+                    "type": "boolean"
+                  },
+                  "mimes_permitidos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "image/jpeg",
+                        "image/png",
+                        "application/pdf",
+                        "audio/wav",
+                        "audio/flac",
+                        "audio/mpeg"
+                      ]
+                    }
+                  },
+                  "tamano_max_bytes": {
+                    "type": "integer"
+                  },
+                  "max_archivos": {
+                    "type": "integer",
+                    "description": "1 por omisión"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "etiqueta_es",
+                  "ambito",
+                  "mimes_permitidos",
+                  "tamano_max_bytes"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/criterios/{id}": {
+      "put": {
+        "tags": [
+          "Criterios de evaluación"
+        ],
+        "summary": "Edita un elemento",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "etiqueta_es": {
+                    "type": "string"
+                  },
+                  "etiqueta_en": {
+                    "type": "string"
+                  },
+                  "descripcion_es": {
+                    "type": "string"
+                  },
+                  "descripcion_en": {
+                    "type": "string"
+                  },
+                  "escala_min": {
+                    "type": "integer"
+                  },
+                  "escala_max": {
+                    "type": "integer"
+                  },
+                  "obligatorio": {
+                    "type": "boolean",
+                    "description": "Omitido = obligatorio"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "etiqueta_es",
+                  "escala_min",
+                  "escala_max"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Criterios de evaluación"
+        ],
+        "summary": "Elimina un elemento (sólo con la convocatoria en borrador)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "204": {
+            "description": "Eliminado"
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/documentos/{id}": {
+      "delete": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Retira un documento del borrador",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El documento deja de estar vigente; su archivo no se borra.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/documentos/{id}/archivo": {
+      "get": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Descarga un documento",
+        "x-perfiles": [
+          "titular de la postulación",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo, con su tipo de contenido. Admite peticiones por rangos (Range)",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Toda descarga queda registrada con cuenta, IP y momento.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "descargar",
+            "in": "query",
+            "required": false,
+            "description": "Con cualquier valor, el archivo se ofrece como descarga en vez de mostrarse en el navegador",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dotaciones/{id}": {
+      "put": {
+        "tags": [
+          "Dotaciones"
+        ],
+        "summary": "Edita un elemento",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre_es": {
+                    "type": "string"
+                  },
+                  "nombre_en": {
+                    "type": "string"
+                  },
+                  "descripcion_es": {
+                    "type": "string"
+                  },
+                  "descripcion_en": {
+                    "type": "string"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  },
+                  "activa": {
+                    "type": "boolean",
+                    "description": "Omitida = activa. Para retirarla del catálogo: false"
+                  }
+                },
+                "required": [
+                  "nombre_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ediciones": {
+      "get": {
+        "tags": [
+          "Ediciones"
+        ],
+        "summary": "Lista las ediciones con el resumen de sus convocatorias",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ediciones, la más reciente primero",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ediciones": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Edicion"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Ediciones"
+        ],
+        "summary": "Crea una edición",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Edición creada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Edicion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "numero": {
+                    "type": "integer",
+                    "description": "Número de la edición, p. ej. 49"
+                  },
+                  "anio": {
+                    "type": "integer"
+                  },
+                  "nombre_es": {
+                    "type": "string"
+                  },
+                  "nombre_en": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "numero",
+                  "anio",
+                  "nombre_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ediciones/{id}": {
+      "get": {
+        "tags": [
+          "Ediciones"
+        ],
+        "summary": "Consulta una edición",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Edición",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Edicion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Ediciones"
+        ],
+        "summary": "Edita una edición",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Edición editada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Edicion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El número queda fijo en cuanto una de sus convocatorias deja de ser borrador.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "numero": {
+                    "type": "integer",
+                    "description": "Número de la edición, p. ej. 49"
+                  },
+                  "anio": {
+                    "type": "integer"
+                  },
+                  "nombre_es": {
+                    "type": "string"
+                  },
+                  "nombre_en": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "numero",
+                  "anio",
+                  "nombre_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ediciones/{id}/convocatorias": {
+      "post": {
+        "tags": [
+          "Convocatorias"
+        ],
+        "summary": "Crea una convocatoria en borrador",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Convocatoria creada, con los requisitos y criterios iniciales de su tipo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tipo": {
+                    "type": "string",
+                    "enum": [
+                      "interpretes",
+                      "compositores"
+                    ]
+                  },
+                  "titulo_es": {
+                    "type": "string"
+                  },
+                  "titulo_en": {
+                    "type": "string"
+                  },
+                  "bases_md_es": {
+                    "type": "string",
+                    "description": "Bases en Markdown"
+                  },
+                  "bases_md_en": {
+                    "type": "string"
+                  },
+                  "max_obras": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Compositores: 2 por omisión; Intérpretes: sin límite"
+                  },
+                  "duracion_max_programa_min": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "Omitido = sin límite"
+                  },
+                  "max_videos": {
+                    "type": "integer",
+                    "description": "0 a 3; 3 por omisión"
+                  },
+                  "etapas": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Etapa"
+                    }
+                  }
+                },
+                "required": [
+                  "tipo",
+                  "titulo_es"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/obras/{id}": {
+      "patch": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Autoguardado de una obra",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Se guardó al menos un campo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Guardado"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "campos": {
+                    "type": "object",
+                    "description": "Ruta canónica → valor (texto, entero o null para vaciar)",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "campos"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Quita una obra del borrador",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "tags": [
+          "Meta"
+        ],
+        "summary": "Esta descripción de la API",
+        "x-perfiles": [
+          "publico"
+        ],
+        "responses": {
+          "200": {
+            "description": "Documento OpenAPI 3.1"
+          }
+        }
+      }
+    },
+    "/api/v1/postulaciones": {
+      "get": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Las postulaciones de la cuenta, de todas las ediciones",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Historial",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "postulaciones": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}": {
+      "get": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Una postulación con todo lo capturado y lo que le falta",
+        "x-perfiles": [
+          "titular de la postulación",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Autoguardado de datos generales y propuesta de concierto",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Se guardó al menos un campo; «errores» trae los rechazados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Guardado"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Guarda campos sueltos. No exige que la postulación esté completa: sólo que cada valor tenga un formato aceptable. Responde 422 si no pudo guardarse ninguno.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "campos": {
+                    "type": "object",
+                    "description": "Ruta canónica → valor (texto, entero o null para vaciar)",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "campos"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/acuses/{version}": {
+      "get": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Descarga un acuse de recibo en PDF",
+        "x-perfiles": [
+          "titular de la postulación",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo, con su tipo de contenido. Admite peticiones por rangos (Range)",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "1 = envío original; 2 en adelante, reenvíos tras una subsanación"
+          },
+          {
+            "name": "descargar",
+            "in": "query",
+            "required": false,
+            "description": "Con cualquier valor, el archivo se ofrece como descarga en vez de mostrarse en el navegador",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/documentos": {
+      "post": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Sube un documento de la postulación o de una obra",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación, con el documento ya registrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El formato se reconoce por la firma del contenido, no por la extensión. Si el requisito admite un solo archivo y ya hay uno, el nuevo lo reemplaza: el anterior se conserva como versión no vigente. Nada se sobrescribe.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Los campos de texto deben ir ANTES del archivo: el servidor procesa la subida al vuelo.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string",
+                    "description": "Clave del requisito que cumple: fotografia, partitura, particellas, audio, autorizacion…"
+                  },
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "Obra a la que pertenece el documento; se omite si es de la postulación"
+                  },
+                  "reemplaza": {
+                    "type": "integer",
+                    "description": "Id del documento vigente que se sustituye; sólo hace falta si el requisito admite varios archivos"
+                  },
+                  "archivo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "El archivo. Debe ser el ÚLTIMO campo del formulario"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "archivo"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/postulaciones/{id}/envio": {
+      "post": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Envía la postulación (irreversible)",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación enviada, con su folio y su acuse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Falta una confirmación (ErrorValidacion) o a la postulación le falta algo (ErrorDeEnvio)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorValidacion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDeEnvio"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Comprueba las ligas de video, ejecuta la validación completa y, en una sola transacción, asigna el folio, congela lo enviado, genera el acuse en PDF y encola el correo que lo lleva adjunto.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Entiendo que ya no podré editar mi postulación"
+                  },
+                  "acepto_bases": {
+                    "type": "boolean",
+                    "description": "Acepto las bases de la convocatoria"
+                  }
+                },
+                "required": [
+                  "confirmo",
+                  "acepto_bases"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/integrantes": {
+      "put": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Sustituye la lista de integrantes del ensamble",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "integrantes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "nombre": {
+                          "type": "string"
+                        },
+                        "instrumento": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "nombre",
+                        "instrumento"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "integrantes"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/obras": {
+      "post": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Añade una obra vacía al programa",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/obras/orden": {
+      "put": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Fija el orden del programa",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "Exactamente las obras de la postulación, en el orden deseado"
+                  }
+                },
+                "required": [
+                  "ids"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/subcategoria": {
+      "put": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Cambia de solista a ensamble o al revés",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "subcategoria": {
+                    "type": "string",
+                    "enum": [
+                      "solista",
+                      "ensamble"
+                    ]
+                  },
+                  "confirmar": {
+                    "type": "boolean",
+                    "description": "Debe ser true: el cambio borra los datos generales capturados"
+                  }
+                },
+                "required": [
+                  "subcategoria",
+                  "confirmar"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/videos": {
+      "put": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Sustituye las ligas a videos de ejecución",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "urls": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "description": "Hasta el máximo de la convocatoria; deben empezar con https://"
+                  }
+                },
+                "required": [
+                  "urls"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/requisitos/{id}": {
+      "put": {
+        "tags": [
+          "Requisitos documentales"
+        ],
+        "summary": "Edita un elemento",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dotacion_id": {
+                    "type": "integer",
+                    "description": "0 = regla general de la convocatoria"
+                  },
+                  "clave": {
+                    "type": "string"
+                  },
+                  "etiqueta_es": {
+                    "type": "string"
+                  },
+                  "etiqueta_en": {
+                    "type": "string"
+                  },
+                  "ayuda_es": {
+                    "type": "string"
+                  },
+                  "ayuda_en": {
+                    "type": "string"
+                  },
+                  "ambito": {
+                    "type": "string",
+                    "enum": [
+                      "postulacion",
+                      "obra"
+                    ]
+                  },
+                  "obligatorio": {
+                    "type": "boolean"
+                  },
+                  "mimes_permitidos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "image/jpeg",
+                        "image/png",
+                        "application/pdf",
+                        "audio/wav",
+                        "audio/flac",
+                        "audio/mpeg"
+                      ]
+                    }
+                  },
+                  "tamano_max_bytes": {
+                    "type": "integer"
+                  },
+                  "max_archivos": {
+                    "type": "integer",
+                    "description": "1 por omisión"
+                  },
+                  "orden": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "etiqueta_es",
+                  "ambito",
+                  "mimes_permitidos",
+                  "tamano_max_bytes"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Requisitos documentales"
+        ],
+        "summary": "Elimina un elemento (sólo con la convocatoria en borrador)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "204": {
+            "description": "Eliminado"
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sesion": {
+      "get": {
+        "tags": [
+          "Sesión"
+        ],
+        "summary": "La cuenta en sesión, sus perfiles y sus asignaciones",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Sesión en curso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sesion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/usuarios": {
+      "get": {
+        "tags": [
+          "Cuentas"
+        ],
+        "summary": "Busca cuentas por correo, nombre o apellidos",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de cuentas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer"
+                    },
+                    "pagina": {
+                      "type": "integer"
+                    },
+                    "tamano": {
+                      "type": "integer"
+                    },
+                    "usuarios": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Cuenta"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto a buscar (coincidencia parcial)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página, desde 1",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tamano",
+            "in": "query",
+            "required": false,
+            "description": "Elementos por página (1 a 200; 50 por omisión)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Cuentas"
+        ],
+        "summary": "Crea una cuenta interna y le envía su enlace de activación",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Cuenta creada, sin contraseña",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuenta"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  },
+                  "apellidos": {
+                    "type": "string"
+                  },
+                  "idioma": {
+                    "type": "string",
+                    "enum": [
+                      "es",
+                      "en"
+                    ]
+                  },
+                  "perfil_global": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "coordinacion_nacional",
+                      "admin_sistema"
+                    ],
+                    "description": "Vacío para un jurado o un revisor: sus perfiles son por convocatoria"
+                  }
+                },
+                "required": [
+                  "email",
+                  "nombre",
+                  "apellidos"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/usuarios/{id}/activacion": {
+      "post": {
+        "tags": [
+          "Cuentas"
+        ],
+        "summary": "Reenvía el enlace de activación",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cuenta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cuenta"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sesion": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "fimnme_sesion"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "codigo": {
+                "type": "string",
+                "description": "Código estable, para programas"
+              },
+              "mensaje": {
+                "type": "string",
+                "description": "En el idioma de la petición"
+              }
+            }
+          }
+        }
+      },
+      "ErrorValidacion": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "codigo": {
+                "type": "string",
+                "const": "validacion"
+              },
+              "mensaje": {
+                "type": "string"
+              },
+              "campos": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Bloqueador"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Bloqueador": {
+        "type": "object",
+        "properties": {
+          "campo": {
+            "type": "string"
+          },
+          "mensaje": {
+            "type": "string"
+          }
+        }
+      },
+      "EstadoConvocatoria": {
+        "type": "string",
+        "enum": [
+          "borrador",
+          "publicada",
+          "postulacion",
+          "revision_documental",
+          "evaluacion",
+          "cerrada",
+          "archivada"
+        ]
+      },
+      "Etapa": {
+        "type": "object",
+        "properties": {
+          "clave": {
+            "type": "string",
+            "enum": [
+              "postulacion",
+              "revision_documental",
+              "evaluacion"
+            ]
+          },
+          "inicia_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          },
+          "termina_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          }
+        },
+        "required": [
+          "clave",
+          "inicia_at",
+          "termina_at"
+        ]
+      },
+      "Sesion": {
+        "type": "object",
+        "properties": {
+          "usuario": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "email": {
+                "type": "string"
+              },
+              "nombre": {
+                "type": "string"
+              },
+              "apellidos": {
+                "type": "string"
+              },
+              "idioma": {
+                "type": "string"
+              },
+              "email_verificado": {
+                "type": "boolean"
+              }
+            }
+          },
+          "perfiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Perfiles globales"
+          },
+          "asignaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "convocatoria_id": {
+                  "type": "integer"
+                },
+                "perfil": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "expira_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          }
+        }
+      },
+      "Cuenta": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "email": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "apellidos": {
+            "type": "string"
+          },
+          "idioma": {
+            "type": "string"
+          },
+          "email_verificado": {
+            "type": "boolean"
+          },
+          "activo": {
+            "type": "boolean"
+          },
+          "activada": {
+            "type": "boolean",
+            "description": "Ya eligió su contraseña"
+          },
+          "perfiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Edicion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "numero": {
+            "type": "integer"
+          },
+          "anio": {
+            "type": "integer"
+          },
+          "nombre_es": {
+            "type": "string"
+          },
+          "nombre_en": {
+            "type": "string"
+          },
+          "faltan_en_ingles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "convocatorias": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "titulo_es": {
+                  "type": "string"
+                },
+                "titulo_en": {
+                  "type": "string"
+                },
+                "estado": {
+                  "$ref": "#/components/schemas/EstadoConvocatoria"
+                },
+                "etapas": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Etapa"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Configuracion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tipo": {
+            "type": "string"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoConvocatoria"
+          },
+          "edicion": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "numero": {
+                "type": "integer"
+              },
+              "anio": {
+                "type": "integer"
+              },
+              "nombre_es": {
+                "type": "string"
+              },
+              "nombre_en": {
+                "type": "string"
+              }
+            }
+          },
+          "titulo_es": {
+            "type": "string"
+          },
+          "titulo_en": {
+            "type": "string"
+          },
+          "bases_md_es": {
+            "type": "string"
+          },
+          "bases_md_en": {
+            "type": "string"
+          },
+          "faltan_en_ingles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_obras": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null = sin límite"
+          },
+          "duracion_max_programa_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "null = sin límite"
+          },
+          "max_videos": {
+            "type": "integer"
+          },
+          "etapas": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Etapa"
+            }
+          },
+          "dotaciones": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "requisitos": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "criterios": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "asignaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "perfil": {
+                  "type": "string"
+                },
+                "activo": {
+                  "type": "boolean"
+                },
+                "usuario": {
+                  "$ref": "#/components/schemas/Cuenta"
+                }
+              }
+            }
+          },
+          "cuotas": {
+            "type": "object",
+            "properties": {
+              "jurados": {
+                "type": "integer"
+              },
+              "jurados_requeridos": {
+                "type": "integer"
+              },
+              "revisores": {
+                "type": "integer"
+              }
+            }
+          },
+          "siguiente": {
+            "description": "Etapa que sigue y qué falta para pasar a ella; null si no hay",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "estado": {
+                    "$ref": "#/components/schemas/EstadoConvocatoria"
+                  },
+                  "bloqueadores": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Bloqueador"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "archivos": {
+            "type": "object",
+            "properties": {
+              "bases_pdf_es": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bases_pdf_en": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "imagen": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "description": "Archivos públicos cargados; null el que falta"
+          }
+        },
+        "description": "Una convocatoria con toda su configuración"
+      },
+      "PaginaAuditoria": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "pagina": {
+            "type": "integer"
+          },
+          "tamano": {
+            "type": "integer"
+          },
+          "registros": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "creado_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                },
+                "actor_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "actor_perfil": {
+                  "type": "string"
+                },
+                "accion": {
+                  "type": "string"
+                },
+                "entidad": {
+                  "type": "string"
+                },
+                "entidad_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "antes": {
+                  "description": "JSON o null"
+                },
+                "despues": {
+                  "description": "JSON o null"
+                },
+                "ip": {
+                  "type": "string"
+                },
+                "user_agent": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Guardado": {
+        "type": "object",
+        "properties": {
+          "guardados": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Rutas guardadas"
+          },
+          "errores": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bloqueador"
+            },
+            "description": "Campos rechazados y por qué"
+          },
+          "guardado_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          }
+        }
+      },
+      "Postulacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "borrador",
+              "enviada",
+              "en_revision",
+              "en_subsanacion",
+              "validada",
+              "descartada",
+              "en_evaluacion",
+              "evaluada"
+            ]
+          },
+          "subcategoria": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "folio": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "null mientras es borrador"
+          },
+          "envios": {
+            "type": "integer"
+          },
+          "editable": {
+            "type": "boolean",
+            "description": "El titular puede modificarla en este momento"
+          },
+          "creado_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          },
+          "actualizado_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 con desfase; se guarda en UTC"
+          },
+          "convocatoria": {
+            "type": "object"
+          },
+          "campos": {
+            "type": "object",
+            "description": "Ruta canónica → valor capturado, o null. Aparecen todas las rutas del formulario",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "integrantes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nombre": {
+                  "type": "string"
+                },
+                "instrumento": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "videos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "estado": {
+                  "type": "string",
+                  "enum": [
+                    "pendiente",
+                    "ok",
+                    "inaccesible",
+                    "no_publico"
+                  ]
+                },
+                "plataforma": {
+                  "type": "string"
+                },
+                "estado_texto": {
+                  "type": "string",
+                  "description": "El estado, en el idioma de la petición"
+                },
+                "detalle": {
+                  "type": "string",
+                  "description": "Resultado de la comprobación en red, en el idioma de la petición; falta si aún no se comprueba"
+                }
+              }
+            }
+          },
+          "obras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "orden": {
+                  "type": "integer"
+                },
+                "campos": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "dotaciones": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "Dotaciones que puede elegirse para una obra"
+          },
+          "definicion": {
+            "type": "object",
+            "properties": {
+              "campos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ruta": {
+                      "type": "string"
+                    },
+                    "etiqueta": {
+                      "type": "string"
+                    },
+                    "tipo": {
+                      "type": "string"
+                    },
+                    "obligatorio": {
+                      "type": "boolean"
+                    },
+                    "obligatorio_si": {
+                      "type": "string"
+                    },
+                    "longitud_max": {
+                      "type": "integer"
+                    },
+                    "minimo": {
+                      "type": "integer"
+                    },
+                    "maximo": {
+                      "type": "integer"
+                    },
+                    "opciones": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "campos_de_obra": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ruta": {
+                      "type": "string"
+                    },
+                    "etiqueta": {
+                      "type": "string"
+                    },
+                    "tipo": {
+                      "type": "string"
+                    },
+                    "obligatorio": {
+                      "type": "boolean"
+                    },
+                    "obligatorio_si": {
+                      "type": "string"
+                    },
+                    "longitud_max": {
+                      "type": "integer"
+                    },
+                    "minimo": {
+                      "type": "integer"
+                    },
+                    "maximo": {
+                      "type": "integer"
+                    },
+                    "opciones": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "tiene_integrantes": {
+                "type": "boolean"
+              },
+              "tiene_videos": {
+                "type": "boolean"
+              }
+            },
+            "description": "Definición declarativa del formulario"
+          },
+          "secciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seccion": {
+                  "type": "string"
+                },
+                "etiqueta": {
+                  "type": "string"
+                },
+                "pendientes": {
+                  "type": "integer"
+                },
+                "completa": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "bloqueadores": {
+            "type": "array",
+            "description": "Lo que falta para poder enviarla",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seccion": {
+                  "type": "string"
+                },
+                "campo": {
+                  "type": "string"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "mensaje": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "lista_para_enviar": {
+            "type": "boolean"
+          },
+          "requisitos": {
+            "type": "array",
+            "description": "Documentos que se piden: a la postulación (obra_id null) y a cada obra, según su dotación",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "ayuda_es": {
+                  "type": "string"
+                },
+                "ayuda_en": {
+                  "type": "string"
+                },
+                "obligatorio": {
+                  "type": "boolean"
+                },
+                "mimes_permitidos": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "tamano_max_bytes": {
+                  "type": "integer"
+                },
+                "max_archivos": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "documentos": {
+            "type": "array",
+            "description": "Documentos vigentes",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "clave": {
+                  "type": "string"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "dictamen": {
+                  "type": "string",
+                  "enum": [
+                    "pendiente",
+                    "valido",
+                    "invalido"
+                  ]
+                },
+                "nombre": {
+                  "type": "string",
+                  "description": "Nombre con que se descarga: folio, requisito, obra y versión"
+                },
+                "mime": {
+                  "type": "string"
+                },
+                "tamano_bytes": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "subido_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                }
+              }
+            }
+          },
+          "acuses": {
+            "type": "array",
+            "description": "Un acuse por envío",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "idioma": {
+                  "type": "string",
+                  "enum": [
+                    "es",
+                    "en"
+                  ]
+                },
+                "generado_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                },
+                "tamano_bytes": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "ErrorDeEnvio": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "codigo": {
+                "type": "string",
+                "const": "incompleta"
+              },
+              "mensaje": {
+                "type": "string"
+              },
+              "bloqueadores": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "seccion": {
+                      "type": "string"
+                    },
+                    "campo": {
+                      "type": "string"
+                    },
+                    "obra_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "mensaje": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "A la postulación le falta algo para poder enviarse"
+      }
+    }
+  }
+}

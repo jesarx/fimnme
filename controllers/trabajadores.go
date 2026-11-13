@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -12,19 +26,12 @@ import (
 	"time"
 
 	"github.com/jesarx/fimnme/models"
+	"github.com/jesarx/fimnme/views"
 )
 
 // Trabajadores internos de fimnme-web: tareas en segundo plano que no
 // responden a una petición. Por ahora, el envío del correo saliente y la
 // limpieza de sesiones vencidas.
-
-// BandejaSalida es lo que el trabajador de correo necesita de la persistencia.
-type BandejaSalida interface {
-	CorreosPendientes(ctx context.Context, limite int) ([]models.CorreoSaliente, error)
-	MarcarCorreoEnviado(ctx context.Context, correo models.CorreoSaliente, messageID string) error
-	MarcarCorreoFallido(ctx context.Context, correo models.CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error
-	PurgarSesionesVencidas(ctx context.Context) (int64, error)
-}
 
 // Ritmo del trabajador.
 const (
@@ -39,7 +46,7 @@ const (
 // un máximo por minuto (RF-SMTP-07). Ningún proceso de negocio espera a que
 // un correo salga.
 type TrabajadorCorreo struct {
-	Bandeja BandejaSalida
+	Bandeja models.Persistencia
 	Mailer  models.Mailer
 	Log     *slog.Logger
 	// PorMinuto es el máximo de envíos por minuto. Las ráfagas disparan los
@@ -156,6 +163,9 @@ func (m MailerRegistro) Enviar(_ context.Context, correo models.CorreoSaliente) 
 	atributos := []any{
 		"id", correo.ID, "para", correo.Destinatario, "asunto", correo.Asunto, "plantilla", correo.PlantillaClave,
 	}
+	for _, adjunto := range correo.Adjuntos {
+		atributos = append(atributos, "adjunto", adjunto.Nombre)
+	}
 	if m.MostrarCuerpo {
 		atributos = append(atributos, "cuerpo", correo.Texto)
 	}
@@ -164,14 +174,6 @@ func (m MailerRegistro) Enviar(_ context.Context, correo models.CorreoSaliente) 
 }
 
 // --- Avance de etapa por calendario (§3) --------------------------------------
-
-// Calendario es lo que el trabajador de etapas necesita de la persistencia.
-type Calendario interface {
-	ConvocatoriasEnCurso(ctx context.Context) ([]int64, error)
-	ConfiguracionDeConvocatoria(ctx context.Context, convocatoriaID int64) (models.ConfiguracionConvocatoria, error)
-	CambiarEstadoConvocatoria(ctx context.Context, actor models.Actor, convocatoriaID int64,
-		destino models.EstadoConvocatoria, motivo string, automatico bool) (models.EstadoConvocatoria, error)
-}
 
 // Ritmo del trabajador de etapas.
 const (
@@ -185,7 +187,7 @@ const (
 // de cierre de la postulación no hay un revisor asignado, la convocatoria no
 // avanza, y se deja un aviso en el log hasta que se corrija.
 type TrabajadorEtapas struct {
-	Datos Calendario
+	Datos models.Persistencia
 	Log   *slog.Logger
 	// Ahora es el reloj; nil usa el del sistema.
 	Ahora func() time.Time
@@ -269,4 +271,74 @@ func (t *TrabajadorEtapas) avisarBloqueo(id int64, destino models.EstadoConvocat
 	t.avisado[id] = t.reloj()
 	t.Log.Warn("la convocatoria debió avanzar de etapa por calendario y NO pudo: falta cumplir una regla",
 		"convocatoria", id, "a", destino, "motivo", causa.Error())
+}
+
+// --- Recordatorios de borrador sin enviar (RF-NOT-04) -------------------------
+
+// intervaloRecordatorios es cada cuánto se revisa si toca recordar algo. Los
+// recordatorios se miden en días y horas: diez minutos de retraso no importan.
+const intervaloRecordatorios = 10 * time.Minute
+
+// TrabajadorRecordatorios avisa por correo, a 7 días, 2 días y 12 horas del
+// cierre, a quien tiene una postulación en borrador: una postulación que no
+// se envía antes del cierre no entra al proceso (§4.1).
+type TrabajadorRecordatorios struct {
+	Datos  models.Persistencia
+	Vistas *views.Motor
+	Log    *slog.Logger
+	// URLBase es la dirección pública del sitio, para el enlace del correo.
+	URLBase string
+}
+
+// Ejecutar trabaja hasta que se cancele el contexto.
+func (t *TrabajadorRecordatorios) Ejecutar(ctx context.Context) {
+	t.Procesar(ctx) // al arrancar: puede haberse abierto una ventana con el servicio detenido
+	reloj := time.NewTicker(intervaloRecordatorios)
+	defer reloj.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-reloj.C:
+			t.Procesar(ctx)
+		}
+	}
+}
+
+// Procesar encola los recordatorios que tocan en este momento y devuelve
+// cuántos encoló. El correo sale después, por la bandeja de salida.
+func (t *TrabajadorRecordatorios) Procesar(ctx context.Context) int {
+	pendientes, err := t.Datos.BorradoresPorRecordar(ctx)
+	if err != nil {
+		t.Log.Error("leer borradores por recordar", "error", err)
+		return 0
+	}
+	encolados := 0
+	for _, rec := range pendientes {
+		idioma := rec.Usuario.Idioma
+		plantilla, err := t.Datos.PlantillaCorreo(ctx, models.PlantillaRecordatorio, idioma)
+		if err != nil {
+			t.Log.Error("leer plantilla de recordatorio", "error", err)
+			return encolados
+		}
+		correo := views.RenderCorreo(plantilla, rec.Usuario.Email, map[string]string{
+			"nombre":       rec.Usuario.Nombre,
+			"convocatoria": rec.Convocatoria.Titulo(idioma),
+			"edicion":      rec.Convocatoria.Edicion.Nombre(idioma),
+			"cierre":       t.Vistas.FechaHora(idioma, rec.TerminaAt),
+			"liga":         t.URLBase + "/cuenta",
+		})
+		encolado, err := t.Datos.EncolarRecordatorio(ctx, rec, correo)
+		if err != nil {
+			t.Log.Error("encolar recordatorio", "postulacion", rec.PostulacionID, "error", err)
+			continue
+		}
+		if encolado {
+			encolados++
+		}
+	}
+	if encolados > 0 {
+		t.Log.Info("recordatorios de borrador encolados", "cantidad", encolados)
+	}
+	return encolados
 }

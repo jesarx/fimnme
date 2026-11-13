@@ -22,6 +22,17 @@ procesos— y sólo después las pantallas de cada perfil.
 - pruebas de extremo a extremo sobre una base SQLite temporal, y ejemplos con `curl`
   para probarlo a mano en el VPS.
 
+**Decisiones de la CNMO del 13 de noviembre de 2026.** Las decisiones tomadas hasta el
+paso 5 quedan confirmadas. La evaluación no es a ciegas. La identidad visual es, por
+ahora, la del 48º Foro ([ADR 0008](adr/0008-identidad-visual-del-48-foro.md)).
+
+**Guía de programación.** Desde el 13 de noviembre de 2026 rige además la guía de
+programación de la CNMO para proyectos afines, en lo que aplica a este sistema
+([ADR 0006](adr/0006-adopcion-de-la-guia-soshe-peelee.md)). Al adoptarla se revisó lo ya
+hecho en los pasos 1 a 4: aviso de licencia GNU completo, abstracción de la persistencia
+en el Modelo, descripción OpenAPI de la API, convenciones de `--version` y de opciones, y
+páginas de manual.
+
 ## Pasos
 
 ### Hecho
@@ -32,13 +43,13 @@ procesos— y sólo después las pantallas de cada perfil.
 | 2 | **Persistencia base.** SQLite sin CGO con los PRAGMAs en cada conexión; una conexión de escritura y grupo de lectura; migrador propio y esquema completo de §8.3; `models/repository.go`; bitácora de auditoría de sólo inserción; `fimnme-cli` con `migrate` y `sembrar-demo`; las páginas públicas leen de la base; `/readyz` comprueba la base; despliegue con migración. | ✅ Hecho |
 | 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación, activación de cuentas internas y «Mi cuenta»; Argon2id; sesiones con expiración por perfil; enlaces de un solo uso; bloqueo por intentos y límite por IP; perfiles globales y asignaciones por convocatoria; consulta de la bitácora por API; bandeja de correo saliente con interfaz `Mailer` y su trabajador. | ✅ Hecho |
 | 4 | **Configuración de ediciones y convocatorias.** API para ediciones, convocatorias con bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios, cuentas internas y asignaciones; cambio de etapa forzado y automático por calendario, con las cuotas de 3 jurados y 1+ revisores; duplicación de la configuración a otra edición. | ✅ Hecho |
+| 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; autoguardado por campo; datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video; `ValidarParaEnvio()` con la lista de bloqueadores. La captura se acepta sólo dentro del plazo, y quien es jurado o revisor de una convocatoria no postula en ella. | ✅ Hecho |
+| 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; guardado parcial por campo (autoguardado); datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video y su validación; `ValidarParaEnvio()` con la lista de bloqueadores. La edición se acepta sólo dentro del plazo de la etapa, aunque la convocatoria no haya avanzado; y quien es jurado o revisor de una convocatoria no puede postular en ella. | RF-POST-01 a 09, §5.3.1 a 5.3.6, RF-DOC-10, RN-01 a 10 | Pendiente |
-| 6 | **Documentos, envío y acuse.** `BlobStore` en disco por SHA-256; MIME por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (< 100 KB); recordatorios de borrador. | RF-DOC-01 a 07, RF-POST-10 a 12, §4.1, §5.10, RF-NOT-03 y 04 | Pendiente |
 | 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
 | 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
@@ -61,8 +72,10 @@ procesos— y sólo después las pantallas de cada perfil.
 ## Notas del plan
 
 - **Prueba de carga adelantada.** La escritura concurrente sobre SQLite es el supuesto más
-  frágil de la arquitectura (D-30). Se hará una primera medición al terminar el paso 5,
-  cuando exista el autoguardado real, y la prueba formal en el paso 14.
+  frágil de la arquitectura (D-30). La primera medición se hizo al terminar el paso 5, con
+  el autoguardado real: 60 postulantes simultáneos, 3 000 peticiones, ningún error y p95
+  de ~100 ms ([ADR 0007](adr/0007-captura-de-postulaciones.md), §10). La prueba formal,
+  en el paso 14.
 - **Dependencias.** `modernc.org/sqlite` entró en el paso 2 (ADR 0003) y
   `golang.org/x/crypto` (Argon2id) entra en el paso 3. Son las dos previstas por la
   política; no se añade ninguna otra.
@@ -78,12 +91,110 @@ procesos— y sólo después las pantallas de cada perfil.
   hasta que exista el SMTP.
 - **La configuración se hace por API hasta el paso 13.** No hay pantallas de
   administración todavía: se usa `curl` o cualquier cliente HTTP (ejemplos en el README).
-- **Imagen de cabecera y PDF de las bases** (RF-CONV-02) quedaron para el paso 6, que
-  trae el almacén de archivos.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 6 — qué se entregó
+
+- **Almacén de archivos** (§7.8, RF-DOC-02). En disco, junto a la base, direccionado por
+  SHA-256: deduplicación, integridad verificable y archivos inmutables. La subida va al
+  vuelo, sin cargarse en memoria.
+- **Subida de documentos** (RF-POST-07, RF-DOC-01 y 04). Formato reconocido por la firma
+  del contenido, no por la extensión; tamaño y formatos según el requisito, que depende de
+  la dotación de la obra. Un archivo de formato equivocado se rechaza antes de tocar el
+  disco.
+- **Versiones** (RF-DOC-07). Reemplazar o quitar un documento no borra nada: el anterior
+  deja de estar vigente.
+- **Descarga** (RF-DOC-03, RN-27). Siempre por la aplicación, con permiso comprobado,
+  nombre predecible y registro de cuenta, IP y momento. Por rangos, para audio.
+- **Envío** (§4.1, RF-POST-10, RN-03 y 13). Irreversible y en una sola transacción:
+  validación completa, confirmaciones, folio (`FIM49-INT-0137`), snapshot, acuse y correo
+  encolado con el PDF adjunto.
+- **Acuse en PDF** (§5.10). Escritor propio en `internal/pdf`, sin fuentes incrustadas ni
+  imágenes; bilingüe; reproducible byte por byte. Pesa unos 3 KB.
+- **Ligas de video** (RF-DOC-10, RN-08). Comprobación en red con defensas contra SSRF;
+  en segundo plano, antes de cada envío y una vez al día. Sólo bloquea una respuesta
+  inequívoca.
+- **Recordatorios de borrador** (RF-NOT-04) a 7 días, 2 días y 12 horas del cierre.
+- **Bases en PDF e imagen de cabecera** (RF-CONV-02), públicas en la página de la
+  convocatoria.
+- **Migración `0003`**: plantillas de correo del acuse y del recordatorio.
+- **Despliegue.** Los ejemplos de Caddy y nginx admiten subidas de hasta 210 MB y las
+  pasan a la aplicación sin guardarlas antes.
+- **Pruebas.** Las reglas caso por caso; el PDF verificado en su estructura y con
+  herramientas externas (`pdfinfo`, `pdftotext`); los recorridos completos por la API; y
+  una prueba en vivo que encontró un fallo real (véase abajo).
+
+Decisiones: [ADR 0009](adr/0009-documentos-envio-y-acuse.md).
+
+**Dos fallos encontrados al probar, ya corregidos:**
+
+- Con un DNS que responde «no existe» a todo, el verificador daba por inexistente una
+  liga válida y **bloqueaba el envío**. Ahora, si el servidor no resuelve ningún dominio
+  testigo, la liga queda pendiente.
+- La consulta de recordatorios leía las columnas en otro orden y no encontraba a nadie.
+
+**Lo que este paso NO incluye:**
+
+- **Antivirus** (RF-DOC-05, prioridad S).
+- **Visor de PDF y reproductor integrados** (RF-DOC-08, prioridad S): paso 12. Exigirá
+  abrir la CSP para las rutas de archivos.
+- **Página de la postulación por folio** (`/postulaciones/{folio}`): paso 11. El correo
+  de acuse ya enlaza a ella.
+- **Reenvío tras subsanación** (acuse versión 2): paso 7. El envío ya numera las
+  versiones.
+- **Envío real del correo**, con su adjunto: paso 14.
+- **Descarga masiva en ZIP**: paso 9.
+- **Verificación periódica del acervo** (que cada archivo registrado exista y coincida)
+  y limpieza de archivos huérfanos: paso 10.
+
+## Paso 5 — qué se entregó
+
+- **Una postulación por convocatoria y cuenta** (RF-POST-01, RN-01). En Intérpretes se
+  elige la subcategoría al crearla; cambiarla después exige confirmación, porque borra
+  los datos generales (RF-POST-02).
+- **Autoguardado por campo** (RF-POST-03 y 04). `PATCH` con uno o varios campos: lo válido
+  se guarda y lo demás se señala. Al guardar se valida el formato, nunca la
+  obligatoriedad. Cada formulario es una definición declarativa en `models/rules.go`, de
+  la que salen la validación, la completitud, el SQL y la descripción para el frontal.
+- **Datos generales** de solista, ensamble y compositor (§5.3.1 a 5.3.3), con catálogos de
+  países (ISO 3166-1) y entidades federativas; **integrantes** del ensamble (RN-10).
+- **Propuesta de concierto** con la regla de sede: fuera de la Ciudad de México se exigen
+  sede, domicilio, fecha y hora (RN-06).
+- **Obras** (§5.3.5 y 5.3.6): añadir, editar, quitar y reordenar. Sin máximo en
+  Intérpretes; máximo configurable en Compositores, cada obra con su dotación (RN-05).
+- **Ligas de video** (RN-08): de una a tres, `https`, sin repetir, con su plataforma
+  detectada. Quedan `pendiente` hasta la comprobación en red del paso 6.
+- **`ValidarParaEnvio()`** (RN-03, §8.4): la lista exacta de lo que falta, incluidos los
+  documentos obligatorios según la dotación de cada obra (RN-07) y el correo sin
+  verificar. La API la devuelve en cada consulta, con el conteo por sección.
+- **Plazo** (RN-02 y 04): la captura exige etapa de postulación **y** fecha dentro del
+  plazo, aunque la convocatoria no haya avanzado.
+- **Permisos.** Cada cuenta ve y edita sólo lo suyo; lo ajeno responde 404. Administrador
+  y observador consultan sin editar. El observador no postula; el jurado o revisor de una
+  convocatoria tampoco, en ella.
+- **Sin migraciones nuevas**: todo cabía en el esquema de §8.3.
+- **Pruebas.** `ValidarParaEnvio` regla por regla y campo por campo en los tres
+  formularios; los tres recorridos completos por la API, con permisos, plazo y cambio de
+  subcategoría. Primera medición de carga del autoguardado.
+- **Correcciones de paso.** Al quitar una obra se renumera el programa. Una prueba del
+  paso 3 dependía de la fecha real del sistema y empezó a fallar el 13 de noviembre: se
+  corrigió.
+
+Decisiones: [ADR 0007](adr/0007-captura-de-postulaciones.md).
+
+**Lo que este paso NO incluye:**
+
+- **Subir documentos y enviar**: paso 6. `ValidarParaEnvio` ya exige los documentos, así
+  que ninguna postulación está «lista para enviar» todavía.
+- **Comprobación en red de las ligas de video** (RF-POST-07): pasó al paso 6, porque
+  exige defensas contra SSRF y un trabajador en segundo plano.
+- **Nombres de los países**: el backend maneja códigos; los nombres van en el frontal
+  (paso 11).
+- **Acceso de jurados y revisores a las postulaciones**: pasos 7 y 8.
+- **Pantallas**: paso 11. La captura se prueba por API.
 
 ## Paso 4 — qué se entregó
 
@@ -222,8 +333,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
    hoy los encabezados no nombran titular.
 4. **Texto oficial del aviso de privacidad**: la página actual es una estructura
    provisional sin validez legal.
-5. **Identidad visual**: el diseño usa un acento granate y tipografías del sistema, sin
-   logotipos. Si existe un manual de identidad del Foro o del INBAL, se ajusta.
+5. ~~Identidad visual.~~ **Resuelto (13-nov-2026):** se usa la del 48º Foro —paleta,
+   cabecera, pie institucional y logotipo— hasta que exista la del 49º
+   ([ADR 0008](adr/0008-identidad-visual-del-48-foro.md)).
 6. **Número y año de la edición de arranque**: la demostración usa «Edición 49 · 2027»,
    tomada del ejemplo de la especificación.
 7. **Vigencia del enlace de activación de cuentas internas: 7 días** (la especificación
@@ -241,3 +353,34 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     documental** y el log lo avisa. La alternativa sería avanzar de todos modos; se
     prefirió que la regla de la cuota no tenga excepciones.
 13. **Requisitos documentales iniciales** de cada tipo de convocatoria (ADR 0005, §6).
+14. ~~Dictaminación a ciegas.~~ **Resuelto (13-nov-2026): la evaluación NO es a ciegas.**
+    El jurado ve toda la información de la postulación: nombre, semblanza, partituras y
+    demás documentos. Se aplicará en el paso 8.
+15. **Forma de los comentarios.** Se conservan con `//` (lo idiomático en Go). Si la CNMO
+    quiere los bloques `/* … */` del estilo del kernel, la conversión es mecánica.
+16. **El observador (`coordinacion_nacional`) no puede postular**, y quien es jurado o
+    revisor de una convocatoria no puede postular en ella, aunque sí en la otra de la
+    misma edición (ADR 0007).
+17. **Cambiar de solista a ensamble borra los datos generales** ya capturados, previa
+    confirmación; se conservan concierto, obras y videos.
+18. **Rangos admitidos:** duración de una obra de 1 a 600 minutos; año de fundación del
+    ensamble de 1900 al año en curso. La especificación no los fija. La lista de
+    integrantes es de longitud libre, con un tope de cordura de 300.
+19. **Formatos en Intérpretes.** La numeralia de 2026 distingue solista, dúo, trío,
+    cuarteto y ensamble (cinco o más), con un tabulador de pagos por formato. La
+    plataforma sólo distingue solista y ensamble, como la especificación; el formato
+    puede derivarse del número de integrantes. Confirmar si debe capturarse aparte.
+20. **Bases oficiales de las convocatorias.** El repositorio del 48º Foro no las trae;
+    las de la plataforma son texto de demostración hasta que se entreguen.
+21. **El acuse imprime los países por su código** («MX») hasta que el backend tenga sus
+    nombres, y escribe sin diacrítico las letras que la fuente base no tiene («Dvořák» →
+    «Dvorák»). El texto exacto queda en el snapshot (ADR 0009, §7).
+22. **Una liga de video sólo bloquea el envío si la respuesta es inequívoca** (no existe,
+    o es privada). Lo dudoso queda «por comprobar» para el revisor. Y sólo se admiten
+    ligas en el puerto 443 (ADR 0009, §8).
+23. **Formato del folio:** `FIM49-INT-0137`, consecutivo por convocatoria, como el ejemplo
+    de la especificación.
+24. **Tope de 30 versiones por documento** y de **200 MB** por archivo (el máximo de cada
+    documento lo fija el administrador; por omisión, 100 MB para audio).
+25. **Formatos de audio:** WAV, FLAC y MP3 (RF-DOC-04). Confirmar si se necesitan otros
+    (AIFF, M4A, OGG).

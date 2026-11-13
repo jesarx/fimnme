@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -125,7 +139,11 @@ func (a *App) responderConfiguracion(w http.ResponseWriter, r *http.Request, est
 	if siguiente != "" {
 		pendientes = a.bloqueadores(r, models.ValidarCambioDeEstado(cfg, siguiente, "", a.ahora()))
 	}
-	a.responder(w, estado, views.ConfiguracionJSON(cfg, siguiente, pendientes))
+	archivos, err := a.datos.ArchivosDeConvocatoria(r.Context(), convocatoriaID)
+	if a.falloDatos(w, r, err) {
+		return
+	}
+	a.responder(w, estado, views.ConfiguracionJSON(cfg, archivos, siguiente, pendientes))
 }
 
 // responderEdicion responde con una edición y el resumen de sus convocatorias.

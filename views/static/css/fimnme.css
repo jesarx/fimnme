@@ -9,6 +9,9 @@
  *   4. Componentes (botón, estado, aviso, tarjeta, panel, formulario…)
  *   5. Páginas (portada, convocatoria, error)
  *
+ * Identidad: por ahora, la del 48º Foro (paleta, cabecera y pie institucional);
+ * la del 49º la sustituirá cuando exista. Véase el ADR 0008.
+ *
  * Criterios: primero móvil (RNF-09), contraste WCAG 2.1 AA (RNF-08) y ningún
  * recurso externo: las tipografías son las del sistema del visitante.
  */
@@ -16,30 +19,40 @@
 /* ---------- 1. Variables ---------- */
 
 :root {
-  /* Color: papel cálido, tinta casi negra y un solo acento granate. */
-  --fondo: #f7f4ee;
+  /* Color: la paleta del 48º Foro (verdes sobre fondo beige). Cuando exista
+     la imagen del 49º basta con cambiar estas variables. */
+  --fondo: #f4f1ea;
   --superficie: #ffffff;
-  --tinta: #1d1b18;
-  --tinta-suave: #575249;
-  --borde: #d8d2c5;
-  --borde-fuerte: #8c8679;
-  --acento: #8a1c2b;
-  --acento-fuerte: #6c1421;
+  --tinta: #172b20;
+  --tinta-suave: #546b5c;
+  --borde: #b9cdbf;
+  --borde-fuerte: #7f9787;
+  --acento: #2a7350;
+  --acento-fuerte: #172b20;
   --sobre-acento: #ffffff;
-  --foco: #1d4ed8;
+  --foco: #3d9b6e;
   --exito: #17603a;
-  --exito-fondo: #e4f2e9;
+  --exito-fondo: #d2e8db;
   --info: #1f4f7a;
   --info-fondo: #e6eff7;
   --espera: #75500a;
   --espera-fondo: #f8eed6;
   --error: #a3211b;
   --error-fondo: #fbe9e7;
-  --neutro-fondo: #ebe7dd;
+  --neutro-fondo: #eae8df;
 
-  /* Tipografía del sistema: serif para títulos, sans para texto e interfaz. */
-  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Cabecera y pie institucionales: oscuros siempre, también en modo claro. */
+  --cabecera-fondo: #111311;
+  --cabecera-texto: rgba(255, 255, 255, 0.8);
+  --logo-foro: #e6ae78;
+  --pie-fondo: #2b2b2b;
+  --pie2-fondo: #000000;
+
+  /* Tipografía: Noto Sans, la del programa del Foro, si el equipo la tiene;
+     si no, la del sistema. No se descarga ninguna fuente externa. */
+  --sans: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: var(--sans);
+  --institucional: Montserrat, "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
 
   /* Escala de espacio. */
   --e1: 0.25rem;
@@ -52,21 +65,21 @@
   --e8: 4.5rem;
 
   --radio: 6px;
-  --ancho-max: 68rem;
+  --ancho-max: 71.25rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fondo: #151412;
-    --superficie: #1f1d1a;
-    --tinta: #ece8df;
-    --tinta-suave: #b4ad9f;
-    --borde: #39352e;
-    --borde-fuerte: #7d776b;
-    --acento: #ee9aa5;
-    --acento-fuerte: #f6b9c1;
-    --sobre-acento: #2a0a10;
-    --foco: #93b4ff;
+    --fondo: #101a14;
+    --superficie: #17241c;
+    --tinta: #e2e6df;
+    --tinta-suave: #a5b9a8;
+    --borde: #2c3f33;
+    --borde-fuerte: #6f8a78;
+    --acento: #7cc9a0;
+    --acento-fuerte: #d2e8db;
+    --sobre-acento: #0c1a12;
+    --foco: #7cc9a0;
     --exito: #8fd6aa;
     --exito-fondo: #17301f;
     --info: #9cc7ee;
@@ -75,7 +88,9 @@
     --espera-fondo: #332709;
     --error: #f5a199;
     --error-fondo: #3a1613;
-    --neutro-fondo: #2a2722;
+    --neutro-fondo: #1f2e25;
+    --cabecera-fondo: #080a08;
+    --pie-fondo: #1b1b1b;
   }
 }
 
@@ -226,13 +241,12 @@ main:focus {
   text-align: center;
 }
 
+/* Cabecera con la estructura del sitio del Foro: barra oscura, logotipo de la
+   edición a la izquierda y menú en versalitas a la derecha. */
 .cabecera {
-  background: var(--superficie);
-  /* Pentagrama: cinco líneas finas bajo la cabecera, dibujadas con CSS. */
-  border-bottom: 1px solid var(--borde);
-  box-shadow: 0 4px 0 var(--fondo), 0 5px 0 var(--borde), 0 9px 0 var(--fondo), 0 10px 0 var(--borde),
-    0 14px 0 var(--fondo), 0 15px 0 var(--borde), 0 19px 0 var(--fondo), 0 20px 0 var(--borde);
-  margin-bottom: 20px;
+  background: var(--cabecera-fondo);
+  color: #fff;
+  font-family: var(--institucional);
 }
 
 .cabecera__interior {
@@ -240,70 +254,88 @@ main:focus {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--e2) var(--e5);
-  padding-block: var(--e3);
+  gap: var(--e1) var(--e5);
+  min-height: 4rem;
+  padding-block: var(--e2);
 }
 
 .marca {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--e3);
-  color: var(--tinta);
+  color: #fff;
   text-decoration: none;
 }
 
 .marca:hover {
-  color: var(--tinta);
+  color: #fff;
 }
 
-.marca__sigla {
-  font-family: var(--serif);
-  font-size: 1.5rem;
+.marca__logo {
+  display: block;
+  width: 2.75rem;
+  color: var(--logo-foro);
+  line-height: 0;
+}
+
+.marca__logo svg {
+  width: 100%;
+  height: auto;
+}
+
+.marca__texto {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.6875rem;
+  line-height: 1.22;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.marca__texto b {
   font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--acento);
-}
-
-.marca__nombre {
-  font-size: 0.875rem;
-  color: var(--tinta-suave);
 }
 
 .menu {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--e1) var(--e2);
-  font-size: 0.9375rem;
+  gap: 0 var(--e1);
 }
 
 .menu a,
 .menu button {
   display: inline-block;
-  padding: var(--e2) var(--e3);
+  padding: var(--e3) var(--e3);
   border: 1px solid transparent;
   border-radius: var(--radio);
   background: none;
-  color: var(--tinta);
-  font: inherit;
+  color: var(--cabecera-texto);
+  font: 700 0.75rem/1.2 var(--institucional);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   text-decoration: none;
   cursor: pointer;
 }
 
 .menu a:hover,
-.menu button:hover {
-  background: var(--neutro-fondo);
+.menu button:hover,
+.menu a[aria-current="page"] {
+  color: #fff;
 }
 
 .menu a[aria-current="page"] {
-  font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--acento);
+  box-shadow: inset 0 -3px 0 var(--logo-foro);
   border-radius: 0;
 }
 
 .menu .menu__destacado {
-  border-color: var(--acento);
-  color: var(--acento);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.menu .menu__destacado:hover {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .menu form {
@@ -312,10 +344,10 @@ main:focus {
 
 .menu__idioma {
   padding-left: var(--e2);
-  border-left: 1px solid var(--borde);
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
 }
 
-/* En pantallas angostas el menú se parte en dos renglones: se compacta y el
+/* En pantallas angostas el menú baja a un segundo renglón: se compacta y el
    selector de idioma se alinea a la derecha, sin separador. */
 @media (max-width: 40rem) {
   .menu {
@@ -339,23 +371,127 @@ main {
   padding-block: var(--e6) var(--e8);
 }
 
+/* Pie institucional, con la estructura del sitio del Foro: datos y enlaces a
+   la izquierda, logotipos de Cultura e INBAL a la derecha y franja final. */
 .pie {
-  border-top: 1px solid var(--borde);
-  background: var(--superficie);
+  padding-block: 2.75rem;
+  background: var(--pie-fondo);
+  color: #fff;
+  font-family: var(--institucional);
   font-size: 0.875rem;
-  color: var(--tinta-suave);
 }
 
-.pie__interior {
-  padding-block: var(--e5);
+.pie a {
+  color: #fff;
+  text-decoration: none;
+}
+
+.pie__filas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--e6);
+  align-items: start;
 }
 
 .pie p {
-  margin: 0 0 var(--e1);
+  margin: 0 0 var(--e2);
 }
 
-.pie__institucion {
-  color: var(--tinta);
+.pie__titulo {
+  max-width: 30em;
+  font-size: 1.15em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.pie__texto {
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.7;
+}
+
+.pie__cnmo {
+  display: inline-block;
+  width: 4rem;
+  margin: var(--e3) 0 var(--e4);
+  opacity: 0.92;
+}
+
+.pie__cnmo svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pie__enlaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e5);
+  width: 75%;
+  margin: 0;
+  padding: var(--e4) 0 0;
+  border-top: thin solid #444;
+  list-style: none;
+}
+
+.pie__enlaces a {
+  color: #b5b5b5;
+}
+
+.pie__enlaces a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.pie__logos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--e2);
+}
+
+.pie__logos img {
+  display: block;
+  width: auto;
+  height: 5rem;
+}
+
+.pie2 {
+  background: var(--pie2-fondo);
+  color: rgba(255, 255, 255, 0.62);
+  font-family: var(--institucional);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.pie2 .ancho {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--e5);
+  padding-block: var(--e4) var(--e2);
+}
+
+.pie2 p {
+  margin: 0 0 var(--e2);
+}
+
+@media (max-width: 56rem) {
+  .pie__filas {
+    grid-template-columns: 1fr;
+  }
+
+  .pie__logos {
+    justify-content: flex-start;
+  }
+
+  .pie__logos img {
+    height: 3.6rem;
+  }
+
+  .pie__enlaces {
+    width: 100%;
+  }
 }
 
 /* ---------- 4. Componentes ---------- */
@@ -640,6 +776,16 @@ main {
   max-width: 44rem;
 }
 
+/* Imagen de cabecera de una convocatoria. */
+.cabecera-imagen {
+  display: block;
+  width: 100%;
+  max-height: 22rem;
+  margin-bottom: var(--e6);
+  border-radius: var(--radio);
+  object-fit: cover;
+}
+
 .prosa--estrecha {
   margin-inline: auto;
 }
@@ -857,6 +1003,7 @@ main {
 @media print {
   .cabecera,
   .pie,
+  .pie2,
   .franja-desarrollo,
   .salto,
   .lateral .boton {

@@ -20,9 +20,10 @@ server {
     ssl_certificate     /etc/letsencrypt/live/dev.fimnme.example/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/dev.fimnme.example/privkey.pem;
 
-    # Tamaño máximo de una petición. Se ampliará al implementar la subida de
-    # archivos (audio de hasta 100 MB).
-    client_max_body_size 2m;
+    # Tamaño máximo de una petición. Los postulantes suben partituras y audio:
+    # la aplicación admite archivos de hasta 200 MB (el límite de cada
+    # documento lo fija el administrador, por omisión 100 MB para audio).
+    client_max_body_size 210m;
 
     gzip on;
     gzip_types text/css application/javascript image/svg+xml;
@@ -37,5 +38,14 @@ server {
         proxy_set_header Host              $host;
         proxy_set_header X-Forwarded-For   $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Subida de archivos. Sin proxy_request_buffering off, nginx guarda la
+        # subida completa en su propio temporal antes de pasarla: ocupa disco
+        # dos veces y la aplicación no puede rechazar pronto un archivo que no
+        # cumple. Los plazos dan tiempo a un audio grande por una conexión lenta.
+        proxy_request_buffering off;
+        client_body_timeout 1800s;
+        proxy_send_timeout  1800s;
+        proxy_read_timeout  1800s;
     }
 }

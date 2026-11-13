@@ -1,0 +1,105 @@
+.\" Este archivo es parte de FIMNME (CNMO / INBAL).
+.\" Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+.\" SPDX-License-Identifier: GPL-3.0-only
+.TH FIMNME-CLI 1 "noviembre de 2026" "FIMNME" "Plataforma de postulaciones FIMNME"
+.SH NOMBRE
+fimnme-cli \- mantenimiento de la plataforma de postulaciones FIMNME
+.SH SINOPSIS
+.B fimnme-cli
+[\fB\-\-datos\fR \fIDIRECTORIO\fR]
+[\fIORDEN\fR [\fIOPCIONES\fR]]
+.SH DESCRIPCIÓN
+.B fimnme-cli
+concentra todo lo que no es atender peticiones HTTP: inicializar la base de
+datos, aplicar las migraciones del esquema y dar de alta las cuentas
+internas. Comparte el modelo con
+.BR fimnme-web (1)
+y no duplica ninguna regla de negocio.
+.PP
+Sin
+.IR ORDEN ,
+y si el directorio de datos aún no tiene base de datos, la inicializa. Si la
+base ya existe, muestra la ayuda y no la toca.
+.PP
+Toda operación con efectos queda en la bitácora de auditoría, con el usuario
+del sistema que la ejecutó.
+.SH ÓRDENES
+.TP
+.B init
+Inicializa la base de datos: la crea y aplica el esquema.
+.TP
+.B migrate
+Aplica, en orden, las migraciones pendientes del esquema. Cada migración se
+aplica completa o no se aplica. Una migración ya aplicada nunca se edita: si
+su contenido cambió, la orden se niega a continuar.
+.TP
+.B crear\-usuario \fIOPCIONES\fR
+Crea una cuenta interna con un perfil global y muestra su enlace de
+activación, válido 7 días y de un solo uso. Es la forma de dar de alta al
+primer administrador. Opciones:
+.RS
+.TP
+.BR \-\-perfil " \fIPERFIL\fR"
+.B admin_sistema
+o
+.BR coordinacion_nacional .
+.TP
+.BR \-\-email " \fICORREO\fR"
+Correo de la cuenta.
+.TP
+.BR \-\-nombre " \fINOMBRE\fR, " \-\-apellidos " \fIAPELLIDOS\fR"
+Nombre y apellidos de su titular.
+.TP
+.BR \-\-idioma " \fIIDIOMA\fR"
+.B es
+(por omisión) o
+.BR en .
+.TP
+.BR \-\-url\-base " \fIURL\fR"
+Dirección pública del sitio, para armar el enlace.
+.RB ( FIMNME_URL_BASE )
+.RE
+.TP
+.B sembrar\-demo
+Carga una edición de demostración en una base sin ediciones. Sólo para
+entornos de desarrollo.
+.TP
+.B version
+Muestra la versión y la licencia.
+.SH OPCIONES
+.TP
+.BR \-\-datos " \fIDIRECTORIO\fR"
+Directorio de datos: la base SQLite y el acervo de archivos. Por omisión
+.IR data .
+.RB ( FIMNME_DATOS )
+.TP
+.BR \-h ", " \-\-help
+Muestra la ayuda y termina.
+.SH NOTAS
+En el servidor la herramienta debe ejecutarse como el usuario dueño de los
+datos, no como root:
+.PP
+.RS
+.nf
+sudo runuser \-u fimnme \-\- /opt/fimnme/bin/fimnme-cli \-\-datos /var/lib/fimnme migrate
+.fi
+.RE
+.PP
+Si el directorio de datos pertenece a otro usuario, la herramienta se niega a
+abrirlo: de lo contrario SQLite crearía archivos que el servicio no podría
+escribir.
+.SH ESTADO DE SALIDA
+.TP
+.B 0
+La orden se completó.
+.TP
+.B 1
+La orden falló.
+.TP
+.B 2
+Uso incorrecto.
+.SH VÉASE TAMBIÉN
+.BR fimnme-web (1)
+.SH LICENCIA
+Software libre bajo la Licencia Pública General de GNU, versión 3. No hay
+garantía, en la medida en que lo permita la ley.

@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package controllers
@@ -37,6 +51,12 @@ type vistaConvocatoria struct {
 	Etapas        []vistaEtapa
 	Bases         template.HTML
 	BasesRespaldo bool // se muestran en español porque falta la versión inglesa
+	// BasesPDF es la dirección de las bases en PDF, o "" si no se han cargado.
+	// BasesPDFRespaldo indica que el PDF está en español aunque la visita sea
+	// en inglés. Imagen es la dirección de la imagen de cabecera, o "".
+	BasesPDF         string
+	BasesPDFRespaldo bool
+	Imagen           string
 }
 
 // vistaEtapa es un renglón del calendario de la convocatoria.
@@ -168,8 +188,27 @@ func (a *App) convocatoria(w http.ResponseWriter, r *http.Request) {
 		a.errorPagina(w, r, http.StatusInternalServerError)
 		return
 	}
+	archivos, err := a.datos.ArchivosDeConvocatoria(r.Context(), c.ID)
+	if err != nil {
+		a.log.Error("no se pudieron leer los archivos de la convocatoria", "error", err)
+		a.errorPagina(w, r, http.StatusInternalServerError)
+		return
+	}
 	p := a.pagina(r, "inicio.titulo")
 	vista := aVista(c, p.Idioma, true)
+	// Las bases en PDF se ofrecen en el idioma de la visita; si no hay
+	// versión inglesa se ofrece la española, avisándolo.
+	_, hayES := archivos[models.ArchivoBasesES]
+	_, hayEN := archivos[models.ArchivoBasesEN]
+	switch {
+	case p.Idioma == models.IdiomaEN && hayEN:
+		vista.BasesPDF = vista.URL + "/bases.pdf?idioma=en"
+	case hayES:
+		vista.BasesPDF, vista.BasesPDFRespaldo = vista.URL+"/bases.pdf?idioma=es", p.Idioma == models.IdiomaEN
+	}
+	if _, hay := archivos[models.ArchivoImagen]; hay {
+		vista.Imagen = vista.URL + "/imagen"
+	}
 	p.Titulo = vista.Titulo + " · " + vista.Edicion
 	p.Datos = vista
 	a.pintar(w, r, http.StatusOK, "convocatoria.html", p)

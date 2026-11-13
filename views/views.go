@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Package views contiene la Vista de la arquitectura MVC: el frontal web
@@ -28,8 +42,15 @@ import (
 // contenido es todo el frontal, incrustado en el binario al compilar. No hay
 // node_modules, empaquetador ni archivos sueltos que desplegar.
 //
-//go:embed templates static i18n
+//go:embed templates static i18n api
 var contenido embed.FS
+
+// OpenAPI devuelve la descripción de la API REST en formato OpenAPI 3.1. Es el
+// contrato público de /api/v1: una prueba impide que se desincronice de las
+// rutas que el servidor realmente atiende.
+func OpenAPI() ([]byte, error) {
+	return contenido.ReadFile("api/openapi.json")
+}
 
 // plantillaBase es el armazón común (cabecera, navegación, pie) de toda página.
 const plantillaBase = "base.html"
@@ -68,6 +89,8 @@ func Nuevo() (*Motor, error) {
 	funciones := template.FuncMap{
 		"estatico": m.URLEstatico,
 		"dict":     dict,
+		// anio: el año en curso en la Ciudad de México, para el aviso de derechos.
+		"anio": func() int { return time.Now().In(ZonaMexico()).Year() },
 	}
 	archivos, err := fs.Glob(contenido, "templates/*.html")
 	if err != nil {
@@ -94,6 +117,12 @@ func Nuevo() (*Motor, error) {
 // títulos; dentro de las plantillas se usa el método Pagina.T.
 func (m *Motor) T(idioma, clave string, args ...any) string {
 	return m.textos.T(idioma, clave, args...)
+}
+
+// FechaHora formatea un instante en el idioma dado, en hora de la Ciudad de
+// México y con la zona explícita. Lo usan los trabajadores al armar correos.
+func (m *Motor) FechaHora(idioma string, momento time.Time) string {
+	return m.textos.FechaHora(idioma, momento)
 }
 
 // URLEstatico devuelve la URL de un archivo estático con la huella del

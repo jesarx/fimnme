@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package main
@@ -96,12 +110,20 @@ func sembrarDemo(ctx context.Context, repositorio *models.Repositorio) error {
 		if c.Tipo != models.TipoCompositores {
 			continue
 		}
-		// Catálogo de dotaciones de ejemplo. En la segunda, la excepción
-		// típica: una obra electroacústica no lleva particellas.
+		// Catálogo de dotaciones: las más postuladas en la convocatoria de
+		// 2026 (48º Foro), como punto de partida verosímil. En la segunda, la
+		// excepción típica: una obra para medios electrónicos fijos no lleva
+		// particellas.
 		for orden, d := range []models.Dotacion{
+			{NombreES: "Orquesta sinfónica", NombreEN: "Symphony orchestra"},
+			{NombreES: "Medios electrónicos fijos", NombreEN: "Fixed media electronics"},
 			{NombreES: "Cuarteto de cuerdas", NombreEN: "String quartet"},
-			{NombreES: "Obra electroacústica", NombreEN: "Electroacoustic work"},
-			{NombreES: "Ensamble mixto (hasta 8 intérpretes)", NombreEN: "Mixed ensemble (up to 8 performers)"},
+			{NombreES: "Sexteto (flauta, clarinete, violín, viola, violonchelo y piano)",
+				NombreEN: "Sextet (flute, clarinet, violin, viola, cello and piano)"},
+			{NombreES: "Ensamble de 20 músicos con electrónica", NombreEN: "Ensemble of 20 players with electronics"},
+			{NombreES: "Piano", NombreEN: "Piano"},
+			{NombreES: "Quinteto de alientos", NombreEN: "Wind quintet"},
+			{NombreES: "Clavecín", NombreEN: "Harpsichord"},
 		} {
 			d.ConvocatoriaID, d.Orden, d.Activa = id, orden+1, true
 			dotacionID, _, err := repositorio.GuardarDotacion(ctx, actor, d)

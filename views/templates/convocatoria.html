@@ -10,6 +10,10 @@
   <h1>{{.Titulo}}</h1>
   <p><span class="estado estado--{{.EstadoClase}}">{{$.T .Estado}}</span></p>
 </header>
+{{- if .Imagen}}
+{{- /* Imagen de cabecera: decorativa, por eso su texto alternativo va vacío. */}}
+<img class="cabecera-imagen" src="{{.Imagen}}" alt="">
+{{- end}}
 
 {{- /* El lateral va primero en el HTML: en móvil el plazo y el botón quedan
      arriba de las bases; en escritorio la hoja de estilo lo coloca a la derecha. */}}
@@ -56,6 +60,9 @@
 
   <article class="prosa" aria-labelledby="t-bases">
     <h2 id="t-bases">{{$.T "convocatoria.bases"}}</h2>
+    {{- if .BasesPDF}}
+    <p><a class="boton boton--secundario" href="{{.BasesPDF}}"{{if .BasesPDFRespaldo}} hreflang="es"{{end}}>{{$.T "convocatoria.bases_pdf"}}{{if .BasesPDFRespaldo}} {{$.T "convocatoria.bases_pdf_respaldo"}}{{end}}</a></p>
+    {{- end}}
     {{- if .BasesRespaldo}}
     <p class="aviso aviso--info">{{$.T "convocatoria.bases_respaldo"}}</p>
     {{- end}}

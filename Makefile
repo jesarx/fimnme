@@ -81,5 +81,5 @@ instalar-vps:
 deploy: build
 	@test -n "$(VPS)" || (echo "Falta el destino. Ejemplo: make deploy VPS=usuario@host"; exit 1)
 	ssh $(VPS) 'rm -rf /tmp/fimnme-despliegue && mkdir -m 0700 /tmp/fimnme-despliegue'
-	scp $(BIN)/fimnme-web $(BIN)/fimnme-cli deploy/fimnme-web.service deploy/actualizar_vps.sh $(VPS):/tmp/fimnme-despliegue/
+	scp $(BIN)/fimnme-web $(BIN)/fimnme-cli deploy/fimnme-web.service deploy/actualizar_vps.sh docs/man/fimnme-web.1 docs/man/fimnme-cli.1 $(VPS):/tmp/fimnme-despliegue/
 	ssh -t $(VPS) '$(SUDO) sh /tmp/fimnme-despliegue/actualizar_vps.sh'

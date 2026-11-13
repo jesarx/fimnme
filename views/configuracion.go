@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package views
@@ -110,7 +124,8 @@ func CuentasJSON(cuentas []models.CuentaAdmin, total, pagina, tamano int) any {
 // textos, límites, calendario, dotaciones, requisitos documentales, criterios
 // y asignaciones. «cuotas» resume cuántos jurados y revisores activos hay, y
 // «siguiente», qué falta para pasar a la etapa que sigue.
-func ConfiguracionJSON(cfg models.ConfiguracionConvocatoria, siguiente models.EstadoConvocatoria, bloqueadores []Bloqueador) any {
+func ConfiguracionJSON(cfg models.ConfiguracionConvocatoria, archivos map[models.ClaseArchivoConvocatoria]models.Archivo,
+	siguiente models.EstadoConvocatoria, bloqueadores []Bloqueador) any {
 	c := cfg.Convocatoria
 
 	dotaciones := make([]map[string]any, 0, len(cfg.Dotaciones))
@@ -171,8 +186,31 @@ func ConfiguracionJSON(cfg models.ConfiguracionConvocatoria, siguiente models.Es
 			"jurados": cfg.Activos(models.PerfilJurado), "jurados_requeridos": models.CuotaJurados,
 			"revisores": cfg.Activos(models.PerfilRevisorDocumental),
 		},
+		"archivos":  archivosDeConvocatoriaJSON(archivos),
 		"siguiente": transicion,
 	}
+}
+
+// archivosDeConvocatoriaJSON describe los archivos públicos cargados: las
+// bases en PDF de cada idioma y la imagen de cabecera. Lo que no está cargado
+// va como null.
+func archivosDeConvocatoriaJSON(archivos map[models.ClaseArchivoConvocatoria]models.Archivo) map[string]any {
+	resumen := make(map[string]any)
+	for _, clase := range []models.ClaseArchivoConvocatoria{models.ArchivoBasesES, models.ArchivoBasesEN, models.ArchivoImagen} {
+		if a, cargado := archivos[clase]; cargado {
+			resumen[string(clase)] = map[string]any{"mime": a.MIME, "tamano_bytes": a.TamanoBytes, "sha256": a.SHA256}
+		} else {
+			resumen[string(clase)] = nil
+		}
+	}
+	return resumen
+}
+
+// ErrorDeEnvioJSON es el cuerpo de la respuesta 422 de un envío al que le
+// falta algo: el error general y la lista de bloqueadores, con la misma forma
+// que en la consulta de la postulación.
+func ErrorDeEnvioJSON(mensaje string, bloqueadores []BloqueadorDeEnvio) any {
+	return map[string]any{"error": map[string]any{"codigo": "incompleta", "mensaje": mensaje, "bloqueadores": bloqueadores}}
 }
 
 // ErrorValidacionJSON es el cuerpo de una respuesta 422: el error general y,

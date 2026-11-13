@@ -1,13 +1,31 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package models
 
 import (
+	"fmt"
 	"net/mail"
+	"net/netip"
+	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -776,4 +794,967 @@ func CriteriosIniciales() []CriterioEvaluacion {
 		{Clave: "artistico", EtiquetaES: "Puntaje artístico", EtiquetaEN: "Artistic score",
 			EscalaMin: 1, EscalaMax: 5, Obligatorio: true, Orden: 2},
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Postulación: definición del formulario, captura y validación del envío
+// (§5.3, RN-01 a RN-10)
+// ---------------------------------------------------------------------------
+
+// Límites de la captura.
+const (
+	// LimiteSemblanza es la longitud máxima de una semblanza (§5.3.1).
+	LimiteSemblanza = 1500
+	// LimiteTextoLargo acota los demás textos largos (notas, requerimientos).
+	LimiteTextoLargo = 5000
+	// DuracionMaxObra acota la duración de una obra, en minutos. No es una
+	// regla del concurso: sólo impide capturar un número absurdo.
+	DuracionMaxObra = 600
+	// MaxIntegrantes acota la lista de integrantes de un ensamble. La
+	// especificación no fija un máximo (D-05); éste sólo evita el abuso.
+	MaxIntegrantes = 300
+	// AnioMinimo es el año más antiguo admitido (nacimiento, fundación).
+	AnioMinimo = 1900
+
+	longitudMaxURL = 2000
+)
+
+// TipoCampo es el tipo de dato de un campo del formulario.
+type TipoCampo string
+
+const (
+	CampoTexto             TipoCampo = "texto"
+	CampoTextoLargo        TipoCampo = "texto_largo"
+	CampoEntero            TipoCampo = "entero"
+	CampoAnio              TipoCampo = "anio"               // de AnioMinimo al año en curso
+	CampoFecha             TipoCampo = "fecha"              // AAAA-MM-DD
+	CampoFechaNacimiento   TipoCampo = "fecha_nacimiento"   // AAAA-MM-DD, no futura
+	CampoHora              TipoCampo = "hora"               // HH:MM
+	CampoCorreo            TipoCampo = "correo"             //
+	CampoURL               TipoCampo = "url"                // https
+	CampoOpcion            TipoCampo = "opcion"             // uno de Opciones
+	CampoPais              TipoCampo = "pais"               // ISO 3166-1 alfa-2
+	CampoEntidad           TipoCampo = "entidad"            // una de las 32 entidades
+	CampoEntidadResidencia TipoCampo = "entidad_residencia" // entidad si el país es México; texto libre si no
+	CampoDotacion          TipoCampo = "dotacion"           // id de una dotación activa de la convocatoria
+)
+
+// CondicionFueraDeCDMX es la condición de los campos de sede: son
+// obligatorios si el concierto se propone fuera de la Ciudad de México (RN-06).
+const CondicionFueraDeCDMX = "fuera_de_cdmx"
+
+// DefinicionCampo describe un campo del formulario de postulación. Es la
+// definición DECLARATIVA de la que salen la captura, la validación del envío
+// y la descripción que recibe el cliente: un campo se define una sola vez.
+type DefinicionCampo struct {
+	Ruta        string    // ruta canónica: «datos.telefono», «concierto.entidad», «obra.titulo»
+	Tipo        TipoCampo //
+	Obligatorio bool      // exigido para enviar
+	Condicion   string    // si no está vacía, el campo es obligatorio cuando la condición se cumple
+	Longitud    int       // máximo de caracteres (textos)
+	Minimo      int       // rango (enteros)
+	Maximo      int       //
+	Opciones    []string  // valores admitidos (CampoOpcion)
+
+	// Dónde se guarda. Son constantes del código: el nombre de una tabla o de
+	// una columna nunca sale de un dato de la petición.
+	tabla   string
+	columna string
+}
+
+// DefinicionFormulario es el formulario que corresponde a una postulación
+// según su convocatoria y su subcategoría.
+type DefinicionFormulario struct {
+	Campos           []DefinicionCampo // de la postulación: datos generales y propuesta de concierto
+	CamposObra       []DefinicionCampo // de cada obra
+	TieneIntegrantes bool              // ensambles
+	TieneVideos      bool              // Intérpretes
+}
+
+// Campo busca una definición por su ruta entre los campos de la postulación.
+func (f DefinicionFormulario) Campo(ruta string) (DefinicionCampo, bool) {
+	return buscarCampo(f.Campos, ruta)
+}
+
+// CampoDeObra busca una definición por su ruta entre los campos de una obra.
+func (f DefinicionFormulario) CampoDeObra(ruta string) (DefinicionCampo, bool) {
+	return buscarCampo(f.CamposObra, ruta)
+}
+
+func buscarCampo(campos []DefinicionCampo, ruta string) (DefinicionCampo, bool) {
+	for _, c := range campos {
+		if c.Ruta == ruta {
+			return c, true
+		}
+	}
+	return DefinicionCampo{}, false
+}
+
+// campo abrevia la definición de un campo: grupo.columna guardado en tabla.
+func campo(grupo, tabla, columna string, tipo TipoCampo, obligatorio bool, longitud int) DefinicionCampo {
+	return DefinicionCampo{Ruta: grupo + "." + columna, Tipo: tipo, Obligatorio: obligatorio, Longitud: longitud, tabla: tabla, columna: columna}
+}
+
+// tablaDeDatos devuelve la tabla 1:1 de datos generales de una postulación.
+func tablaDeDatos(tipo TipoConvocatoria, sub Subcategoria) string {
+	switch {
+	case tipo == TipoCompositores:
+		return "datos_compositor"
+	case sub == SubcategoriaEnsamble:
+		return "datos_ensamble"
+	default:
+		return "datos_solista"
+	}
+}
+
+// camposDePersona son los datos generales de un solista (§5.3.1) y de un
+// compositor (§5.3.5), que son los mismos.
+func camposDePersona(tabla string) []DefinicionCampo {
+	genero := campo("datos", tabla, "genero", CampoOpcion, true, 0)
+	genero.Opciones = OpcionesGenero
+	return []DefinicionCampo{
+		campo("datos", tabla, "nombre_completo", CampoTexto, true, 200),
+		campo("datos", tabla, "nombre_artistico", CampoTexto, false, 200), // opcional (D-04)
+		genero,
+		campo("datos", tabla, "fecha_nacimiento", CampoFechaNacimiento, true, 0),
+		campo("datos", tabla, "telefono", CampoTexto, true, 30),
+		campo("datos", tabla, "email_contacto", CampoCorreo, true, 0),
+		campo("datos", tabla, "nacionalidad", CampoPais, true, 0),
+		campo("datos", tabla, "pais_residencia", CampoPais, true, 0),
+		campo("datos", tabla, "entidad_residencia", CampoEntidadResidencia, true, 100),
+		campo("datos", tabla, "semblanza", CampoTextoLargo, true, LimiteSemblanza),
+	}
+}
+
+// camposDeEnsamble son los datos generales de un ensamble (§5.3.2).
+func camposDeEnsamble() []DefinicionCampo {
+	const tabla = "datos_ensamble"
+	return []DefinicionCampo{
+		campo("datos", tabla, "nombre_ensamble", CampoTexto, true, 200),
+		campo("datos", tabla, "representante", CampoTexto, true, 200),
+		campo("datos", tabla, "telefono", CampoTexto, true, 30),
+		campo("datos", tabla, "email_contacto", CampoCorreo, true, 0),
+		campo("datos", tabla, "dotacion_texto", CampoTexto, true, 500),
+		campo("datos", tabla, "anio_fundacion", CampoAnio, true, 0),
+		campo("datos", tabla, "pais_residencia", CampoPais, true, 0),
+		campo("datos", tabla, "entidad_residencia", CampoEntidadResidencia, true, 100),
+		campo("datos", tabla, "semblanza", CampoTextoLargo, true, LimiteSemblanza),
+	}
+}
+
+// camposDeConcierto es la propuesta de concierto de Intérpretes (§5.3.3). Los
+// cuatro campos de sede son obligatorios sólo fuera de la Ciudad de México.
+func camposDeConcierto() []DefinicionCampo {
+	const tabla = "propuesta_concierto"
+	deSede := func(columna string, tipo TipoCampo, longitud int) DefinicionCampo {
+		c := campo("concierto", tabla, columna, tipo, false, longitud)
+		c.Condicion = CondicionFueraDeCDMX
+		return c
+	}
+	return []DefinicionCampo{
+		campo("concierto", tabla, "requerimientos_tecnicos", CampoTextoLargo, true, LimiteTextoLargo),
+		campo("concierto", tabla, "entidad", CampoEntidad, true, 0),
+		deSede("sede_nombre", CampoTexto, 200),
+		deSede("sede_domicilio", CampoTextoLargo, LimiteTextoLargo),
+		deSede("fecha_concierto", CampoFecha, 0),
+		deSede("hora_concierto", CampoHora, 0),
+	}
+}
+
+// camposDeObra son los datos de una obra: repertorio propuesto en Intérpretes
+// (§5.3.4) u obra de autoría propia en Compositores (§5.3.6).
+func camposDeObra(tipo TipoConvocatoria) []DefinicionCampo {
+	const tabla = "obra"
+	duracion := campo("obra", tabla, "duracion_min", CampoEntero, true, 0)
+	duracion.Minimo, duracion.Maximo = 1, DuracionMaxObra
+	estreno := campo("obra", tabla, "estreno", CampoOpcion, true, 0)
+	estreno.Opciones = OpcionesEstreno
+	if tipo == TipoCompositores {
+		return []DefinicionCampo{
+			campo("obra", tabla, "titulo", CampoTexto, true, 300),
+			duracion,
+			estreno,
+			campo("obra", tabla, "dotacion_id", CampoDotacion, true, 0),
+			campo("obra", tabla, "nota_obra", CampoTextoLargo, true, LimiteTextoLargo),
+			campo("obra", tabla, "requerimientos_tecnicos", CampoTextoLargo, true, LimiteTextoLargo),
+			campo("obra", tabla, "liga_media", CampoURL, false, 0),
+		}
+	}
+	return []DefinicionCampo{
+		campo("obra", tabla, "titulo", CampoTexto, true, 300),
+		campo("obra", tabla, "compositor", CampoTexto, true, 200),
+		duracion,
+		estreno,
+		campo("obra", tabla, "semblanza_compositor", CampoTextoLargo, true, LimiteSemblanza),
+		campo("obra", tabla, "nota_obra", CampoTextoLargo, true, LimiteTextoLargo),
+		campo("obra", tabla, "requerimientos_tecnicos", CampoTextoLargo, false, LimiteTextoLargo),
+		campo("obra", tabla, "liga_media", CampoURL, true, 0),
+	}
+}
+
+// FormularioDe devuelve la definición del formulario que corresponde a una
+// convocatoria y, en Intérpretes, a una subcategoría.
+func FormularioDe(tipo TipoConvocatoria, sub Subcategoria) DefinicionFormulario {
+	f := DefinicionFormulario{CamposObra: camposDeObra(tipo)}
+	switch {
+	case tipo == TipoCompositores:
+		f.Campos = camposDePersona(tablaDeDatos(tipo, sub))
+	case sub == SubcategoriaEnsamble:
+		f.Campos, f.TieneIntegrantes = camposDeEnsamble(), true
+	default:
+		f.Campos = camposDePersona(tablaDeDatos(tipo, sub))
+	}
+	if tipo == TipoInterpretes {
+		f.Campos = append(f.Campos, camposDeConcierto()...)
+		f.TieneVideos = true
+	}
+	return f
+}
+
+// ContextoCampos es lo que la validación de un valor necesita saber además
+// del propio valor.
+type ContextoCampos struct {
+	Ahora          time.Time
+	PaisResidencia string     // decide cómo se valida la entidad de residencia
+	Dotaciones     []Dotacion // catálogo de la convocatoria
+}
+
+// URLValida indica si un texto es una liga aceptable: bien formada, con
+// esquema https y un nombre de servidor (RF-DOC-10). Que además responda y sea
+// pública lo comprueba el sistema por red, aparte.
+func URLValida(texto string) bool {
+	if texto == "" || len(texto) > longitudMaxURL || strings.ContainsAny(texto, " \t\r\n") {
+		return false
+	}
+	u, err := url.Parse(texto)
+	return err == nil && u.Scheme == "https" && u.User == nil && strings.Contains(u.Hostname(), ".")
+}
+
+// PlataformaDeVideo reconoce las plataformas conocidas por el nombre del
+// servidor de la liga, para que la comprobación automática sepa cómo
+// verificar que el recurso sea público. Lo que no reconoce es «otro».
+func PlataformaDeVideo(liga string) string {
+	u, err := url.Parse(liga)
+	if err != nil {
+		return "otro"
+	}
+	servidor := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
+	es := func(dominio string) bool { return servidor == dominio || strings.HasSuffix(servidor, "."+dominio) }
+	switch {
+	case es("youtube.com"), es("youtu.be"):
+		return "youtube"
+	case es("vimeo.com"):
+		return "vimeo"
+	case es("soundcloud.com"):
+		return "soundcloud"
+	case es("bandcamp.com"):
+		return "bandcamp"
+	case es("drive.google.com"), es("docs.google.com"):
+		return "drive"
+	}
+	return "otro"
+}
+
+// ValidarValorDeCampo comprueba el FORMATO de un valor capturado y devuelve la
+// clave de traducción del problema, o "" si es aceptable. Un valor vacío
+// siempre es aceptable aquí: la captura es gradual, y que un campo obligatorio
+// esté lleno es asunto del envío (ValidarParaEnvio), no del guardado.
+func ValidarValorDeCampo(def DefinicionCampo, valor string, ctx ContextoCampos) string {
+	if valor == "" {
+		return ""
+	}
+	largo := utf8.RuneCountInString(valor)
+	switch def.Tipo {
+	case CampoTexto, CampoTextoLargo:
+		if largo > def.Longitud {
+			return "error.texto_largo_campo"
+		}
+	case CampoEntero, CampoAnio:
+		n, err := strconv.Atoi(valor)
+		minimo, maximo := def.Minimo, def.Maximo
+		if def.Tipo == CampoAnio {
+			minimo, maximo = AnioMinimo, ctx.Ahora.In(time.UTC).Year()
+		}
+		if err != nil || n < minimo || n > maximo {
+			return "error.numero_fuera_de_rango"
+		}
+	case CampoFecha, CampoFechaNacimiento:
+		fecha, err := time.Parse(time.DateOnly, valor)
+		if err != nil {
+			return "error.fecha_invalida"
+		}
+		if def.Tipo == CampoFechaNacimiento && (fecha.Year() < AnioMinimo || fecha.After(ctx.Ahora)) {
+			return "error.fecha_invalida"
+		}
+	case CampoHora:
+		if _, err := time.Parse("15:04", valor); err != nil {
+			return "error.hora_invalida"
+		}
+	case CampoCorreo:
+		if !EmailValido(valor) {
+			return "error.email_invalido"
+		}
+	case CampoURL:
+		if !URLValida(valor) {
+			return "error.url_invalida"
+		}
+	case CampoOpcion:
+		if !slices.Contains(def.Opciones, valor) {
+			return "error.opcion_invalida"
+		}
+	case CampoPais:
+		if !PaisValido(valor) {
+			return "error.opcion_invalida"
+		}
+	case CampoEntidad:
+		if !EntidadValida(valor) {
+			return "error.opcion_invalida"
+		}
+	case CampoEntidadResidencia:
+		// En México la entidad se elige del catálogo; en otro país es texto libre.
+		if ctx.PaisResidencia == PaisMexico {
+			if !EntidadValida(valor) {
+				return "error.opcion_invalida"
+			}
+		} else if largo > def.Longitud {
+			return "error.texto_largo_campo"
+		}
+	case CampoDotacion:
+		id, err := strconv.ParseInt(valor, 10, 64)
+		activa := slices.ContainsFunc(ctx.Dotaciones, func(d Dotacion) bool { return d.ID == id && d.Activa })
+		if err != nil || !activa {
+			return "error.dotacion_inexistente"
+		}
+	}
+	return ""
+}
+
+// EnPlazoDePostulacion indica si la convocatoria admite captura en este
+// momento. Exige las DOS cosas: que esté en la etapa de postulación y que la
+// fecha esté dentro del plazo. Así, si la convocatoria no avanzó de etapa al
+// vencer el plazo (p. ej. porque faltaba asignar un revisor), la captura
+// queda cerrada de todos modos.
+func EnPlazoDePostulacion(c Convocatoria, ahora time.Time) []ErrorCampo {
+	if !AdmitePostulaciones(c) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_etapa"}}
+	}
+	etapa, ok := c.Etapa(EtapaPostulacion)
+	if !ok || ahora.Before(etapa.IniciaAt) || !ahora.Before(etapa.TerminaAt) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.plazo_vencido"}}
+	}
+	return nil
+}
+
+// PuedePostular: el observador ve todas las evaluaciones, por lo que no
+// participa como postulante (matriz de permisos, §2.2).
+func PuedePostular(s *Sesion) bool {
+	return s != nil && !s.TienePerfil(PerfilCoordinacionNacional)
+}
+
+// ValidarNuevaPostulacion decide si puede crearse una postulación (RN-01,
+// RN-02). esJuradoORevisor indica si la cuenta tiene un perfil operativo
+// activo en esa misma convocatoria: nadie postula en el concurso que califica
+// o revisa.
+func ValidarNuevaPostulacion(c Convocatoria, sub Subcategoria, esJuradoORevisor bool, ahora time.Time) []ErrorCampo {
+	if errores := EnPlazoDePostulacion(c, ahora); errores != nil {
+		return errores
+	}
+	var errores []ErrorCampo
+	switch {
+	case c.Tipo == TipoInterpretes && sub != SubcategoriaSolista && sub != SubcategoriaEnsamble:
+		errores = append(errores, ErrorCampo{Campo: "subcategoria", Clave: "error.subcategoria_requerida"})
+	case c.Tipo == TipoCompositores && sub != "":
+		errores = append(errores, ErrorCampo{Campo: "subcategoria", Clave: "error.subcategoria_no_aplica"})
+	}
+	if esJuradoORevisor {
+		errores = append(errores, ErrorCampo{Campo: "convocatoria", Clave: "error.postula_asignado"})
+	}
+	return errores
+}
+
+// ValidarEdicionDePostulacion decide si el postulante puede modificar su
+// postulación (RN-02, RN-04): sólo mientras es borrador y la convocatoria está
+// en plazo. La edición acotada de una subsanación llegará con la revisión
+// documental.
+func ValidarEdicionDePostulacion(p Postulacion, c Convocatoria, ahora time.Time) []ErrorCampo {
+	if p.Estado != PostulacionBorrador {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.postulacion_enviada"}}
+	}
+	return EnPlazoDePostulacion(c, ahora)
+}
+
+// PuedeVerPostulacion: una postulación la ven su titular, el administrador y
+// el observador. El acceso de revisores y jurados llegará con sus módulos.
+func PuedeVerPostulacion(s *Sesion, p Postulacion) bool {
+	return s != nil && (s.Usuario.ID == p.UsuarioID || PuedeSupervisar(s))
+}
+
+// ValidarIntegrantes valida la lista de integrantes de un ensamble (RN-10):
+// cada uno con nombre e instrumento.
+func ValidarIntegrantes(integrantes []Integrante) []ErrorCampo {
+	if len(integrantes) > MaxIntegrantes {
+		return []ErrorCampo{{Campo: "integrantes", Clave: "error.demasiados_integrantes"}}
+	}
+	for _, i := range integrantes {
+		if strings.TrimSpace(i.Nombre) == "" || strings.TrimSpace(i.Instrumento) == "" ||
+			utf8.RuneCountInString(i.Nombre) > longitudMaxTexto || utf8.RuneCountInString(i.Instrumento) > longitudMaxTexto {
+			return []ErrorCampo{{Campo: "integrantes", Clave: "error.integrante_incompleto"}}
+		}
+	}
+	return nil
+}
+
+// ValidarVideos valida la lista de ligas a videos (RN-08): no más del máximo
+// de la convocatoria, todas con formato válido y sin repetirse.
+func ValidarVideos(ligas []string, maximo int) []ErrorCampo {
+	if len(ligas) > maximo {
+		return []ErrorCampo{{Campo: "videos", Clave: "error.demasiados_videos"}}
+	}
+	vistas := make(map[string]bool, len(ligas))
+	for _, liga := range ligas {
+		if !URLValida(liga) {
+			return []ErrorCampo{{Campo: "videos", Clave: "error.url_invalida"}}
+		}
+		if vistas[liga] {
+			return []ErrorCampo{{Campo: "videos", Clave: "error.video_repetido"}}
+		}
+		vistas[liga] = true
+	}
+	return nil
+}
+
+// ValidarNuevaObra decide si puede añadirse otra obra (RN-05): en
+// Compositores hay un máximo; en Intérpretes, no.
+func ValidarNuevaObra(c Convocatoria, obrasActuales int) []ErrorCampo {
+	if c.MaxObras > 0 && obrasActuales >= c.MaxObras {
+		return []ErrorCampo{{Campo: "obras", Clave: "error.demasiadas_obras"}}
+	}
+	return nil
+}
+
+// Secciones del formulario, en el orden en que se recorren (RF-POST-04).
+const (
+	SeccionDatos      = "datos"
+	SeccionConcierto  = "concierto"
+	SeccionObras      = "obras"
+	SeccionDocumentos = "documentos"
+	SeccionEnvio      = "envio"
+)
+
+// SeccionesDe devuelve las secciones del formulario de una convocatoria. La
+// propuesta de concierto sólo existe en Intérpretes.
+func SeccionesDe(tipo TipoConvocatoria) []string {
+	if tipo == TipoInterpretes {
+		return []string{SeccionDatos, SeccionConcierto, SeccionObras, SeccionDocumentos, SeccionEnvio}
+	}
+	return []string{SeccionDatos, SeccionObras, SeccionDocumentos, SeccionEnvio}
+}
+
+// seccionDeRuta devuelve la sección a la que pertenece un campo.
+func seccionDeRuta(ruta string) string {
+	switch {
+	case strings.HasPrefix(ruta, "concierto."):
+		return SeccionConcierto
+	case strings.HasPrefix(ruta, "obra."):
+		return SeccionObras
+	}
+	return SeccionDatos
+}
+
+// condicionCumplida evalúa la condición de un campo condicional sobre los
+// valores capturados.
+func condicionCumplida(condicion string, campos map[string]string) bool {
+	if condicion != CondicionFueraDeCDMX {
+		return false
+	}
+	// Sin entidad elegida todavía no se sabe si el concierto es fuera de la
+	// Ciudad de México: sólo falta la entidad, no los datos de la sede.
+	entidad := strings.TrimSpace(campos["concierto.entidad"])
+	return entidad != "" && entidad != EntidadCDMX
+}
+
+// ValidarParaEnvio comprueba que una postulación esté completa y devuelve la
+// lista exacta de lo que le falta (RN-03). Lista vacía = puede enviarse.
+//
+// Es la ÚNICA fuente de verdad de la completitud: la usan por igual la
+// pantalla de revisión previa y el envío. Comprueba, en este orden:
+//
+//  1. los campos obligatorios de los datos generales y, en Intérpretes, de la
+//     propuesta de concierto, incluidos los de sede si el concierto es fuera
+//     de la Ciudad de México (RN-06);
+//  2. en ensambles, al menos un integrante (RN-10);
+//  3. en Intérpretes, de una a tres ligas de video sin problemas (RN-08);
+//  4. al menos una obra, sin pasar del máximo ni de la duración total
+//     permitida (RN-05), y cada obra con sus campos obligatorios;
+//  5. los documentos obligatorios de la postulación y de cada obra, según la
+//     dotación de cada una (RN-07);
+//  6. que el titular haya verificado su correo (RF-AUT-02).
+//
+// Un valor capturado que ya no es válido también bloquea: por ejemplo, una
+// entidad de residencia escrita a mano cuando el país se cambió a México, o
+// una dotación que el administrador retiró del catálogo.
+func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usuario, ahora time.Time) []Bloqueador {
+	c := cfg.Convocatoria
+	formulario := FormularioDe(c.Tipo, p.Subcategoria)
+	ctx := ContextoCampos{Ahora: ahora, PaisResidencia: p.Campos["datos.pais_residencia"], Dotaciones: cfg.Dotaciones}
+
+	var bloqueadores []Bloqueador
+	agregar := func(seccion, campo string, obraID int64, clave string) {
+		bloqueadores = append(bloqueadores, Bloqueador{Seccion: seccion, Campo: campo, ObraID: obraID, Clave: clave})
+	}
+	revisar := func(definiciones []DefinicionCampo, valores map[string]string, obraID int64) {
+		for _, def := range definiciones {
+			valor := strings.TrimSpace(valores[def.Ruta])
+			switch {
+			case valor == "":
+				if def.Obligatorio || condicionCumplida(def.Condicion, p.Campos) {
+					agregar(seccionDeRuta(def.Ruta), def.Ruta, obraID, "bloqueo.campo_requerido")
+				}
+			case ValidarValorDeCampo(def, valor, ctx) != "":
+				agregar(seccionDeRuta(def.Ruta), def.Ruta, obraID, "bloqueo.campo_invalido")
+			}
+		}
+	}
+
+	// 1. Datos generales y propuesta de concierto.
+	revisar(formulario.Campos, p.Campos, 0)
+
+	// 2. Integrantes del ensamble.
+	if formulario.TieneIntegrantes && len(p.Integrantes) == 0 {
+		agregar(SeccionDatos, "integrantes", 0, "bloqueo.sin_integrantes")
+	}
+
+	// 3. Ligas de video.
+	if formulario.TieneVideos {
+		switch {
+		case len(p.Videos) == 0:
+			agregar(SeccionDatos, "videos", 0, "bloqueo.sin_videos")
+		case len(p.Videos) > c.MaxVideos:
+			agregar(SeccionDatos, "videos", 0, "bloqueo.demasiados_videos")
+		}
+		for _, video := range p.Videos {
+			if video.Estado == EnlaceInaccesible || video.Estado == EnlaceNoPublico {
+				agregar(SeccionDatos, "videos", 0, "bloqueo.video_con_problema")
+				break
+			}
+		}
+	}
+
+	// 4. Obras.
+	switch {
+	case len(p.Obras) == 0:
+		agregar(SeccionObras, "obras", 0, "bloqueo.sin_obras")
+	case c.MaxObras > 0 && len(p.Obras) > c.MaxObras:
+		agregar(SeccionObras, "obras", 0, "bloqueo.demasiadas_obras")
+	}
+	duracionTotal := 0
+	for _, obra := range p.Obras {
+		revisar(formulario.CamposObra, obra.Campos, obra.ID)
+		if minutos, err := strconv.Atoi(obra.Campos["obra.duracion_min"]); err == nil {
+			duracionTotal += minutos
+		}
+	}
+	if c.DuracionMaxProgramaMin > 0 && duracionTotal > c.DuracionMaxProgramaMin {
+		agregar(SeccionObras, "obras", 0, "bloqueo.duracion_excedida")
+	}
+
+	// 5. Documentos obligatorios.
+	tiene := func(clave string, obraID int64) bool {
+		return slices.ContainsFunc(p.Documentos, func(d Documento) bool { return d.Clave == clave && d.ObraID == obraID })
+	}
+	exigir := func(dotacionID, obraID int64, ambito AmbitoRequisito) {
+		for _, requisito := range RequisitosAplicables(cfg.Requisitos, dotacionID) {
+			if requisito.Ambito == ambito && requisito.Obligatorio && !tiene(requisito.Clave, obraID) {
+				bloqueadores = append(bloqueadores, Bloqueador{Seccion: SeccionDocumentos, Campo: "documento." + requisito.Clave,
+					ObraID: obraID, Clave: "bloqueo.documento_faltante", Requisito: &requisito})
+			}
+		}
+	}
+	exigir(0, 0, AmbitoPostulacion)
+	for _, obra := range p.Obras {
+		// La dotación de CADA obra decide qué documentos se le piden. Si aún
+		// no se elige, valen las reglas generales.
+		dotacionID, _ := strconv.ParseInt(obra.Campos["obra.dotacion_id"], 10, 64)
+		exigir(dotacionID, obra.ID, AmbitoObra)
+	}
+
+	// 6. Correo verificado.
+	if !titular.EmailVerificado() {
+		agregar(SeccionEnvio, "cuenta.email", 0, "bloqueo.correo_sin_verificar")
+	}
+	return bloqueadores
+}
+
+// --- Documentos y archivos (§5.4) ---------------------------------------------
+
+const (
+	// TamanoCabeceraMIME son los primeros bytes de un archivo que bastan para
+	// reconocer su formato por la firma.
+	TamanoCabeceraMIME = 512
+	// MaxVersionesDeDocumento acota cuántas veces puede reemplazarse un mismo
+	// documento. Como nada se borra, sin tope una cuenta podría llenar el
+	// disco subiendo una y otra vez el mismo requisito.
+	MaxVersionesDeDocumento = 30
+	// Topes de los archivos públicos de una convocatoria (RF-CONV-02).
+	TamanoMaxBasesPDF = 20 << 20 // 20 MiB
+	TamanoMaxImagen   = 5 << 20  // 5 MiB
+)
+
+// extensionesDeMIME son las extensiones con que puede llegar cada formato
+// admitido. La primera es la que se usa al nombrar una descarga.
+var extensionesDeMIME = map[string][]string{
+	"application/pdf": {".pdf"},
+	"image/jpeg":      {".jpg", ".jpeg"},
+	"image/png":       {".png"},
+	"audio/wav":       {".wav"},
+	"audio/flac":      {".flac"},
+	"audio/mpeg":      {".mp3"},
+}
+
+// DetectarMIME reconoce el formato de un archivo por su firma: los primeros
+// bytes de su contenido (RF-DOC-01). No mira el nombre ni lo que el navegador
+// diga: una extensión se cambia en un segundo. Devuelve "" si el contenido no
+// es de ninguno de los formatos de MimesAdmitidos.
+func DetectarMIME(cabecera []byte) string {
+	empieza := func(firma string) bool { return strings.HasPrefix(string(cabecera), firma) }
+	switch {
+	case empieza("%PDF-"):
+		return "application/pdf"
+	case empieza("\xFF\xD8\xFF"):
+		return "image/jpeg"
+	case empieza("\x89PNG\r\n\x1a\n"):
+		return "image/png"
+	case empieza("RIFF") && len(cabecera) >= 12 && string(cabecera[8:12]) == "WAVE":
+		return "audio/wav"
+	case empieza("fLaC"):
+		return "audio/flac"
+	case empieza("ID3"):
+		return "audio/mpeg" // MP3 con etiqueta ID3v2 al inicio
+	}
+	// MP3 sin etiqueta: empieza por la cabecera de un cuadro MPEG. Son 11 bits
+	// de sincronía a 1; la versión, la capa y la tasa de bits no pueden tener
+	// sus valores reservados.
+	if len(cabecera) >= 3 && cabecera[0] == 0xFF && cabecera[1]&0xE0 == 0xE0 &&
+		cabecera[1]&0x18 != 0x08 && cabecera[1]&0x06 != 0 && cabecera[2]&0xF0 != 0xF0 {
+		return "audio/mpeg"
+	}
+	return ""
+}
+
+// ExtensionDeMIME devuelve la extensión canónica de un formato admitido.
+func ExtensionDeMIME(mime string) string {
+	if extensiones := extensionesDeMIME[mime]; len(extensiones) > 0 {
+		return extensiones[0]
+	}
+	return ""
+}
+
+// extensionDe devuelve la extensión de un nombre de archivo, en minúsculas.
+func extensionDe(nombre string) string {
+	if i := strings.LastIndexByte(nombre, '.'); i >= 0 {
+		return strings.ToLower(nombre[i:])
+	}
+	return ""
+}
+
+// validarFormato comprueba un archivo contra los formatos y el tamaño que se
+// admiten para él: que su contenido sea de un formato permitido, que la
+// extensión de su nombre corresponda a ese contenido y que no pese de más.
+func validarFormato(mimesPermitidos []string, tamanoMax int64, nombre, mime string, tamano int64) []ErrorCampo {
+	fallo := func(clave string) []ErrorCampo { return []ErrorCampo{{Campo: "archivo", Clave: clave}} }
+	switch {
+	case tamano == 0:
+		return fallo("error.archivo_vacio")
+	case tamano > tamanoMax:
+		return fallo("error.archivo_grande")
+	case mime == "":
+		return fallo("error.formato_no_reconocido")
+	case !slices.Contains(mimesPermitidos, mime):
+		return fallo("error.formato_no_admitido")
+	case !slices.Contains(extensionesDeMIME[mime], extensionDe(nombre)):
+		// Un PDF llamado «foto.jpg»: se rechaza para que el nombre no engañe
+		// a quien lo descargue.
+		return fallo("error.extension_no_coincide")
+	}
+	return nil
+}
+
+// ValidarArchivo comprueba un archivo recibido contra su requisito documental
+// (RF-DOC-01 y 04). mime es el detectado por DetectarMIME.
+func ValidarArchivo(rq RequisitoDocumental, nombre, mime string, tamano int64) []ErrorCampo {
+	return validarFormato(rq.MimesPermitidos, rq.TamanoMaxBytes, nombre, mime, tamano)
+}
+
+// RequisitoParaDocumento resuelve qué requisito cumple un documento que se
+// quiere subir, a partir de su clave y de la obra a la que pertenece.
+//
+// La regla efectiva depende de la dotación de la obra (RN-07): un mismo
+// «audio» puede ser opcional para un cuarteto y obligatorio para una obra
+// electroacústica, con formatos y tamaños distintos.
+func RequisitoParaDocumento(p Postulacion, cfg ConfiguracionConvocatoria, clave string, obraID int64) (RequisitoDocumental, []ErrorCampo) {
+	ambito, dotacionID := AmbitoPostulacion, int64(0)
+	if obraID != 0 {
+		posicion := slices.IndexFunc(p.Obras, func(o Obra) bool { return o.ID == obraID })
+		if posicion < 0 {
+			return RequisitoDocumental{}, []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+		}
+		ambito = AmbitoObra
+		// Sin dotación elegida valen las reglas generales (ParseInt da 0).
+		dotacionID, _ = strconv.ParseInt(p.Obras[posicion].Campos["obra.dotacion_id"], 10, 64)
+	}
+	for _, rq := range RequisitosAplicables(cfg.Requisitos, dotacionID) {
+		if rq.Clave == clave && rq.Ambito == ambito {
+			return rq, nil
+		}
+	}
+	return RequisitoDocumental{}, []ErrorCampo{{Campo: "clave", Clave: "error.requisito_inexistente"}}
+}
+
+// LugarDeNuevoDocumento decide qué hace una subida con los documentos que ya
+// hay para el mismo requisito: devuelve el que queda reemplazado, o nil si el
+// nuevo se añade.
+//
+//   - Si se indica reemplazaA, sustituye a ese documento.
+//   - Si el requisito admite un solo archivo y ya hay uno, lo sustituye: es lo
+//     que espera quien vuelve a subir su partitura.
+//   - Si admite varios y ya están todos, se rechaza: hay que decir cuál se
+//     reemplaza.
+//
+// versiones es cuántos documentos, vigentes o no, se han subido ya para ese
+// requisito.
+func LugarDeNuevoDocumento(rq RequisitoDocumental, vigentes []Documento, reemplazaA int64, versiones int) (*Documento, []ErrorCampo) {
+	if versiones >= MaxVersionesDeDocumento {
+		return nil, []ErrorCampo{{Campo: "archivo", Clave: "error.demasiadas_versiones"}}
+	}
+	if reemplazaA != 0 {
+		posicion := slices.IndexFunc(vigentes, func(d Documento) bool { return d.ID == reemplazaA })
+		if posicion < 0 {
+			return nil, []ErrorCampo{{Campo: "reemplaza", Clave: "error.documento_no_vigente"}}
+		}
+		return &vigentes[posicion], nil
+	}
+	if len(vigentes) < max(rq.MaxArchivos, 1) {
+		return nil, nil
+	}
+	if rq.MaxArchivos <= 1 {
+		return &vigentes[0], nil
+	}
+	return nil, []ErrorCampo{{Campo: "archivo", Clave: "error.demasiados_archivos"}}
+}
+
+// NombreDeDescarga arma el nombre con que se descarga un documento. Es
+// predecible —folio, requisito, obra y versión— y no usa el nombre que le
+// puso quien lo subió, que puede traer datos personales o caracteres
+// problemáticos. identificador es el folio, o «borrador-N» si aún no hay.
+func NombreDeDescarga(identificador string, d Documento, ordenDeObra int) string {
+	nombre := identificador + "_" + d.Clave
+	if ordenDeObra > 0 {
+		nombre += "_obra" + strconv.Itoa(ordenDeObra)
+	}
+	return nombre + "_v" + strconv.Itoa(d.Version) + ExtensionDeMIME(d.Archivo.MIME)
+}
+
+// ValidarArchivoDeConvocatoria comprueba un archivo público de la
+// convocatoria: las bases en PDF, una por idioma, o la imagen de cabecera
+// (RF-CONV-02).
+func ValidarArchivoDeConvocatoria(clase ClaseArchivoConvocatoria, nombre, mime string, tamano int64) []ErrorCampo {
+	switch clase {
+	case ArchivoBasesES, ArchivoBasesEN:
+		return validarFormato([]string{"application/pdf"}, TamanoMaxBasesPDF, nombre, mime, tamano)
+	case ArchivoImagen:
+		return validarFormato([]string{"image/jpeg", "image/png"}, TamanoMaxImagen, nombre, mime, tamano)
+	}
+	return []ErrorCampo{{Campo: "clase", Clave: "error.clase_de_archivo"}}
+}
+
+// --- Envío (§4.1) -------------------------------------------------------------
+
+// ValidarConfirmacionDeEnvio exige las dos declaraciones del envío
+// (RF-POST-10): que se entiende que es irreversible y que se aceptan las bases.
+func ValidarConfirmacionDeEnvio(c ConfirmacionEnvio) []ErrorCampo {
+	var errores []ErrorCampo
+	if !c.Confirmo {
+		errores = append(errores, ErrorCampo{Campo: "confirmo", Clave: "error.confirmar_envio"})
+	}
+	if !c.AceptoBases {
+		errores = append(errores, ErrorCampo{Campo: "acepto_bases", Clave: "error.aceptar_bases"})
+	}
+	return errores
+}
+
+// FolioDe arma el folio de una postulación: FIM49-INT-0137. Lleva el número de
+// la edición, la convocatoria y un consecutivo por convocatoria. Se asigna en
+// el primer envío y no cambia nunca (RN-13): es lo que se cita en un acta.
+func FolioDe(numeroDeEdicion int, tipo TipoConvocatoria, consecutivo int) string {
+	sigla := "INT"
+	if tipo == TipoCompositores {
+		sigla = "COM"
+	}
+	return fmt.Sprintf("FIM%d-%s-%04d", numeroDeEdicion, sigla, consecutivo)
+}
+
+// SnapshotDeEnvio congela la postulación tal como se envía (§4.1). Recoge
+// sólo lo que el formulario de la postulación define y los documentos
+// vigentes; los campos añadidos por extensión dinámica no entran (§7.6).
+func SnapshotDeEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usuario, folio string, version int, enviadaAt time.Time) SnapshotEnvio {
+	c := cfg.Convocatoria
+	formulario := FormularioDe(c.Tipo, p.Subcategoria)
+	// definidos copia sólo los campos del formulario que tienen valor.
+	definidos := func(definiciones []DefinicionCampo, valores map[string]string) map[string]string {
+		copia := make(map[string]string)
+		for _, def := range definiciones {
+			if valor := strings.TrimSpace(valores[def.Ruta]); valor != "" {
+				copia[def.Ruta] = valor
+			}
+		}
+		return copia
+	}
+	s := SnapshotEnvio{
+		Folio: folio, Version: version, EnviadaAt: enviadaAt.UTC().Format(formatoTiempo), Idioma: titular.Idioma,
+		Edicion:      SnapshotEdicion{Numero: c.Edicion.Numero, Anio: c.Edicion.Anio, NombreES: c.Edicion.NombreES, NombreEN: c.Edicion.NombreEN},
+		Convocatoria: SnapshotConvocatoria{ID: c.ID, Tipo: string(c.Tipo), TituloES: c.TituloES, TituloEN: c.TituloEN},
+		Subcategoria: string(p.Subcategoria),
+		Titular:      SnapshotTitular{Nombre: titular.Nombre, Apellidos: titular.Apellidos, Email: titular.Email},
+		Campos:       definidos(formulario.Campos, p.Campos),
+		Obras:        []SnapshotObra{},
+		Documentos:   []SnapshotDocumento{},
+	}
+	if s.Idioma != IdiomaEN {
+		s.Idioma = IdiomaES
+	}
+	for _, i := range p.Integrantes {
+		s.Integrantes = append(s.Integrantes, SnapshotIntegrante{Nombre: i.Nombre, Instrumento: i.Instrumento})
+	}
+	for _, v := range p.Videos {
+		s.Videos = append(s.Videos, SnapshotVideo{URL: v.URL, Estado: string(v.Estado), Plataforma: v.Plataforma})
+	}
+	for _, o := range p.Obras {
+		obra := SnapshotObra{ID: o.ID, Orden: o.Orden, Campos: definidos(formulario.CamposObra, o.Campos)}
+		dotacionID, _ := strconv.ParseInt(o.Campos["obra.dotacion_id"], 10, 64)
+		for _, d := range cfg.Dotaciones {
+			if d.ID == dotacionID && dotacionID != 0 {
+				obra.DotacionES, obra.DotacionEN = d.NombreES, d.NombreEN
+			}
+		}
+		s.Obras = append(s.Obras, obra)
+	}
+	etiquetas := make(map[string]RequisitoDocumental)
+	for _, rq := range cfg.Requisitos {
+		if _, visto := etiquetas[rq.Clave]; !visto || rq.DotacionID == 0 {
+			etiquetas[rq.Clave] = rq
+		}
+	}
+	for _, d := range p.Documentos {
+		rq := etiquetas[d.Clave]
+		s.Documentos = append(s.Documentos, SnapshotDocumento{
+			Clave: d.Clave, EtiquetaES: rq.EtiquetaES, EtiquetaEN: rq.EtiquetaEN, ObraID: d.ObraID, Version: d.Version,
+			SHA256: d.Archivo.SHA256, TamanoBytes: d.Archivo.TamanoBytes, MIME: d.Archivo.MIME,
+		})
+	}
+	return s
+}
+
+// --- Recordatorios de borrador (RF-NOT-04) ------------------------------------
+
+// plazosDeRecordatorio son los momentos, antes del cierre, en que se recuerda
+// a quien tiene un borrador sin enviar: 7 días, 2 días y 12 horas.
+var plazosDeRecordatorio = []time.Duration{7 * 24 * time.Hour, 48 * time.Hour, 12 * time.Hour}
+
+// VentanaDeRecordatorio indica si en este momento toca recordar un borrador
+// y, de ser así, desde cuándo corre el recordatorio vigente. Cada recordatorio
+// vale desde su plazo hasta el siguiente: si ya se envió un correo dentro de
+// esa ventana, no se repite. Un recordatorio cuya ventana pasó con el servicio
+// detenido no se envía tarde.
+func VentanaDeRecordatorio(termina, ahora time.Time) (inicio time.Time, toca bool) {
+	if !ahora.Before(termina) {
+		return time.Time{}, false // el plazo ya cerró: no hay nada que recordar
+	}
+	for i := len(plazosDeRecordatorio) - 1; i >= 0; i-- {
+		if inicio = termina.Add(-plazosDeRecordatorio[i]); !ahora.Before(inicio) {
+			return inicio, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// --- Comprobación de ligas en red (RF-DOC-10) ---------------------------------
+
+// redesNoPublicas son rangos que nunca deben visitarse al comprobar una liga
+// y que netip no clasifica por sí mismo: direcciones compartidas de operador,
+// de documentación, de pruebas y reservadas.
+var redesNoPublicas = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"), netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.18.0.0/15"), netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("2001:db8::/32"),
+}
+
+// DireccionPublica indica si una dirección IP es de Internet abierto. La
+// comprobación de ligas hace que el servidor visite direcciones escritas por
+// cualquiera; sin este filtro, una «liga de video» como https://127.0.0.1/ o
+// https://10.0.0.5/ serviría para sondear la red interna del servidor (SSRF).
+func DireccionPublica(ip netip.Addr) bool {
+	ip = ip.Unmap() // una IPv4 escrita como IPv6 (::ffff:10.0.0.1) es la misma IPv4
+	if !ip.IsValid() || ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	for _, red := range redesNoPublicas {
+		if red.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// ConsultaOEmbed devuelve la dirección con que se pregunta a la plataforma de
+// una liga si el recurso existe y es público, o "" si la plataforma no ofrece
+// esa consulta. oEmbed distingue lo que una petición simple no puede: un video
+// privado de YouTube responde 200 con una página de error.
+func ConsultaOEmbed(liga string) string {
+	consulta := url.QueryEscape(liga)
+	switch PlataformaDeVideo(liga) {
+	case "youtube":
+		return "https://www.youtube.com/oembed?format=json&url=" + consulta
+	case "vimeo":
+		return "https://vimeo.com/api/oembed.json?url=" + consulta
+	case "soundcloud":
+		return "https://soundcloud.com/oembed?format=json&url=" + consulta
+	}
+	return ""
+}
+
+// Detalles del resultado de comprobar una liga. Son códigos, no textos: la
+// vista los traduce («enlace.detalle.<código>»).
+const (
+	DetalleEnlaceOK             = "ok"
+	DetalleEnlaceNoEncontrado   = "no_encontrado"
+	DetalleEnlaceRequiereAcceso = "requiere_acceso"
+	DetalleEnlaceDominio        = "dominio_inexistente"
+	DetalleEnlaceDireccion      = "direccion_no_permitida"
+	DetalleEnlaceNoComprobable  = "no_comprobable"
+)
+
+// ClasificarEnlace convierte la respuesta HTTP de una comprobación en el
+// estado de la liga. porOEmbed indica que se preguntó a la plataforma y no al
+// recurso; pideIngreso, que la respuesta fue una redirección a una pantalla de
+// inicio de sesión.
+//
+// Sólo se da por mala una liga cuando la respuesta es inequívoca (no existe,
+// o exige acceso). Todo lo dudoso —un 403 a un programa, un error del
+// servidor— queda «pendiente»: la comprobación automática es un semáforo para
+// el revisor, no un veredicto, y un falso negativo no debe impedir un envío.
+func ClasificarEnlace(porOEmbed bool, estadoHTTP int, pideIngreso bool) ResultadoEnlace {
+	r := ResultadoEnlace{Estado: EnlacePendiente, HTTPStatus: estadoHTTP, Detalle: DetalleEnlaceNoComprobable}
+	switch {
+	case pideIngreso:
+		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
+	case estadoHTTP >= 200 && estadoHTTP < 300:
+		r.Estado, r.Detalle = EnlaceOK, DetalleEnlaceOK
+	case estadoHTTP == 404 || estadoHTTP == 410, porOEmbed && estadoHTTP == 400:
+		r.Estado, r.Detalle = EnlaceInaccesible, DetalleEnlaceNoEncontrado
+	case estadoHTTP == 401, porOEmbed && estadoHTTP == 403:
+		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
+	}
+	return r
 }

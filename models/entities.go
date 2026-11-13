@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Package models contiene el Modelo de la arquitectura MVC: entidades de
@@ -10,6 +24,7 @@ package models
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -313,6 +328,12 @@ const (
 	PlantillaCambioEmail    = "cambio_email"
 )
 
+// Claves de las plantillas de correo del envío de la postulación.
+const (
+	PlantillaAcuse        = "acuse"
+	PlantillaRecordatorio = "recordatorio_borrador"
+)
+
 // PlantillaCorreo es la versión activa de una plantilla editable (RF-NOT).
 type PlantillaCorreo struct {
 	Clave    string
@@ -333,6 +354,10 @@ type CorreoSaliente struct {
 	Texto          string
 	PlantillaClave string
 	Intentos       int
+	// PostulacionID liga el mensaje con una postulación (acuse, recordatorio);
+	// 0 si es un correo de cuenta.
+	PostulacionID int64
+	Adjuntos      []Adjunto
 }
 
 // Mailer es el transporte de correo. La lógica de negocio sólo conoce esta
@@ -501,4 +526,316 @@ type CuentaAdmin struct {
 	Usuario  Usuario
 	Perfiles []Perfil
 	Activada bool
+}
+
+// ---------------------------------------------------------------------------
+// Postulaciones
+// ---------------------------------------------------------------------------
+
+// Subcategoria distingue, sólo en Intérpretes, a quien postula.
+type Subcategoria string
+
+const (
+	SubcategoriaSolista  Subcategoria = "solista"
+	SubcategoriaEnsamble Subcategoria = "ensamble"
+)
+
+// EstadoDePostulacion es el estado de una postulación en su ciclo de vida
+// (§4). No confundir con EstadoPostulacion, que es la etapa «postulación» de
+// una convocatoria.
+type EstadoDePostulacion string
+
+const (
+	PostulacionBorrador      EstadoDePostulacion = "borrador"
+	PostulacionEnviada       EstadoDePostulacion = "enviada"
+	PostulacionEnRevision    EstadoDePostulacion = "en_revision"
+	PostulacionEnSubsanacion EstadoDePostulacion = "en_subsanacion"
+	PostulacionValidada      EstadoDePostulacion = "validada"
+	PostulacionDescartada    EstadoDePostulacion = "descartada"
+	PostulacionEnEvaluacion  EstadoDePostulacion = "en_evaluacion"
+	PostulacionEvaluada      EstadoDePostulacion = "evaluada"
+)
+
+// EstadoEnlace es el resultado de la comprobación automática de una liga.
+type EstadoEnlace string
+
+const (
+	EnlacePendiente   EstadoEnlace = "pendiente"
+	EnlaceOK          EstadoEnlace = "ok"
+	EnlaceInaccesible EstadoEnlace = "inaccesible"
+	EnlaceNoPublico   EstadoEnlace = "no_publico"
+)
+
+// Integrante es un miembro de un ensamble: nombre e instrumento (D-05).
+type Integrante struct {
+	Nombre      string
+	Instrumento string
+}
+
+// EnlaceVideo es una liga a un video de ejecución (sólo Intérpretes).
+type EnlaceVideo struct {
+	URL        string
+	Estado     EstadoEnlace
+	Plataforma string // youtube, vimeo, soundcloud, bandcamp, drive u otro
+	Detalle    string // código del resultado de la comprobación en red
+}
+
+// Obra es una pieza incluida en una postulación. Sus datos van en Campos, por
+// ruta canónica («obra.titulo», «obra.duracion_min»…), igual que los de la
+// postulación.
+type Obra struct {
+	ID     int64
+	Orden  int
+	Campos map[string]string
+}
+
+// Archivo son los metadatos de un contenido guardado en el almacén (tabla
+// «archivo»). El contenido en sí vive en disco, direccionado por su SHA-256.
+type Archivo struct {
+	ID          int64
+	SHA256      string
+	Clave       string // clave de almacenamiento, para BlobStore.Abrir
+	MIME        string // detectado por la firma del archivo, no por su extensión
+	TamanoBytes int64
+}
+
+// Documento es un archivo entregado para cumplir un requisito documental.
+// ObraID es 0 si el documento es de la postulación (la fotografía) y no de
+// una obra.
+//
+// Nada se sobrescribe (RF-DOC-07): reemplazar un documento crea otro con la
+// versión siguiente y deja el anterior con Vigente en false.
+type Documento struct {
+	ID            int64
+	PostulacionID int64
+	ObraID        int64
+	Clave         string // clave del requisito: fotografia, partitura…
+	Version       int
+	Vigente       bool
+	Dictamen      string // pendiente, valido o invalido (lo fija el revisor)
+	SubidoAt      time.Time
+	Archivo       Archivo
+}
+
+// NuevoDocumento es lo que el controlador entrega al repositorio tras recibir
+// una subida: el contenido ya está en el almacén y su formato ya se detectó.
+type NuevoDocumento struct {
+	Clave          string // clave del requisito que cumple
+	ObraID         int64  // 0 si es de la postulación
+	ReemplazaA     int64  // id del documento vigente que sustituye; 0 si es nuevo
+	Blob           Blob
+	MIME           string
+	NombreOriginal string
+}
+
+// Acuse es el comprobante de un envío: un PDF y el snapshot de lo enviado
+// (RN-13). Cada reenvío tras una subsanación genera otro, con la versión
+// siguiente; los anteriores se conservan.
+type Acuse struct {
+	ID            int64
+	PostulacionID int64
+	Version       int
+	Idioma        string
+	GeneradoAt    time.Time
+	Archivo       Archivo
+}
+
+// ConfirmacionEnvio son las dos declaraciones que el postulante hace al
+// enviar (RF-POST-10).
+type ConfirmacionEnvio struct {
+	Confirmo    bool // «entiendo que ya no podré editar mi postulación»
+	AceptoBases bool
+}
+
+// ErrorDeEnvio indica que la postulación no pudo enviarse porque le falta
+// algo. Lleva la lista exacta de bloqueadores (RN-03).
+type ErrorDeEnvio struct {
+	Bloqueadores []Bloqueador
+}
+
+func (e *ErrorDeEnvio) Error() string {
+	return fmt.Sprintf("la postulación no puede enviarse: faltan %d elementos", len(e.Bloqueadores))
+}
+
+// SnapshotEnvio es la postulación tal como se envió: la base probatoria del
+// proceso (§4.1). Se guarda como JSON junto a cada acuse y no cambia nunca,
+// aunque después una subsanación modifique la postulación. El acuse en PDF se
+// compone únicamente a partir de él, de modo que puede regenerarse idéntico.
+//
+// Es un formato persistente: sus nombres de campo no se cambian; sólo se
+// añaden campos nuevos.
+type SnapshotEnvio struct {
+	Folio        string               `json:"folio"`
+	Version      int                  `json:"version"`
+	EnviadaAt    string               `json:"enviada_at"` // UTC, ISO-8601
+	Idioma       string               `json:"idioma"`     // idioma del acuse
+	Edicion      SnapshotEdicion      `json:"edicion"`
+	Convocatoria SnapshotConvocatoria `json:"convocatoria"`
+	Subcategoria string               `json:"subcategoria,omitempty"`
+	Titular      SnapshotTitular      `json:"titular"`
+	Campos       map[string]string    `json:"campos"`
+	Integrantes  []SnapshotIntegrante `json:"integrantes,omitempty"`
+	Videos       []SnapshotVideo      `json:"videos,omitempty"`
+	Obras        []SnapshotObra       `json:"obras"`
+	Documentos   []SnapshotDocumento  `json:"documentos"`
+}
+
+// SnapshotEdicion identifica la edición del Foro.
+type SnapshotEdicion struct {
+	Numero   int    `json:"numero"`
+	Anio     int    `json:"anio"`
+	NombreES string `json:"nombre_es"`
+	NombreEN string `json:"nombre_en"`
+}
+
+// SnapshotConvocatoria identifica la convocatoria.
+type SnapshotConvocatoria struct {
+	ID       int64  `json:"id"`
+	Tipo     string `json:"tipo"`
+	TituloES string `json:"titulo_es"`
+	TituloEN string `json:"titulo_en"`
+}
+
+// SnapshotTitular es la cuenta que envió la postulación.
+type SnapshotTitular struct {
+	Nombre    string `json:"nombre"`
+	Apellidos string `json:"apellidos"`
+	Email     string `json:"email"`
+}
+
+// SnapshotIntegrante es un integrante del ensamble.
+type SnapshotIntegrante struct {
+	Nombre      string `json:"nombre"`
+	Instrumento string `json:"instrumento"`
+}
+
+// SnapshotVideo es una liga de video con el resultado de su comprobación.
+type SnapshotVideo struct {
+	URL        string `json:"url"`
+	Estado     string `json:"estado"`
+	Plataforma string `json:"plataforma"`
+}
+
+// SnapshotObra es una obra con sus campos y el nombre de su dotación.
+type SnapshotObra struct {
+	ID         int64             `json:"id"`
+	Orden      int               `json:"orden"`
+	Campos     map[string]string `json:"campos"`
+	DotacionES string            `json:"dotacion_es,omitempty"`
+	DotacionEN string            `json:"dotacion_en,omitempty"`
+}
+
+// SnapshotDocumento es un documento entregado. Su SHA-256 permite comprobar,
+// años después, que el archivo del acervo es exactamente el que se envió.
+type SnapshotDocumento struct {
+	Clave       string `json:"clave"`
+	EtiquetaES  string `json:"etiqueta_es"`
+	EtiquetaEN  string `json:"etiqueta_en"`
+	ObraID      int64  `json:"obra_id,omitempty"`
+	Version     int    `json:"version"`
+	SHA256      string `json:"sha256"`
+	TamanoBytes int64  `json:"tamano_bytes"`
+	MIME        string `json:"mime"`
+}
+
+// AcuseCompuesto es lo que devuelve la Vista al componer un acuse: el PDF, ya
+// guardado en el almacén, y el correo que lo lleva al postulante.
+type AcuseCompuesto struct {
+	Blob   Blob
+	Correo CorreoSaliente
+}
+
+// Adjunto es un archivo del almacén que acompaña a un correo.
+type Adjunto struct {
+	ArchivoID int64  `json:"archivo_id"`
+	Nombre    string `json:"nombre"`
+}
+
+// EnlacePorVerificar es una liga de video pendiente de comprobar en red.
+type EnlacePorVerificar struct {
+	ID  int64
+	URL string
+}
+
+// ResultadoEnlace es el resultado de comprobar una liga en red (RF-DOC-10).
+type ResultadoEnlace struct {
+	Estado     EstadoEnlace
+	HTTPStatus int    // 0 si no hubo respuesta
+	Detalle    string // explicación breve, para el revisor
+}
+
+// RecordatorioDeBorrador es un borrador al que toca recordarle que el plazo
+// está por vencer (RF-NOT-04).
+type RecordatorioDeBorrador struct {
+	PostulacionID int64
+	Usuario       Usuario
+	Convocatoria  Convocatoria
+	TerminaAt     time.Time // cierre de la etapa de postulación
+	Ventana       time.Time // inicio de la ventana del recordatorio que toca
+}
+
+// ClaseArchivoConvocatoria distingue los archivos públicos de una
+// convocatoria (RF-CONV-02).
+type ClaseArchivoConvocatoria string
+
+const (
+	ArchivoBasesES ClaseArchivoConvocatoria = "bases_pdf_es"
+	ArchivoBasesEN ClaseArchivoConvocatoria = "bases_pdf_en"
+	ArchivoImagen  ClaseArchivoConvocatoria = "imagen"
+)
+
+// Postulacion es la solicitud de un postulante a una convocatoria, con todo lo
+// que ha capturado.
+//
+// Los datos capturados se manejan como un mapa de ruta canónica a valor
+// («datos.telefono», «concierto.entidad»…), siempre como texto; un campo sin
+// capturar no aparece en el mapa. En la base cada ruta es una columna tipada
+// (§8.1); el mapa existe para que una sola definición declarativa del
+// formulario (rules.go) gobierne la captura, la validación del envío y, más
+// adelante, el desbloqueo selectivo de la subsanación.
+type Postulacion struct {
+	ID             int64
+	ConvocatoriaID int64
+	UsuarioID      int64
+	Subcategoria   Subcategoria // vacía en Compositores
+	Folio          string       // vacío mientras es borrador
+	Estado         EstadoDePostulacion
+	Envios         int
+	CreadoAt       time.Time
+	ActualizadoAt  time.Time
+
+	Campos      map[string]string
+	Integrantes []Integrante
+	Videos      []EnlaceVideo
+	Obras       []Obra
+	Documentos  []Documento // sólo los vigentes
+	Acuses      []Acuse     // uno por envío
+}
+
+// ResumenPostulacion es una postulación en un listado, con lo esencial de su
+// convocatoria.
+type ResumenPostulacion struct {
+	ID            int64
+	Subcategoria  Subcategoria
+	Folio         string
+	Estado        EstadoDePostulacion
+	ActualizadoAt time.Time
+	Convocatoria  Convocatoria // sin bases ni calendario
+}
+
+// ResultadoGuardado es la respuesta a un guardado parcial (autoguardado): qué
+// campos se guardaron, cuáles se rechazaron y por qué, y a qué hora.
+type ResultadoGuardado struct {
+	Guardados  []string
+	Errores    []ErrorCampo
+	GuardadoAt time.Time
+}
+
+// Bloqueador es un motivo por el que una postulación aún no puede enviarse.
+type Bloqueador struct {
+	Seccion   string               // datos, concierto, obras, documentos o envio
+	Campo     string               // ruta canónica, «integrantes», «videos», «obras» o «documento.<clave>»
+	ObraID    int64                // obra a la que se refiere; 0 si es de la postulación
+	Clave     string               // clave de traducción del motivo
+	Requisito *RequisitoDocumental // el documento que falta, si el bloqueador es de un documento
 }

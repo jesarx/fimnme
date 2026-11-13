@@ -1,5 +1,19 @@
-// Este archivo es parte de la Plataforma de Postulaciones FIMNME (CNMO / INBAL).
-// Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+// Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+// Internacional de Música Nueva Manuel Enríquez (CNMO / INBAL).
+//
+// FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+// los términos de la Licencia Pública General de GNU, tal como la publica la
+// Free Software Foundation, en la versión 3 de la Licencia.
+//
+// FIMNME se distribuye con la esperanza de que sea útil, pero SIN GARANTÍA
+// ALGUNA; ni siquiera la garantía implícita de COMERCIABILIDAD o de APTITUD
+// PARA UN PROPÓSITO PARTICULAR. Consulte la Licencia Pública General de GNU
+// para más detalles.
+//
+// Debió recibir una copia de la Licencia Pública General de GNU junto con
+// este programa, en el archivo LICENSE. Si no, consulte
+// <https://www.gnu.org/licenses/>.
+//
 // SPDX-License-Identifier: GPL-3.0-only
 
 package main
@@ -57,9 +71,9 @@ func TestMigrarYSembrarDemo(t *testing.T) {
 		t.Errorf("Compositores debe limitar a 2 obras: %+v (%v)", compositores.MaxObras, err)
 	}
 	// La demostración trae la configuración inicial: requisitos, criterios y un
-	// catálogo de dotaciones con su excepción (la electroacústica, sin particellas).
+	// catálogo de dotaciones con su excepción (medios electrónicos fijos, sin particellas).
 	cfg, err := repo.ConfiguracionDeConvocatoria(ctx, compositores.ID)
-	if err != nil || len(cfg.Dotaciones) != 3 || len(cfg.Requisitos) != 5 || len(cfg.Criterios) != 2 {
+	if err != nil || len(cfg.Dotaciones) != 8 || len(cfg.Requisitos) != 5 || len(cfg.Criterios) != 2 {
 		t.Fatalf("configuración de demostración incompleta: %d dotaciones, %d requisitos, %d criterios (%v)",
 			len(cfg.Dotaciones), len(cfg.Requisitos), len(cfg.Criterios), err)
 	}
