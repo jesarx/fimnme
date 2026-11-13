@@ -110,12 +110,20 @@ func sembrarDemo(ctx context.Context, repositorio *models.Repositorio) error {
 		if c.Tipo != models.TipoCompositores {
 			continue
 		}
-		// Catálogo de dotaciones de ejemplo. En la segunda, la excepción
-		// típica: una obra electroacústica no lleva particellas.
+		// Catálogo de dotaciones: las más postuladas en la convocatoria de
+		// 2026 (48º Foro), como punto de partida verosímil. En la segunda, la
+		// excepción típica: una obra para medios electrónicos fijos no lleva
+		// particellas.
 		for orden, d := range []models.Dotacion{
+			{NombreES: "Orquesta sinfónica", NombreEN: "Symphony orchestra"},
+			{NombreES: "Medios electrónicos fijos", NombreEN: "Fixed media electronics"},
 			{NombreES: "Cuarteto de cuerdas", NombreEN: "String quartet"},
-			{NombreES: "Obra electroacústica", NombreEN: "Electroacoustic work"},
-			{NombreES: "Ensamble mixto (hasta 8 intérpretes)", NombreEN: "Mixed ensemble (up to 8 performers)"},
+			{NombreES: "Sexteto (flauta, clarinete, violín, viola, violonchelo y piano)",
+				NombreEN: "Sextet (flute, clarinet, violin, viola, cello and piano)"},
+			{NombreES: "Ensamble de 20 músicos con electrónica", NombreEN: "Ensemble of 20 players with electronics"},
+			{NombreES: "Piano", NombreEN: "Piano"},
+			{NombreES: "Quinteto de alientos", NombreEN: "Wind quintet"},
+			{NombreES: "Clavecín", NombreEN: "Harpsichord"},
 		} {
 			d.ConvocatoriaID, d.Orden, d.Activa = id, orden+1, true
 			dotacionID, _, err := repositorio.GuardarDotacion(ctx, actor, d)

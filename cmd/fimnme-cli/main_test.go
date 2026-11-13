@@ -71,9 +71,9 @@ func TestMigrarYSembrarDemo(t *testing.T) {
 		t.Errorf("Compositores debe limitar a 2 obras: %+v (%v)", compositores.MaxObras, err)
 	}
 	// La demostración trae la configuración inicial: requisitos, criterios y un
-	// catálogo de dotaciones con su excepción (la electroacústica, sin particellas).
+	// catálogo de dotaciones con su excepción (medios electrónicos fijos, sin particellas).
 	cfg, err := repo.ConfiguracionDeConvocatoria(ctx, compositores.ID)
-	if err != nil || len(cfg.Dotaciones) != 3 || len(cfg.Requisitos) != 5 || len(cfg.Criterios) != 2 {
+	if err != nil || len(cfg.Dotaciones) != 8 || len(cfg.Requisitos) != 5 || len(cfg.Criterios) != 2 {
 		t.Fatalf("configuración de demostración incompleta: %d dotaciones, %d requisitos, %d criterios (%v)",
 			len(cfg.Dotaciones), len(cfg.Requisitos), len(cfg.Criterios), err)
 	}

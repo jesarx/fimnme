@@ -89,6 +89,8 @@ func Nuevo() (*Motor, error) {
 	funciones := template.FuncMap{
 		"estatico": m.URLEstatico,
 		"dict":     dict,
+		// anio: el año en curso en la Ciudad de México, para el aviso de derechos.
+		"anio": func() int { return time.Now().In(ZonaMexico()).Year() },
 	}
 	archivos, err := fs.Glob(contenido, "templates/*.html")
 	if err != nil {

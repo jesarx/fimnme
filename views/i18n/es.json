@@ -15,7 +15,15 @@
   "nav.cuenta": "Mi cuenta",
   "nav.salir": "Salir",
 
-  "pie.institucion": "Coordinación Nacional de Música y Ópera · Instituto Nacional de Bellas Artes y Literatura",
+  "marca.linea1": "Foro Internacional",
+  "marca.linea2": "de Música Nueva",
+  "marca.linea3": "Manuel Enríquez",
+  "pie.cnmo": "Coordinación Nacional de Música y Ópera",
+  "pie.enlaces": "Enlaces del sitio",
+  "pie.sitio_foro": "Sitio del Foro",
+  "pie.cultura": "Secretaría de Cultura",
+  "pie.inbal": "Instituto Nacional de Bellas Artes y Literatura",
+  "pie.derechos": "© Instituto Nacional de Bellas Artes y Literatura. México, %d.",
   "pie.aviso": "Aviso de privacidad",
   "pie.licencia": "Software libre bajo la licencia GNU GPL v3.0",
 

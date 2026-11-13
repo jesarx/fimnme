@@ -22,6 +22,10 @@ procesos— y sólo después las pantallas de cada perfil.
 - pruebas de extremo a extremo sobre una base SQLite temporal, y ejemplos con `curl`
   para probarlo a mano en el VPS.
 
+**Decisiones de la CNMO del 13 de noviembre de 2026.** Las decisiones tomadas hasta el
+paso 5 quedan confirmadas. La evaluación no es a ciegas. La identidad visual es, por
+ahora, la del 48º Foro ([ADR 0008](adr/0008-identidad-visual-del-48-foro.md)).
+
 **Guía de programación.** Desde el 13 de noviembre de 2026 rige además la guía de
 programación de la CNMO para proyectos afines, en lo que aplica a este sistema
 ([ADR 0006](adr/0006-adopcion-de-la-guia-soshe-peelee.md)). Al adoptarla se revisó lo ya
@@ -277,8 +281,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
    hoy los encabezados no nombran titular.
 4. **Texto oficial del aviso de privacidad**: la página actual es una estructura
    provisional sin validez legal.
-5. **Identidad visual**: el diseño usa un acento granate y tipografías del sistema, sin
-   logotipos. Si existe un manual de identidad del Foro o del INBAL, se ajusta.
+5. ~~Identidad visual.~~ **Resuelto (13-nov-2026):** se usa la del 48º Foro —paleta,
+   cabecera, pie institucional y logotipo— hasta que exista la del 49º
+   ([ADR 0008](adr/0008-identidad-visual-del-48-foro.md)).
 6. **Número y año de la edición de arranque**: la demostración usa «Edición 49 · 2027»,
    tomada del ejemplo de la especificación.
 7. **Vigencia del enlace de activación de cuentas internas: 7 días** (la especificación
@@ -296,9 +301,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     documental** y el log lo avisa. La alternativa sería avanzar de todos modos; se
     prefirió que la regla de la cuota no tenga excepciones.
 13. **Requisitos documentales iniciales** de cada tipo de convocatoria (ADR 0005, §6).
-14. **Dictaminación a ciegas.** La guía de programación prevé ocultar al jurado los datos
-    del postulante «si la convocatoria lo requiere»; la especificación de FIMNME no lo
-    pide. Debe decidirse antes del paso 8.
+14. ~~Dictaminación a ciegas.~~ **Resuelto (13-nov-2026): la evaluación NO es a ciegas.**
+    El jurado ve toda la información de la postulación: nombre, semblanza, partituras y
+    demás documentos. Se aplicará en el paso 8.
 15. **Forma de los comentarios.** Se conservan con `//` (lo idiomático en Go). Si la CNMO
     quiere los bloques `/* … */` del estilo del kernel, la conversión es mecánica.
 16. **El observador (`coordinacion_nacional`) no puede postular**, y quien es jurado o
@@ -309,3 +314,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 18. **Rangos admitidos:** duración de una obra de 1 a 600 minutos; año de fundación del
     ensamble de 1900 al año en curso. La especificación no los fija. La lista de
     integrantes es de longitud libre, con un tope de cordura de 300.
+19. **Formatos en Intérpretes.** La numeralia de 2026 distingue solista, dúo, trío,
+    cuarteto y ensamble (cinco o más), con un tabulador de pagos por formato. La
+    plataforma sólo distingue solista y ensamble, como la especificación; el formato
+    puede derivarse del número de integrantes. Confirmar si debe capturarse aparte.
+20. **Bases oficiales de las convocatorias.** El repositorio del 48º Foro no las trae;
+    las de la plataforma son texto de demostración hasta que se entreguen.
