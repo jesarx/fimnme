@@ -222,6 +222,17 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"POST", "/api/v1/postulaciones/{id}/envio", a.conSesion(a.apiEnviarPostulacion)},
 		{"GET", "/api/v1/postulaciones/{id}/acuses/{version}", a.conSesion(a.apiDescargarAcuse)},
 
+		// Revisión documental y subsanación.
+		{"GET", "/api/v1/convocatorias/{id}/revision", a.conSesion(a.apiBandejaDeRevision)},
+		{"POST", "/api/v1/postulaciones/{id}/toma", a.conSesion(a.apiTomarPostulacion(true))},
+		{"DELETE", "/api/v1/postulaciones/{id}/toma", a.conSesion(a.apiTomarPostulacion(false))},
+		{"PUT", "/api/v1/documentos/{id}/dictamen", a.conSesion(a.apiDictaminarDocumento)},
+		{"POST", "/api/v1/postulaciones/{id}/observaciones", a.conSesion(a.apiObservarPostulacion)},
+		{"POST", "/api/v1/postulaciones/{id}/subsanaciones", a.conSesion(a.apiSolicitarSubsanacion)},
+		{"POST", "/api/v1/postulaciones/{id}/desbloqueos", a.conSesion(a.apiSolicitarDesbloqueo)},
+		{"PUT", "/api/v1/postulaciones/{id}/desbloqueos/{solicitud}", a.conSesion(a.apiResolverDesbloqueo)},
+		{"POST", "/api/v1/postulaciones/{id}/dictamen", a.conSesion(a.apiDictaminarPostulacion)},
+
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
 		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},

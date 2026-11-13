@@ -100,9 +100,29 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 	if a.falloDatos(w, r, err) {
 		return
 	}
-	bloqueadores := models.ValidarParaEnvio(p, cfg, titular.Usuario, a.ahora())
-	editable := sesion.Usuario.ID == p.UsuarioID && len(models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, a.ahora())) == 0
-	a.responder(w, estado, views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r)))
+	ahora := a.ahora()
+	bloqueadores := models.ValidarParaEnvio(p, cfg, titular.Usuario, ahora)
+	// editable: el titular puede modificar algo ahora mismo. En un borrador,
+	// todo; durante una subsanación, sólo lo que lista «subsanacion».
+	esTitular := sesion.Usuario.ID == p.UsuarioID
+	editable := esTitular && len(models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, ahora)) == 0
+	cuerpo := views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r))
+	nombrar := a.nombreDeElemento(idiomaDe(r), cfg)
+	cuerpo["subsanacion"] = views.SubsanacionPendienteJSON(p, ahora, nombrar)
+
+	// Lo que dejó la revisión sólo lo ven quienes revisan o supervisan.
+	if models.PuedeVerRevision(sesion, p.ConvocatoriaID) {
+		revision, err := a.datos.RevisionDe(r.Context(), p.ID)
+		if a.falloDatos(w, r, err) {
+			return
+		}
+		cambios, err := a.datos.DiferenciasDelUltimoEnvio(r.Context(), p.ID)
+		if a.falloDatos(w, r, err) {
+			return
+		}
+		cuerpo["revision"] = views.RevisionJSON(p, titular.Usuario, revision, cambios, ahora, nombrar)
+	}
+	a.responder(w, estado, cuerpo)
 }
 
 // GET /api/v1/catalogos   — catálogos fijos del formulario (público)

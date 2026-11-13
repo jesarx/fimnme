@@ -19,11 +19,14 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 6 de 14: documentos, envío y acuse.** Hoy el sistema tiene:
+**Paso 7 de 14: revisión documental y subsanación.** Hoy el sistema tiene:
 
 - **Postulación completa por API** (para el postulante): captura con autoguardado, subida
   de documentos, **envío irreversible con folio** y **acuse de recibo en PDF**, que también
   se encola por correo. En todo momento la API dice qué le falta a la postulación.
+- **Revisión documental por API** (para el revisor): bandeja, dictamen de cada documento,
+  observaciones, **subsanación con desbloqueo selectivo** —el postulante corrige sólo lo
+  señalado—, reenvío con acuse nuevo y dictamen final.
 - **Acervo de archivos** en disco, direccionado por SHA-256, con versiones (nada se
   sobrescribe) y descargas registradas.
 - **Comprobación de las ligas de video** en red y **recordatorios** a quien tiene un
@@ -258,6 +261,44 @@ Para enviar, el correo de la cuenta debe estar confirmado: en desarrollo, el enl
 verificación está en el log (véase «Correos en desarrollo»). Decisiones de este módulo:
 [ADR 0009](docs/adr/0009-documentos-envio-y-acuse.md).
 
+### API de revisión documental
+
+Para los revisores asignados a la convocatoria y el administrador; el observador sólo
+consulta. Se revisa con la convocatoria en etapa de revisión documental.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/convocatorias/{id}/revision` | Bandeja: todas las postulaciones enviadas y el tablero de avance. Filtros: `estado`, `subcategoria`, `toma` (`libre`, `mia`, `otra`) y `q` (folio o nombre) |
+| `GET /api/v1/postulaciones/{id}` | La misma consulta de siempre; a quien revisa le añade `revision`: dictámenes, observaciones, subsanaciones y los `cambios` del último reenvío |
+| `POST` · `DELETE /api/v1/postulaciones/{id}/toma` | «La reviso yo», o la libera. Informa a los demás; no bloquea |
+| `PUT /api/v1/documentos/{id}/dictamen` | `dictamen`: `valido`, `invalido` (con `motivo`) o `pendiente` |
+| `POST /api/v1/postulaciones/{id}/observaciones` | Nota interna: `texto` y, si es de una obra, `obra_id` |
+| `POST /api/v1/postulaciones/{id}/subsanaciones` | Solicita una subsanación: `problemas` (cada uno con `clase`, `campo`, `obra_id` y `problema`), `fecha_limite` y `nota`. Los documentos inválidos se añaden solos |
+| `PUT /api/v1/postulaciones/{id}/desbloqueos/{solicitud}` | Concede o niega una solicitud de desbloqueo: `concedida` y `motivo` |
+| `POST /api/v1/postulaciones/{id}/dictamen` | `dictamen`: `validada` o `descartada` (con `motivo`) |
+
+Durante una subsanación el postulante usa las mismas rutas de captura, pero sólo puede
+modificar los elementos que lista `subsanacion.problemas`; lo demás responde con un error
+por elemento. Además:
+
+| Método y ruta | Qué hace |
+|---|---|
+| `POST /api/v1/postulaciones/{id}/desbloqueos` | Pide corregir algo no señalado: `clase`, `campo`, `obra_id` y `justificacion` |
+| `POST /api/v1/postulaciones/{id}/envio` | Reenvía la postulación corregida: mismo folio, acuse nuevo |
+
+Ejemplo, con la sesión de un revisor: marcar inválida la partitura (documento 2), pedir
+que se corrija además el teléfono, y dar plazo hasta el 15 de enero.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"dictamen":"invalido","motivo":"Faltan las páginas 3 y 4."}' http://127.0.0.1:8080/api/v1/documentos/2/dictamen
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"fecha_limite":"2027-01-15T23:59:00-06:00","problemas":[{"clase":"campo","campo":"datos.telefono","problema":"Falta la clave lada."}]}' http://127.0.0.1:8080/api/v1/postulaciones/1/subsanaciones
+```
+
+Decisiones de este módulo: [ADR 0010](docs/adr/0010-revision-documental-y-subsanacion.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -299,6 +340,7 @@ controllers/        CONTROLADOR
   configuracion.go    API de configuración de ediciones y convocatorias
   postulaciones.go    API de captura de postulaciones
   documentos.go       subida y descarga de documentos, envío, acuse y bases
+  revision.go         revisión documental, subsanación y desbloqueos
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
@@ -310,6 +352,7 @@ views/              VISTA (todo incrustado con //go:embed)
   configuracion.go    respuestas JSON de la configuración
   postulaciones.go    respuestas JSON de las postulaciones y su formulario
   acuse.go            acuse de recibo en PDF, compuesto desde el snapshot
+  revision.go         respuestas JSON de la revisión y la subsanación
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos

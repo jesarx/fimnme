@@ -2246,14 +2246,15 @@ func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria)
 
 const sqlPostulacion = `
 SELECT p.id, p.convocatoria_id, p.usuario_id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''),
-       p.estado, p.envios, p.creado_at, p.actualizado_at
+       p.estado, p.envios, p.creado_at, p.actualizado_at, COALESCE(p.enviada_at, ''), COALESCE(p.motivo_descarte, '')
 FROM postulacion p`
 
 // leerPostulacion vuelca una fila de sqlPostulacion en la entidad, sin lo capturado.
 func leerPostulacion(f fila) (Postulacion, error) {
 	var p Postulacion
-	var subcategoria, estado, creado, actualizado string
-	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado)
+	var subcategoria, estado, creado, actualizado, enviada string
+	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado,
+		&enviada, &p.MotivoDescarte)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Postulacion{}, ErrNoEncontrado
 	}
@@ -2264,7 +2265,12 @@ func leerPostulacion(f fila) (Postulacion, error) {
 	if p.CreadoAt, err = deMarca(creado); err != nil {
 		return Postulacion{}, err
 	}
-	p.ActualizadoAt, err = deMarca(actualizado)
+	if p.ActualizadoAt, err = deMarca(actualizado); err != nil {
+		return Postulacion{}, err
+	}
+	if enviada != "" {
+		p.EnviadaAt, err = deMarca(enviada)
+	}
 	return p, err
 }
 
@@ -2386,7 +2392,10 @@ func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo
 	if p.Documentos, err = documentosVigentes(ctx, q, p.ID); err != nil {
 		return err
 	}
-	p.Acuses, err = acusesDe(ctx, q, p.ID)
+	if p.Acuses, err = acusesDe(ctx, q, p.ID); err != nil {
+		return err
+	}
+	p.Subsanaciones, err = subsanacionesDe(ctx, q, p.ID)
 	return err
 }
 
@@ -2505,17 +2514,33 @@ func (r *Repositorio) CrearPostulacion(ctx context.Context, actor Actor, convoca
 }
 
 // postulacionEditable lee una postulación de la cuenta dada, con su
-// convocatoria, y comprueba que pueda modificarse ahora (RN-02, RN-04).
-func (r *Repositorio) postulacionEditable(ctx context.Context, tx *sql.Tx, usuarioID, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+// convocatoria, y calcula qué puede modificar el postulante ahora (RN-02,
+// RN-04): todo si es un borrador en plazo; sólo lo señalado por el revisor si
+// está en subsanación. Si no puede modificar nada devuelve el motivo.
+//
+// Quien llama debe consultar el permiso devuelto antes de escribir: es lo que
+// hace cumplir el desbloqueo selectivo (§4.2).
+func (r *Repositorio) postulacionEditable(ctx context.Context, tx *sql.Tx, usuarioID, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, PermisoDeEdicion, error) {
+	var sinPermiso PermisoDeEdicion
 	p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ? AND p.usuario_id = ?", postulacionID, usuarioID))
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
 	}
 	cfg, err := configuracion(ctx, tx, p.ConvocatoriaID)
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
 	}
-	return p, cfg, validacion(ValidarEdicionDePostulacion(p, cfg.Convocatoria, r.ahora()))
+	if p.Subsanaciones, err = subsanacionesDe(ctx, tx, p.ID); err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
+	}
+	permiso, errores := PermisoDeEdicionDe(p, cfg.Convocatoria, r.ahora())
+	return p, cfg, permiso, validacion(errores)
+}
+
+// errBloqueado es la respuesta a quien intenta modificar, durante una
+// subsanación, un elemento que el revisor no señaló.
+func errBloqueado(campo string) error {
+	return validacion([]ErrorCampo{{Campo: campo, Clave: "error.elemento_bloqueado"}})
 }
 
 // tocar actualiza la marca de última modificación de una postulación.
@@ -2530,7 +2555,7 @@ func (r *Repositorio) tocar(ctx context.Context, tx *sql.Tx, postulacionID int64
 // rechazados no se guardan y se devuelven con su motivo. Las rutas se
 // recorren en orden alfabético para que el resultado sea determinista.
 func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (DefinicionCampo, bool), llave string, id int64,
-	cambios map[string]string, contexto ContextoCampos) (ResultadoGuardado, error) {
+	cambios map[string]string, contexto ContextoCampos, permitido func(ruta string) bool) (ResultadoGuardado, error) {
 	var resultado ResultadoGuardado
 	rutas := make([]string, 0, len(cambios))
 	for ruta := range cambios {
@@ -2543,6 +2568,11 @@ func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (Definic
 			// Un campo que no es de este formulario: ni se guarda ni se ignora
 			// en silencio.
 			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: "error.campo_desconocido"})
+			continue
+		}
+		if !permitido(ruta) {
+			// Durante una subsanación sólo se guarda lo que el revisor señaló.
+			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: "error.elemento_bloqueado"})
 			continue
 		}
 		valor := strings.TrimSpace(cambios[ruta])
@@ -2579,7 +2609,7 @@ func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (Definic
 func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID, postulacionID int64, cambios map[string]string) (ResultadoGuardado, error) {
 	var resultado ResultadoGuardado
 	err := r.operacion(ctx, "guardar postulación", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
 		}
@@ -2595,7 +2625,8 @@ func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID,
 			pais = actuales["datos.pais_residencia"]
 		}
 		contexto := ContextoCampos{Ahora: r.ahora(), PaisResidencia: strings.TrimSpace(pais), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto); err != nil {
+		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto,
+			func(ruta string) bool { return permiso.Campo(ruta, 0) }); err != nil {
 			return err
 		}
 		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
@@ -2606,16 +2637,16 @@ func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID,
 
 // obraEditable localiza una obra de una postulación de la cuenta dada y
 // comprueba que pueda modificarse.
-func (r *Repositorio) obraEditable(ctx context.Context, tx *sql.Tx, usuarioID, obraID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+func (r *Repositorio) obraEditable(ctx context.Context, tx *sql.Tx, usuarioID, obraID int64) (Postulacion, ConfiguracionConvocatoria, PermisoDeEdicion, error) {
 	var postulacionID int64
 	err := tx.QueryRowContext(ctx, `
 		SELECT o.postulacion_id FROM obra o JOIN postulacion p ON p.id = o.postulacion_id
 		WHERE o.id = ? AND p.usuario_id = ?`, obraID, usuarioID).Scan(&postulacionID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Postulacion{}, ConfiguracionConvocatoria{}, ErrNoEncontrado
+		return Postulacion{}, ConfiguracionConvocatoria{}, PermisoDeEdicion{}, ErrNoEncontrado
 	}
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, PermisoDeEdicion{}, err
 	}
 	return r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 }
@@ -2626,14 +2657,15 @@ func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID
 	var resultado ResultadoGuardado
 	var postulacionID int64
 	err := r.operacion(ctx, "guardar obra", func(tx *sql.Tx) error {
-		p, cfg, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		p, cfg, permiso, err := r.obraEditable(ctx, tx, usuarioID, obraID)
 		if err != nil {
 			return err
 		}
 		postulacionID = p.ID
 		formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
 		contexto := ContextoCampos{Ahora: r.ahora(), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto); err != nil {
+		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto,
+			func(ruta string) bool { return permiso.Campo(ruta, obraID) }); err != nil {
 			return err
 		}
 		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
@@ -2647,9 +2679,12 @@ func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID
 func (r *Repositorio) AgregarObra(ctx context.Context, usuarioID, postulacionID int64) (int64, error) {
 	var id int64
 	err := r.operacion(ctx, "agregar obra", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		var cuantas, ultimoOrden int
 		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MAX(orden), 0) FROM obra WHERE postulacion_id = ?", p.ID).
@@ -2679,9 +2714,12 @@ func (r *Repositorio) AgregarObra(ctx context.Context, usuarioID, postulacionID 
 func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (int64, error) {
 	var postulacionID int64
 	err := r.operacion(ctx, "borrar obra", func(tx *sql.Tx) error {
-		p, _, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		p, _, permiso, err := r.obraEditable(ctx, tx, usuarioID, obraID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		postulacionID = p.ID
 		// Con la obra se van sus documentos (los archivos siguen en el
@@ -2730,9 +2768,12 @@ func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (
 // obras de la postulación, en el orden deseado.
 func (r *Repositorio) OrdenarObras(ctx context.Context, usuarioID, postulacionID int64, ids []int64) error {
 	return r.operacion(ctx, "ordenar obras", func(tx *sql.Tx) error {
-		p, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, _, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		filas, err := tx.QueryContext(ctx, "SELECT id FROM obra WHERE postulacion_id = ?", p.ID)
 		if err != nil {
@@ -2776,9 +2817,12 @@ func (r *Repositorio) OrdenarObras(ctx context.Context, usuarioID, postulacionID
 // (RF-POST-06). El orden de la lista es el orden en que se guardan.
 func (r *Repositorio) DefinirIntegrantes(ctx context.Context, usuarioID, postulacionID int64, integrantes []Integrante) error {
 	return r.operacion(ctx, "definir integrantes", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoIntegrantes, 0) {
+			return errBloqueado("integrantes")
 		}
 		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneIntegrantes {
 			return validacion([]ErrorCampo{{Campo: "integrantes", Clave: "error.integrantes_no_aplican"}})
@@ -2804,9 +2848,12 @@ func (r *Repositorio) DefinirIntegrantes(ctx context.Context, usuarioID, postula
 // liga queda «pendiente» hasta que el sistema la compruebe por red.
 func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionID int64, ligas []string) error {
 	return r.operacion(ctx, "definir videos", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoVideos, 0) {
+			return errBloqueado("videos")
 		}
 		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneVideos {
 			return validacion([]ErrorCampo{{Campo: "videos", Clave: "error.videos_no_aplican"}})
@@ -2866,9 +2913,12 @@ func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionI
 // propuesta de concierto, las obras y los videos, que son comunes.
 func (r *Repositorio) CambiarSubcategoria(ctx context.Context, actor Actor, usuarioID, postulacionID int64, sub Subcategoria) error {
 	return r.operacion(ctx, "cambiar subcategoría", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Total {
+			return errBloqueado("subcategoria")
 		}
 		if cfg.Convocatoria.Tipo != TipoInterpretes {
 			return validacion([]ErrorCampo{{Campo: "subcategoria", Clave: "error.subcategoria_no_aplica"}})
@@ -3006,9 +3056,12 @@ func (r *Repositorio) guardarArchivo(ctx context.Context, tx *sql.Tx, blob Blob,
 func (r *Repositorio) RegistrarDocumento(ctx context.Context, actor Actor, usuarioID, postulacionID int64, n NuevoDocumento) (Documento, error) {
 	var documento Documento
 	err := r.operacion(ctx, "registrar documento", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Documento(n.Clave, n.ObraID) {
+			return errBloqueado("archivo")
 		}
 		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
 			return err
@@ -3081,17 +3134,26 @@ func (r *Repositorio) RegistrarDocumento(ctx context.Context, actor Actor, usuar
 func (r *Repositorio) QuitarDocumento(ctx context.Context, actor Actor, usuarioID, documentoID int64) (int64, error) {
 	var postulacionID int64
 	err := r.operacion(ctx, "quitar documento", func(tx *sql.Tx) error {
+		var clave string
+		var obraID int64
 		err := tx.QueryRowContext(ctx, `
-			SELECT d.postulacion_id FROM documento d JOIN postulacion p ON p.id = d.postulacion_id
-			WHERE d.id = ? AND d.vigente = 1 AND p.usuario_id = ?`, documentoID, usuarioID).Scan(&postulacionID)
+			SELECT d.postulacion_id, rq.clave, COALESCE(d.obra_id, 0)
+			FROM documento d
+			JOIN postulacion p ON p.id = d.postulacion_id
+			JOIN requisito_documental rq ON rq.id = d.requisito_id
+			WHERE d.id = ? AND d.vigente = 1 AND p.usuario_id = ?`, documentoID, usuarioID).Scan(&postulacionID, &clave, &obraID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoEncontrado
 		}
 		if err != nil {
 			return err
 		}
-		if _, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID); err != nil {
+		_, _, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
 			return err
+		}
+		if !permiso.Documento(clave, obraID) {
+			return errBloqueado("documento")
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE documento SET vigente = 0 WHERE id = ?", documentoID); err != nil {
 			return err
@@ -3152,7 +3214,9 @@ func (r *Repositorio) RegistrarDescarga(ctx context.Context, actor Actor, postul
 // EnviarPostulacion envía una postulación: es irreversible (§4.1). En UNA sola
 // transacción:
 //
-//  1. comprueba que sea un borrador de la cuenta, dentro de plazo;
+//  1. comprueba que sea un borrador de la cuenta, dentro de plazo, o una
+//     postulación con una subsanación abierta (entonces es un REENVÍO: mismo
+//     folio, acuse nuevo con la versión siguiente, y vuelve a revisión);
 //  2. ejecuta la validación completa (ValidarParaEnvio) y las confirmaciones;
 //  3. asigna el folio y congela lo enviado en un snapshot;
 //  4. pide a la Vista el acuse en PDF y el correo, con la función componer;
@@ -3170,10 +3234,13 @@ func (r *Repositorio) RegistrarDescarga(ctx context.Context, actor Actor, postul
 func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuarioID, postulacionID int64,
 	confirmacion ConfirmacionEnvio, componer func(SnapshotEnvio) (AcuseCompuesto, error)) error {
 	return r.operacion(ctx, "enviar postulación", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		// El permiso no se consulta: basta con que exista. Se envía un
+		// borrador en plazo, o se reenvía una subsanación abierta.
+		p, cfg, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
 		}
+		subsanacion := p.SubsanacionAbierta(r.ahora())
 		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
 			return err
 		}
@@ -3217,6 +3284,12 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 			return err
 		}
 		marca := aMarca(ahora)
+		// El primer envío deja la postulación «enviada»; el reenvío de una
+		// subsanación la devuelve a revisión (§4).
+		estado, accion := PostulacionEnviada, "postulacion.enviar"
+		if subsanacion != nil {
+			estado, accion = PostulacionEnRevision, "postulacion.reenviar"
+		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO acuse (postulacion_id, version, archivo_id, snapshot, idioma, generado_at) VALUES (?, ?, ?, ?, ?, ?)",
 			p.ID, version, archivoID, string(congelado), snapshot.Idioma, marca); err != nil {
@@ -3226,8 +3299,19 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 			UPDATE postulacion
 			SET estado = ?, folio = ?, envios = ?, enviada_at = ?, primera_enviada_at = COALESCE(primera_enviada_at, ?),
 			    bases_aceptadas_at = ?, actualizado_at = ?
-			WHERE id = ?`, string(PostulacionEnviada), folio, version, marca, marca, marca, marca, p.ID); err != nil {
+			WHERE id = ?`, string(estado), folio, version, marca, marca, marca, marca, p.ID); err != nil {
 			return err
+		}
+		if subsanacion != nil {
+			// Reenvío: la subsanación queda atendida y sus problemas, resueltos
+			// a juicio del postulante. El revisor decidirá si lo están.
+			if _, err := tx.ExecContext(ctx, "UPDATE subsanacion SET atendida_at = ? WHERE id = ?", marca, subsanacion.ID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE subsanacion_problema SET resuelto_at = ? WHERE subsanacion_id = ? AND resuelto_at IS NULL", marca, subsanacion.ID); err != nil {
+				return err
+			}
 		}
 		correo := compuesto.Correo
 		correo.PostulacionID = p.ID
@@ -3235,9 +3319,15 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 		if err := r.encolarCorreo(ctx, tx, correo); err != nil {
 			return err
 		}
-		return r.auditar(ctx, tx, actor, "postulacion.enviar", "postulacion", p.ID,
+		for _, aviso := range compuesto.Avisos {
+			aviso.PostulacionID = p.ID
+			if err := r.encolarCorreo(ctx, tx, aviso); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, accion, "postulacion", p.ID,
 			map[string]any{"estado": p.Estado},
-			map[string]any{"estado": PostulacionEnviada, "folio": folio, "version": version, "acuse_sha256": compuesto.Blob.SHA256})
+			map[string]any{"estado": estado, "folio": folio, "version": version, "acuse_sha256": compuesto.Blob.SHA256})
 	})
 }
 
@@ -3449,4 +3539,655 @@ func (r *Repositorio) FijarArchivoDeConvocatoria(ctx context.Context, actor Acto
 		return r.auditar(ctx, tx, actor, "convocatoria.archivo", "convocatoria", c.ID, nil,
 			map[string]any{"clase": clase, "sha256": blob.SHA256})
 	})
+}
+
+// =============================================================================
+// 12. Revisión documental y subsanación
+// =============================================================================
+
+// subsanacionesDe devuelve las subsanaciones de una postulación, de la más
+// antigua a la más reciente, con sus problemas y sus solicitudes de desbloqueo.
+func subsanacionesDe(ctx context.Context, q consultor, postulacionID int64) ([]Subsanacion, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT id, postulacion_id, revisor_id, mensaje, fecha_limite, enviada_at, COALESCE(atendida_at, ''), COALESCE(cerrada_at, '')
+		FROM subsanacion WHERE postulacion_id = ? ORDER BY id`, postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer subsanaciones: %w", err)
+	}
+	var subsanaciones []Subsanacion
+	for filas.Next() {
+		var s Subsanacion
+		var limite, enviada, atendida, cerrada string
+		if err := filas.Scan(&s.ID, &s.PostulacionID, &s.RevisorID, &s.Mensaje, &limite, &enviada, &atendida, &cerrada); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer subsanaciones: %w", err)
+		}
+		for _, marca := range []struct {
+			texto   string
+			destino *time.Time
+		}{{limite, &s.FechaLimite}, {enviada, &s.EnviadaAt}, {atendida, &s.AtendidaAt}, {cerrada, &s.CerradaAt}} {
+			if marca.texto == "" {
+				continue
+			}
+			if *marca.destino, err = deMarca(marca.texto); err != nil {
+				filas.Close()
+				return nil, err
+			}
+		}
+		subsanaciones = append(subsanaciones, s)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer subsanaciones: %w", err)
+	}
+	for i := range subsanaciones {
+		s := &subsanaciones[i]
+		if s.Problemas, err = problemasDe(ctx, q, s.ID); err != nil {
+			return nil, err
+		}
+		if s.Solicitudes, err = solicitudesDe(ctx, q, s.ID); err != nil {
+			return nil, err
+		}
+	}
+	return subsanaciones, nil
+}
+
+// problemasDe devuelve los elementos señalados en una subsanación. De un
+// documento, el campo es la clave de su requisito.
+func problemasDe(ctx context.Context, q consultor, subsanacionID int64) ([]ProblemaSubsanacion, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT sp.id, sp.clase, COALESCE(sp.campo, rq.clave, ''), COALESCE(sp.obra_id, 0), COALESCE(sp.documento_id, 0),
+		       sp.problema, COALESCE(sp.resuelto_at, '')
+		FROM subsanacion_problema sp
+		LEFT JOIN requisito_documental rq ON rq.id = sp.requisito_id
+		WHERE sp.subsanacion_id = ? ORDER BY sp.id`, subsanacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer problemas de la subsanación: %w", err)
+	}
+	defer filas.Close()
+	var problemas []ProblemaSubsanacion
+	for filas.Next() {
+		var p ProblemaSubsanacion
+		var clase, resuelto string
+		if err := filas.Scan(&p.ID, &clase, &p.Campo, &p.ObraID, &p.DocumentoID, &p.Problema, &resuelto); err != nil {
+			return nil, fmt.Errorf("leer problemas de la subsanación: %w", err)
+		}
+		p.Clase = ClaseProblema(clase)
+		if resuelto != "" {
+			if p.ResueltoAt, err = deMarca(resuelto); err != nil {
+				return nil, err
+			}
+		}
+		problemas = append(problemas, p)
+	}
+	return problemas, filas.Err()
+}
+
+// solicitudesDe devuelve las solicitudes de desbloqueo de una subsanación.
+func solicitudesDe(ctx context.Context, q consultor, subsanacionID int64) ([]SolicitudDesbloqueo, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT sd.id, COALESCE(sd.campo, rq.clave, ''), sd.requisito_id IS NOT NULL, COALESCE(sd.obra_id, 0), sd.justificacion,
+		       sd.concedida IS NOT NULL, COALESCE(sd.concedida, 0), COALESCE(sd.motivo_respuesta, ''), sd.creado_at, COALESCE(sd.resuelta_at, '')
+		FROM solicitud_desbloqueo sd
+		LEFT JOIN requisito_documental rq ON rq.id = sd.requisito_id
+		WHERE sd.subsanacion_id = ? ORDER BY sd.id`, subsanacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer solicitudes de desbloqueo: %w", err)
+	}
+	defer filas.Close()
+	var solicitudes []SolicitudDesbloqueo
+	for filas.Next() {
+		s := SolicitudDesbloqueo{Clase: ProblemaCampo}
+		var esDocumento bool
+		var creado, resuelta string
+		if err := filas.Scan(&s.ID, &s.Campo, &esDocumento, &s.ObraID, &s.Justificacion,
+			&s.Resuelta, &s.Concedida, &s.MotivoRespuesta, &creado, &resuelta); err != nil {
+			return nil, fmt.Errorf("leer solicitudes de desbloqueo: %w", err)
+		}
+		if esDocumento {
+			s.Clase = ProblemaDocumento
+		}
+		if s.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		if resuelta != "" {
+			if s.ResueltaAt, err = deMarca(resuelta); err != nil {
+				return nil, err
+			}
+		}
+		solicitudes = append(solicitudes, s)
+	}
+	return solicitudes, filas.Err()
+}
+
+// tomaDe devuelve quién tiene tomada una postulación, o nil si está libre.
+func tomaDe(ctx context.Context, q consultor, postulacionID int64) (*TomaRevision, error) {
+	var t TomaRevision
+	var nombre, apellidos, tomada string
+	err := q.QueryRowContext(ctx, `
+		SELECT t.revisor_id, u.nombre, u.apellidos, t.tomada_at
+		FROM toma_revision t JOIN usuario u ON u.id = t.revisor_id
+		WHERE t.postulacion_id = ? AND t.liberada_at IS NULL`, postulacionID).Scan(&t.RevisorID, &nombre, &apellidos, &tomada)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("leer toma de revisión: %w", err)
+	}
+	t.Revisor = strings.TrimSpace(nombre + " " + apellidos)
+	if t.TomadaAt, err = deMarca(tomada); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// revisionDe reúne lo que la revisión ha dejado sobre una postulación: el
+// dictamen vigente de cada documento, las observaciones y la toma.
+func revisionDe(ctx context.Context, q consultor, postulacionID int64) (Revision, error) {
+	var revision Revision
+	// El dictamen vigente de un documento es el último que se emitió.
+	filas, err := q.QueryContext(ctx, `
+		SELECT rd.documento_id, rd.dictamen, COALESCE(rd.motivo, ''), rd.revisor_id, rd.creado_at
+		FROM revision_documento rd
+		JOIN documento d ON d.id = rd.documento_id
+		WHERE d.postulacion_id = ?
+		  AND rd.id = (SELECT MAX(otro.id) FROM revision_documento otro WHERE otro.documento_id = rd.documento_id)
+		ORDER BY rd.documento_id`, postulacionID)
+	if err != nil {
+		return revision, fmt.Errorf("leer dictámenes: %w", err)
+	}
+	for filas.Next() {
+		var d DictamenDocumento
+		var creado string
+		if err := filas.Scan(&d.DocumentoID, &d.Dictamen, &d.Motivo, &d.RevisorID, &creado); err != nil {
+			filas.Close()
+			return revision, fmt.Errorf("leer dictámenes: %w", err)
+		}
+		if d.CreadoAt, err = deMarca(creado); err != nil {
+			filas.Close()
+			return revision, err
+		}
+		revision.Dictamenes = append(revision.Dictamenes, d)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return revision, fmt.Errorf("leer dictámenes: %w", err)
+	}
+
+	filas, err = q.QueryContext(ctx, `
+		SELECT o.id, COALESCE(o.obra_id, 0), o.revisor_id, u.nombre, u.apellidos, o.texto, o.creado_at
+		FROM observacion_revision o JOIN usuario u ON u.id = o.revisor_id
+		WHERE o.postulacion_id = ? ORDER BY o.id`, postulacionID)
+	if err != nil {
+		return revision, fmt.Errorf("leer observaciones: %w", err)
+	}
+	for filas.Next() {
+		var o ObservacionRevision
+		var nombre, apellidos, creado string
+		if err := filas.Scan(&o.ID, &o.ObraID, &o.RevisorID, &nombre, &apellidos, &o.Texto, &creado); err != nil {
+			filas.Close()
+			return revision, fmt.Errorf("leer observaciones: %w", err)
+		}
+		o.Revisor = strings.TrimSpace(nombre + " " + apellidos)
+		if o.CreadoAt, err = deMarca(creado); err != nil {
+			filas.Close()
+			return revision, err
+		}
+		revision.Observaciones = append(revision.Observaciones, o)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return revision, fmt.Errorf("leer observaciones: %w", err)
+	}
+	revision.Toma, err = tomaDe(ctx, q, postulacionID)
+	return revision, err
+}
+
+// RevisionDe devuelve lo que la revisión documental ha dejado sobre una
+// postulación. NO comprueba quién lo pide: eso lo decide el controlador con
+// la regla PuedeVerRevision.
+func (r *Repositorio) RevisionDe(ctx context.Context, postulacionID int64) (Revision, error) {
+	return revisionDe(ctx, r.lectura, postulacionID)
+}
+
+// BandejaDeRevision devuelve las postulaciones enviadas de una convocatoria,
+// en el orden en que llegaron: TODAS, sin reparto entre revisores (RN-14b).
+// Los borradores no aparecen: no entraron al proceso. revisorID es quien
+// consulta, para el filtro «tomadas por mí».
+func (r *Repositorio) BandejaDeRevision(ctx context.Context, convocatoriaID, revisorID int64, filtro FiltroBandeja) ([]PostulacionEnBandeja, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT p.id, p.folio, p.estado, COALESCE(p.subcategoria, ''),
+		       COALESCE(ds.nombre_completo, de.nombre_ensamble, dc.nombre_completo, ''),
+		       COALESCE(p.enviada_at, ''), p.envios,
+		       COALESCE(t.revisor_id, 0), COALESCE(u.nombre, ''), COALESCE(u.apellidos, ''), COALESCE(t.tomada_at, ''),
+		       (SELECT COUNT(*) FROM observacion_revision o WHERE o.postulacion_id = p.id),
+		       (SELECT COUNT(*) FROM documento d WHERE d.postulacion_id = p.id AND d.vigente = 1 AND d.dictamen = 'invalido'),
+		       COALESCE((SELECT MAX(s.fecha_limite) FROM subsanacion s
+		                 WHERE s.postulacion_id = p.id AND s.atendida_at IS NULL AND s.cerrada_at IS NULL), ''),
+		       (SELECT COUNT(*) FROM subsanacion s
+		        WHERE s.postulacion_id = p.id AND s.atendida_at IS NOT NULL AND s.cerrada_at IS NULL)
+		FROM postulacion p
+		LEFT JOIN datos_solista ds ON ds.postulacion_id = p.id
+		LEFT JOIN datos_ensamble de ON de.postulacion_id = p.id
+		LEFT JOIN datos_compositor dc ON dc.postulacion_id = p.id
+		LEFT JOIN toma_revision t ON t.postulacion_id = p.id AND t.liberada_at IS NULL
+		LEFT JOIN usuario u ON u.id = t.revisor_id
+		WHERE p.convocatoria_id = ? AND p.estado <> 'borrador'
+		ORDER BY p.enviada_at, p.id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer bandeja de revisión: %w", err)
+	}
+	defer filas.Close()
+	buscado := strings.ToLower(strings.TrimSpace(filtro.Texto))
+	bandeja := []PostulacionEnBandeja{}
+	for filas.Next() {
+		var b PostulacionEnBandeja
+		var estado, subcategoria, enviada, nombre, apellidos, tomada, limite string
+		var revisor int64
+		var atendidas int
+		if err := filas.Scan(&b.ID, &b.Folio, &estado, &subcategoria, &b.Nombre, &enviada, &b.Envios,
+			&revisor, &nombre, &apellidos, &tomada, &b.Observaciones, &b.DocumentosInvalidos, &limite, &atendidas); err != nil {
+			return nil, fmt.Errorf("leer bandeja de revisión: %w", err)
+		}
+		b.Estado, b.Subcategoria = EstadoDePostulacion(estado), Subcategoria(subcategoria)
+		b.Subsanada = atendidas > 0 && b.Estado == PostulacionEnRevision
+		if enviada != "" {
+			if b.EnviadaAt, err = deMarca(enviada); err != nil {
+				return nil, err
+			}
+		}
+		if limite != "" {
+			if b.FechaLimite, err = deMarca(limite); err != nil {
+				return nil, err
+			}
+		}
+		if revisor != 0 {
+			b.Toma = &TomaRevision{RevisorID: revisor, Revisor: strings.TrimSpace(nombre + " " + apellidos)}
+			if b.Toma.TomadaAt, err = deMarca(tomada); err != nil {
+				return nil, err
+			}
+		}
+		// Los filtros se aplican aquí: la bandeja de una convocatoria son
+		// unas cuantas centenas de renglones.
+		switch {
+		case filtro.Estado != "" && b.Estado != filtro.Estado,
+			filtro.Subcategoria != "" && b.Subcategoria != filtro.Subcategoria,
+			filtro.Toma == "libre" && b.Toma != nil,
+			filtro.Toma == "mia" && (b.Toma == nil || b.Toma.RevisorID != revisorID),
+			filtro.Toma == "otra" && (b.Toma == nil || b.Toma.RevisorID == revisorID),
+			buscado != "" && !strings.Contains(strings.ToLower(b.Folio), buscado) && !strings.Contains(strings.ToLower(b.Nombre), buscado):
+			continue
+		}
+		bandeja = append(bandeja, b)
+	}
+	return bandeja, filas.Err()
+}
+
+// postulacionEnRevision lee, dentro de una transacción, una postulación
+// completa con la configuración de su convocatoria.
+func (r *Repositorio) postulacionEnRevision(ctx context.Context, tx *sql.Tx, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+	p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ?", postulacionID))
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	cfg, err := configuracion(ctx, tx, p.ConvocatoriaID)
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	return p, cfg, completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo)
+}
+
+// iniciarRevision pasa la postulación de «enviada» a «en revisión» la primera
+// vez que un revisor actúa sobre ella (§4).
+func iniciarRevision(ctx context.Context, tx *sql.Tx, p Postulacion) error {
+	if p.Estado != PostulacionEnviada {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ?", string(PostulacionEnRevision), p.ID)
+	return err
+}
+
+// TomarPostulacion marca una postulación como «en revisión por» el revisor
+// que actúa, o la libera (RF-REV-01b). Es una toma blanda: sólo informa a los
+// demás, no les impide intervenir, y cualquiera puede tomarla de nuevo.
+func (r *Repositorio) TomarPostulacion(ctx context.Context, actor Actor, postulacionID int64, tomar bool) error {
+	return r.operacion(ctx, "tomar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		// Una fila por postulación: la toma nueva sustituye a la anterior.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM toma_revision WHERE postulacion_id = ?", p.ID); err != nil {
+			return err
+		}
+		accion := "revision.liberar"
+		if tomar {
+			accion = "revision.tomar"
+			if _, err := tx.ExecContext(ctx, "INSERT INTO toma_revision (postulacion_id, revisor_id, tomada_at) VALUES (?, ?, ?)",
+				p.ID, actor.UsuarioID, r.marca()); err != nil {
+				return err
+			}
+			if err := iniciarRevision(ctx, tx, p); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, accion, "postulacion", p.ID, nil, nil)
+	})
+}
+
+// DictaminarDocumento registra el dictamen de un revisor sobre un documento
+// vigente: válido, inválido (con motivo, RN-11) o de vuelta a pendiente. Cada
+// dictamen se conserva; el vigente es el último. Devuelve el id de la
+// postulación.
+func (r *Repositorio) DictaminarDocumento(ctx context.Context, actor Actor, documentoID int64, dictamen, motivo string) (int64, error) {
+	var postulacionID int64
+	err := r.operacion(ctx, "dictaminar documento", func(tx *sql.Tx) error {
+		documento, err := leerDocumento(tx.QueryRowContext(ctx, sqlDocumento+" WHERE d.id = ? AND d.vigente = 1", documentoID))
+		if err != nil {
+			return err
+		}
+		postulacionID = documento.PostulacionID
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarDictamenDeDocumento(dictamen, motivo)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO revision_documento (documento_id, revisor_id, dictamen, motivo, creado_at) VALUES (?, ?, ?, ?, ?)",
+			documentoID, actor.UsuarioID, dictamen, nuloSiVacio(motivo), r.marca()); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE documento SET dictamen = ? WHERE id = ?", dictamen, documentoID); err != nil {
+			return err
+		}
+		if err := iniciarRevision(ctx, tx, p); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "documento.dictaminar", "documento", documentoID,
+			map[string]any{"dictamen": documento.Dictamen}, map[string]any{"dictamen": dictamen, "postulacion_id": p.ID})
+	})
+	return postulacionID, err
+}
+
+// ObservarPostulacion añade una observación del revisor a la postulación o a
+// una de sus obras (RF-REV-04). Las observaciones son internas.
+func (r *Repositorio) ObservarPostulacion(ctx context.Context, actor Actor, postulacionID, obraID int64, texto string) error {
+	return r.operacion(ctx, "observar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		texto = strings.TrimSpace(texto)
+		if err := validacion(ValidarObservacion(p, obraID, texto)); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO observacion_revision (postulacion_id, obra_id, revisor_id, texto, creado_at) VALUES (?, ?, ?, ?, ?)",
+			p.ID, nuloSiCero(obraID), actor.UsuarioID, texto, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := iniciarRevision(ctx, tx, p); err != nil {
+			return err
+		}
+		// La bitácora no guarda el texto: puede mencionar al postulante.
+		return r.auditar(ctx, tx, actor, "revision.observar", "postulacion", p.ID, nil,
+			map[string]any{"observacion_id": id, "obra_id": obraID})
+	})
+}
+
+// insertarProblema guarda un elemento señalado en una subsanación. De un
+// documento se guarda su requisito; de un campo, su ruta.
+func (r *Repositorio) insertarProblema(ctx context.Context, tx *sql.Tx, subsanacionID int64, p Postulacion,
+	cfg ConfiguracionConvocatoria, problema ProblemaSubsanacion) error {
+	var campo sql.NullString
+	var requisitoID sql.NullInt64
+	if problema.Clase == ProblemaDocumento {
+		requisito, errores := RequisitoParaDocumento(p, cfg, problema.Campo, problema.ObraID)
+		if err := validacion(errores); err != nil {
+			return err
+		}
+		requisitoID = nuloSiCero(requisito.ID)
+	} else {
+		campo = nuloSiVacio(problema.Campo)
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO subsanacion_problema (subsanacion_id, clase, documento_id, requisito_id, campo, obra_id, problema)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		subsanacionID, string(problema.Clase), nuloSiCero(problema.DocumentoID), requisitoID, campo,
+		nuloSiCero(problema.ObraID), strings.TrimSpace(problema.Problema))
+	return err
+}
+
+// SolicitarSubsanacion abre una subsanación (RF-REV-05b): agrupa los
+// problemas señalados —los campos y documentos faltantes que indica el
+// revisor más los documentos que dictaminó inválidos—, pasa la postulación a
+// «en subsanación» y encola el correo al postulante. Desde ese momento el
+// postulante puede modificar EXACTAMENTE esos elementos, y ninguno más.
+//
+// componer arma el correo con la lista definitiva de problemas; es trabajo de
+// la Vista, que el Modelo no conoce.
+func (r *Repositorio) SolicitarSubsanacion(ctx context.Context, actor Actor, postulacionID int64, n NuevaSubsanacion,
+	componer func(Postulacion, ConfiguracionConvocatoria, Usuario, NuevaSubsanacion) (CorreoSaliente, error)) error {
+	return r.operacion(ctx, "solicitar subsanación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		revision, err := revisionDe(ctx, tx, p.ID)
+		if err != nil {
+			return err
+		}
+		n.Problemas = ProblemasDeSubsanacion(p, revision, n.Problemas)
+		n.FechaLimite = n.FechaLimite.UTC().Truncate(time.Second)
+		n.Nota = strings.TrimSpace(n.Nota)
+		if err := validacion(ValidarNuevaSubsanacion(p, cfg, n, r.ahora())); err != nil {
+			return err
+		}
+		titular, err := leerUsuario(tx.QueryRowContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ?", p.UsuarioID))
+		if err != nil {
+			return err
+		}
+		correo, err := componer(p, cfg, titular, n)
+		if err != nil {
+			return fmt.Errorf("componer correo de subsanación: %w", err)
+		}
+		marca := r.marca()
+		// Las subsanaciones anteriores ya atendidas quedan cerradas: la nueva
+		// es la que cuenta.
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE subsanacion SET cerrada_at = ? WHERE postulacion_id = ? AND cerrada_at IS NULL", marca, p.ID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO subsanacion (postulacion_id, revisor_id, mensaje, fecha_limite, enviada_at) VALUES (?, ?, ?, ?, ?)",
+			p.ID, actor.UsuarioID, correo.Texto, aMarca(n.FechaLimite), marca)
+		if err != nil {
+			return err
+		}
+		subsanacionID, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		for _, problema := range n.Problemas {
+			if err := r.insertarProblema(ctx, tx, subsanacionID, p, cfg, problema); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ?, actualizado_at = ? WHERE id = ?",
+			string(PostulacionEnSubsanacion), marca, p.ID); err != nil {
+			return err
+		}
+		correo.PostulacionID = p.ID
+		if err := r.encolarCorreo(ctx, tx, correo); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.subsanacion", "postulacion", p.ID,
+			map[string]any{"estado": p.Estado},
+			map[string]any{"estado": PostulacionEnSubsanacion, "subsanacion_id": subsanacionID,
+				"problemas": len(n.Problemas), "fecha_limite": aMarca(n.FechaLimite)})
+	})
+}
+
+// SolicitarDesbloqueo registra la petición de un postulante para corregir un
+// elemento que el revisor no señaló (RN-12d). No desbloquea nada por sí sola.
+func (r *Repositorio) SolicitarDesbloqueo(ctx context.Context, actor Actor, usuarioID, postulacionID int64, s SolicitudDesbloqueo) error {
+	return r.operacion(ctx, "solicitar desbloqueo", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err == nil && p.UsuarioID != usuarioID {
+			err = ErrNoEncontrado // lo ajeno no existe
+		}
+		if err != nil {
+			return err
+		}
+		s.Justificacion = strings.TrimSpace(s.Justificacion)
+		if err := validacion(ValidarSolicitudDeDesbloqueo(p, cfg, s, r.ahora())); err != nil {
+			return err
+		}
+		var campo sql.NullString
+		var requisitoID sql.NullInt64
+		if s.Clase == ProblemaDocumento {
+			requisito, errores := RequisitoParaDocumento(p, cfg, s.Campo, s.ObraID)
+			if err := validacion(errores); err != nil {
+				return err
+			}
+			requisitoID = nuloSiCero(requisito.ID)
+		} else {
+			campo = nuloSiVacio(s.Campo)
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO solicitud_desbloqueo (subsanacion_id, campo, requisito_id, obra_id, justificacion, creado_at)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			p.SubsanacionAbierta(r.ahora()).ID, campo, requisitoID, nuloSiCero(s.ObraID), s.Justificacion, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "desbloqueo.solicitar", "postulacion", p.ID, nil,
+			map[string]any{"solicitud_id": id, "clase": s.Clase, "campo": s.Campo, "obra_id": s.ObraID})
+	})
+}
+
+// ResolverDesbloqueo concede o niega una solicitud de desbloqueo (RF-REV-05c).
+// Si se concede, el elemento se añade a los problemas de la subsanación: ésa
+// es la única vía por la que algo se vuelve editable (RN-12b).
+func (r *Repositorio) ResolverDesbloqueo(ctx context.Context, actor Actor, postulacionID, solicitudID int64, concedida bool, motivo string) error {
+	return r.operacion(ctx, "resolver desbloqueo", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		subsanacion := p.SubsanacionAbierta(r.ahora())
+		if subsanacion == nil {
+			return validacion([]ErrorCampo{{Campo: "estado", Clave: "error.sin_subsanacion_abierta"}})
+		}
+		posicion := slices.IndexFunc(subsanacion.Solicitudes, func(s SolicitudDesbloqueo) bool { return s.ID == solicitudID })
+		if posicion < 0 {
+			return ErrNoEncontrado
+		}
+		solicitud := subsanacion.Solicitudes[posicion]
+		if solicitud.Resuelta {
+			return validacion([]ErrorCampo{{Campo: "solicitud", Clave: "error.solicitud_resuelta"}})
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarRespuestaDeDesbloqueo(concedida, motivo)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE solicitud_desbloqueo SET resuelta_por = ?, concedida = ?, motivo_respuesta = ?, resuelta_at = ? WHERE id = ?",
+			actor.UsuarioID, concedida, nuloSiVacio(motivo), r.marca(), solicitud.ID); err != nil {
+			return err
+		}
+		if concedida {
+			// El motivo del problema es la justificación del propio postulante.
+			problema := ProblemaSubsanacion{Clase: solicitud.Clase, Campo: solicitud.Campo, ObraID: solicitud.ObraID, Problema: solicitud.Justificacion}
+			if err := r.insertarProblema(ctx, tx, subsanacion.ID, p, cfg, problema); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "desbloqueo.resolver", "postulacion", p.ID, nil,
+			map[string]any{"solicitud_id": solicitud.ID, "concedida": concedida})
+	})
+}
+
+// DictaminarPostulacion termina la revisión documental de una postulación:
+// validada o descartada, con motivo obligatorio al descartar (RF-REV-08).
+// Cierra las subsanaciones que hubiera. No se comunica nada al postulante.
+func (r *Repositorio) DictaminarPostulacion(ctx context.Context, actor Actor, postulacionID int64, dictamen EstadoDePostulacion, motivo string) error {
+	return r.operacion(ctx, "dictaminar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarDictamenDePostulacion(cfg.Convocatoria, p, dictamen, motivo, r.ahora())); err != nil {
+			return err
+		}
+		marca := r.marca()
+		var validadaAt, motivoDescarte sql.NullString
+		if dictamen == PostulacionValidada {
+			validadaAt = nuloSiVacio(marca)
+		} else {
+			motivoDescarte = nuloSiVacio(motivo)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE postulacion SET estado = ?, validada_at = ?, motivo_descarte = ?, actualizado_at = ? WHERE id = ?",
+			string(dictamen), validadaAt, motivoDescarte, marca, p.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE subsanacion SET cerrada_at = ? WHERE postulacion_id = ? AND cerrada_at IS NULL", marca, p.ID); err != nil {
+			return err
+		}
+		// El motivo del descarte sí queda en la bitácora: es un acto del
+		// proceso, no un dato personal.
+		return r.auditar(ctx, tx, actor, "postulacion.dictaminar", "postulacion", p.ID,
+			map[string]any{"estado": p.Estado}, map[string]any{"estado": dictamen, "motivo": motivo})
+	})
+}
+
+// DiferenciasDelUltimoEnvio compara los dos últimos envíos de una postulación
+// (RF-REV-07). Con un solo envío no hay nada que comparar.
+func (r *Repositorio) DiferenciasDelUltimoEnvio(ctx context.Context, postulacionID int64) ([]CambioDeEnvio, error) {
+	filas, err := r.lectura.QueryContext(ctx,
+		"SELECT snapshot FROM acuse WHERE postulacion_id = ? ORDER BY version DESC LIMIT 2", postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer snapshots: %w", err)
+	}
+	defer filas.Close()
+	var snapshots []SnapshotEnvio // el más reciente primero
+	for filas.Next() {
+		var texto string
+		var snapshot SnapshotEnvio
+		if err := filas.Scan(&texto); err != nil {
+			return nil, fmt.Errorf("leer snapshots: %w", err)
+		}
+		if err := json.Unmarshal([]byte(texto), &snapshot); err != nil {
+			return nil, fmt.Errorf("snapshot que no es JSON válido: %w", err)
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := filas.Err(); err != nil || len(snapshots) < 2 {
+		return nil, err
+	}
+	return DiferenciasDeEnvio(snapshots[1], snapshots[0]), nil
 }

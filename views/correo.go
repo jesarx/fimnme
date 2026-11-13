@@ -61,7 +61,9 @@ func RenderCorreo(p models.PlantillaCorreo, destinatario string, variables map[s
 		if strings.HasPrefix(nombre, "liga") {
 			return `<a href="` + escapado + `">` + escapado + `</a>`
 		}
-		return escapado
+		// Un valor de varios renglones (la lista de problemas de una
+		// subsanación) conserva sus saltos de línea en la versión HTML.
+		return strings.ReplaceAll(escapado, "\n", "<br>\n")
 	}
 
 	asunto := sustituir(p.Asunto, unaLinea)

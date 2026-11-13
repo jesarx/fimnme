@@ -334,6 +334,13 @@ const (
 	PlantillaRecordatorio = "recordatorio_borrador"
 )
 
+// Claves de las plantillas de correo de la revisión documental.
+const (
+	PlantillaSubsanacion      = "subsanacion"       // al postulante: qué corregir y hasta cuándo
+	PlantillaAcuseSubsanacion = "acuse_subsanacion" // al postulante: acuse del reenvío
+	PlantillaAvisoSubsanada   = "aviso_subsanada"   // a los revisores: una postulación volvió
+)
+
 // PlantillaCorreo es la versión activa de una plantilla editable (RF-NOT).
 type PlantillaCorreo struct {
 	Clave    string
@@ -743,6 +750,9 @@ type SnapshotDocumento struct {
 type AcuseCompuesto struct {
 	Blob   Blob
 	Correo CorreoSaliente
+	// Avisos son correos para otras personas que salen con el envío: en un
+	// reenvío tras subsanación, el aviso a los revisores (RF-REV-07).
+	Avisos []CorreoSaliente
 }
 
 // Adjunto es un archivo del almacén que acompaña a un correo.
@@ -810,6 +820,183 @@ type Postulacion struct {
 	Obras       []Obra
 	Documentos  []Documento // sólo los vigentes
 	Acuses      []Acuse     // uno por envío
+
+	// Revisión documental.
+	EnviadaAt      time.Time     // último envío; cero si es borrador
+	MotivoDescarte string        // sólo si fue descartada
+	Subsanaciones  []Subsanacion // de la más antigua a la más reciente
+}
+
+// SubsanacionAbierta devuelve la subsanación que el postulante puede atender
+// en este momento: la que no ha reenviado, el revisor no ha cerrado y cuyo
+// plazo no ha vencido. Devuelve nil si no hay ninguna.
+func (p Postulacion) SubsanacionAbierta(ahora time.Time) *Subsanacion {
+	if p.Estado != PostulacionEnSubsanacion {
+		return nil
+	}
+	for i := len(p.Subsanaciones) - 1; i >= 0; i-- {
+		if s := &p.Subsanaciones[i]; s.Pendiente() {
+			if ahora.After(s.FechaLimite) {
+				return nil
+			}
+			return s
+		}
+	}
+	return nil
+}
+
+// SubsanacionVencida indica si la postulación espera una subsanación cuyo
+// plazo ya pasó sin respuesta. No se descarta sola: queda para atención del
+// revisor (RF-REV-09).
+func (p Postulacion) SubsanacionVencida(ahora time.Time) bool {
+	return p.Estado == PostulacionEnSubsanacion && p.SubsanacionAbierta(ahora) == nil
+}
+
+// ClaseProblema distingue lo que el revisor puede señalar (§4.2).
+type ClaseProblema string
+
+const (
+	ProblemaDocumento ClaseProblema = "documento" // un documento inválido o faltante
+	ProblemaCampo     ClaseProblema = "campo"     // un dato erróneo
+)
+
+// Campos «de estructura»: no son un dato sino una lista entera de la
+// postulación. Señalarlos desbloquea la lista: añadir o quitar integrantes,
+// ligas de video u obras (RN-12c).
+const (
+	CampoIntegrantes = "integrantes"
+	CampoVideos      = "videos"
+	CampoObras       = "obras"
+)
+
+// ProblemaSubsanacion es un elemento que el revisor señaló y que, por eso,
+// el postulante puede corregir. Es la ÚNICA vía por la que algo se desbloquea
+// durante una subsanación (RN-12b).
+type ProblemaSubsanacion struct {
+	ID          int64
+	Clase       ClaseProblema
+	Campo       string // ruta canónica del campo, o la clave del requisito si es un documento
+	ObraID      int64  // 0 si el elemento es de la postulación
+	DocumentoID int64  // documento señalado; 0 si falta o si es un campo
+	Problema    string // motivo, obligatorio
+	ResueltoAt  time.Time
+}
+
+// SolicitudDesbloqueo es la petición de un postulante para corregir algo que
+// el revisor no señaló (RN-12d). Si se concede, se convierte en un problema
+// más de la subsanación.
+type SolicitudDesbloqueo struct {
+	ID              int64
+	Clase           ClaseProblema
+	Campo           string
+	ObraID          int64
+	Justificacion   string
+	Resuelta        bool
+	Concedida       bool
+	MotivoRespuesta string
+	CreadoAt        time.Time
+	ResueltaAt      time.Time
+}
+
+// Subsanacion es una solicitud del revisor para que el postulante corrija
+// elementos concretos de una postulación ya enviada, con un plazo.
+type Subsanacion struct {
+	ID            int64
+	PostulacionID int64
+	RevisorID     int64
+	Mensaje       string // el texto que se envió al postulante
+	FechaLimite   time.Time
+	EnviadaAt     time.Time
+	AtendidaAt    time.Time // cuando el postulante reenvió
+	CerradaAt     time.Time // cuando el revisor la dio por terminada
+	Problemas     []ProblemaSubsanacion
+	Solicitudes   []SolicitudDesbloqueo
+}
+
+// Pendiente indica que la subsanación sigue esperando al postulante: ni la
+// atendió ni el revisor la cerró. Puede estar vencida.
+func (s Subsanacion) Pendiente() bool {
+	return s.AtendidaAt.IsZero() && s.CerradaAt.IsZero()
+}
+
+// NuevaSubsanacion es lo que el revisor pide al solicitar una subsanación.
+type NuevaSubsanacion struct {
+	Problemas   []ProblemaSubsanacion // campos y documentos faltantes; los inválidos se añaden solos
+	FechaLimite time.Time
+	Nota        string // texto libre del revisor para el correo (RF-REV-06)
+}
+
+// DictamenDocumento es el dictamen de un revisor sobre un documento.
+type DictamenDocumento struct {
+	DocumentoID int64
+	Dictamen    string // pendiente, valido o invalido
+	Motivo      string // obligatorio si es inválido (RN-11)
+	RevisorID   int64
+	CreadoAt    time.Time
+}
+
+// ObservacionRevision es una nota del revisor sobre la postulación o sobre
+// una de sus obras (RF-REV-04). Es interna: el postulante no la ve.
+type ObservacionRevision struct {
+	ID        int64
+	ObraID    int64 // 0 si es de la postulación
+	RevisorID int64
+	Revisor   string // nombre de quien la escribió
+	Texto     string
+	CreadoAt  time.Time
+}
+
+// TomaRevision indica que un revisor marcó la postulación como «en revisión
+// por mí». Es informativa: no impide que otro revisor intervenga (RN-14b).
+type TomaRevision struct {
+	RevisorID int64
+	Revisor   string
+	TomadaAt  time.Time
+}
+
+// Revision reúne lo que la revisión documental ha dejado sobre una
+// postulación. Sólo lo ven quienes revisan o supervisan.
+type Revision struct {
+	Dictamenes    []DictamenDocumento // el vigente de cada documento
+	Observaciones []ObservacionRevision
+	Toma          *TomaRevision // nil si está libre
+}
+
+// PostulacionEnBandeja es un renglón de la bandeja del revisor (RF-REV-01).
+type PostulacionEnBandeja struct {
+	ID                  int64
+	Folio               string
+	Estado              EstadoDePostulacion
+	Subcategoria        Subcategoria
+	Nombre              string // nombre completo del solista o compositor, o nombre del ensamble
+	EnviadaAt           time.Time
+	Envios              int
+	Toma                *TomaRevision
+	Observaciones       int
+	DocumentosInvalidos int
+	// FechaLimite es el plazo de la subsanación pendiente; cero si no hay.
+	FechaLimite time.Time
+	// Subsanada indica que el postulante ya reenvió y falta que el revisor
+	// vuelva a mirarla (RF-REV-07).
+	Subsanada bool
+}
+
+// FiltroBandeja son los filtros de la bandeja del revisor.
+type FiltroBandeja struct {
+	Estado       EstadoDePostulacion
+	Subcategoria Subcategoria
+	Toma         string // "libre", "mia" u "otra"; vacío = todas
+	Texto        string // folio o nombre
+}
+
+// CambioDeEnvio es una diferencia entre dos envíos de la misma postulación:
+// lo que el postulante cambió al subsanar (RF-REV-07).
+type CambioDeEnvio struct {
+	Clase   ClaseProblema
+	Campo   string // ruta del campo o clave del requisito
+	ObraID  int64
+	Antes   string // valor anterior, o inicio de la suma del archivo anterior
+	Despues string
 }
 
 // ResumenPostulacion es una postulación en un listado, con lo esencial de su

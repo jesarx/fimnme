@@ -45,12 +45,12 @@ páginas de manual.
 | 4 | **Configuración de ediciones y convocatorias.** API para ediciones, convocatorias con bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios, cuentas internas y asignaciones; cambio de etapa forzado y automático por calendario, con las cuotas de 3 jurados y 1+ revisores; duplicación de la configuración a otra edición. | ✅ Hecho |
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; autoguardado por campo; datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video; `ValidarParaEnvio()` con la lista de bloqueadores. La captura se acepta sólo dentro del plazo, y quien es jurado o revisor de una convocatoria no postula en ella. | ✅ Hecho |
 | 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
+| 7 | **Revisión documental y subsanación.** Bandeja con filtros y tablero; toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos, documentos y listas; solicitud de subsanación con su correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
 | 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
 | 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
@@ -95,6 +95,43 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 7 — qué se entregó
+
+- **Bandeja del revisor** (RF-REV-01 y 10). Todas las postulaciones enviadas de la
+  convocatoria, sin reparto; filtros por estado, subcategoría, toma y texto; tablero de
+  avance. Marca las subsanadas y las vencidas.
+- **Toma blanda** (RF-REV-01b). «La reviso yo» informa a los demás y no bloquea.
+- **Dictamen por documento** (RF-REV-02 y 03, RN-11). Válido, inválido —con motivo
+  obligatorio— o pendiente. Se conserva el historial.
+- **Observaciones** internas, sobre la postulación o sobre una obra (RF-REV-04).
+- **Subsanación** (RF-REV-05 y 05b, §4.2). El revisor señala campos, documentos y listas;
+  los documentos inválidos se añaden solos. Un solo correo al postulante con la lista y el
+  plazo, en su idioma.
+- **Desbloqueo selectivo** (RN-12, 12b y 12c). Durante la subsanación el postulante
+  modifica **exactamente** lo señalado; todo lo demás se rechaza. Un solo objeto,
+  `PermisoDeEdicion`, gobierna todas las escrituras.
+- **Solicitudes de desbloqueo** (RF-POST-14, RF-REV-05c, RN-12d). El postulante pide
+  corregir algo no señalado; el revisor concede o niega, con motivo.
+- **Reenvío** (RF-REV-07, RN-13). Misma validación; mismo folio; acuse versión 2, sin
+  tocar el anterior; aviso a los revisores; la vista de revisión trae el *diff* entre los
+  dos envíos.
+- **Dictamen** (RF-REV-08). Validada o descartada, con motivo al descartar. Sin correo.
+- **Vencimiento** (RF-REV-09). No descarta: marca la postulación para el revisor.
+- **Límite del audio a 20 MB**, por decisión de la CNMO.
+- **Migración `0004`**: plantillas de correo de la subsanación y el nuevo límite.
+- **Pruebas.** El motor de desbloqueo caso por caso; y un recorrido completo por la API:
+  revisión, subsanación, lo que el postulante puede y no puede tocar, desbloqueos,
+  reenvío, *diff*, dictamen y vencimiento.
+
+Decisiones: [ADR 0010](adr/0010-revision-documental-y-subsanacion.md).
+
+**Lo que este paso NO incluye:**
+
+- **Catálogo de motivos frecuentes** (parte de RF-REV-03): el motivo es texto libre.
+- **Pantallas del revisor**: paso 12.
+- **Paso de las validadas a evaluación**: paso 8.
+- **Búsqueda tolerante a acentos y erratas** en la bandeja: paso 9.
 
 ## Paso 6 — qué se entregó
 
@@ -366,10 +403,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 18. **Rangos admitidos:** duración de una obra de 1 a 600 minutos; año de fundación del
     ensamble de 1900 al año en curso. La especificación no los fija. La lista de
     integrantes es de longitud libre, con un tope de cordura de 300.
-19. **Formatos en Intérpretes.** La numeralia de 2026 distingue solista, dúo, trío,
-    cuarteto y ensamble (cinco o más), con un tabulador de pagos por formato. La
-    plataforma sólo distingue solista y ensamble, como la especificación; el formato
-    puede derivarse del número de integrantes. Confirmar si debe capturarse aparte.
+19. ~~Formatos en Intérpretes.~~ **Resuelto (13-nov-2026):** la plataforma distingue sólo
+    solista y ensamble. El tabulador por formato es para los pagos y no tiene que ver con
+    la convocatoria.
 20. **Bases oficiales de las convocatorias.** El repositorio del 48º Foro no las trae;
     las de la plataforma son texto de demostración hasta que se entreguen.
 21. **El acuse imprime los países por su código** («MX») hasta que el backend tenga sus
@@ -381,6 +417,16 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 23. **Formato del folio:** `FIM49-INT-0137`, consecutivo por convocatoria, como el ejemplo
     de la especificación.
 24. **Tope de 30 versiones por documento** y de **200 MB** por archivo (el máximo de cada
-    documento lo fija el administrador; por omisión, 100 MB para audio).
-25. **Formatos de audio:** WAV, FLAC y MP3 (RF-DOC-04). Confirmar si se necesitan otros
-    (AIFF, M4A, OGG).
+    documento lo fija el administrador; por omisión, 20 MB para audio).
+25. ~~Formatos de audio.~~ **Resuelto (13-nov-2026):** WAV, FLAC y MP3 están bien, con un
+    máximo de **20 MB** (ADR 0010, §11). En ese tamaño una obra completa sólo cabe en MP3.
+26. **El postulante no ve el motivo del descarte**, sólo el estado «descartada». La
+    especificación pide registrar el motivo, no mostrarlo (ADR 0010, §8).
+27. **El revisor ve las postulaciones enviadas desde que llegan**, pero sólo puede actuar
+    en la etapa de revisión documental.
+28. **Un dictamen puede corregirse** (de validada a descartada o al revés) mientras la
+    convocatoria siga en revisión documental; cada cambio queda en la bitácora.
+29. **Plazo máximo de una subsanación: 90 días.** La especificación no lo fija.
+30. **¿Los demás documentos también a 20 MB?** Hoy sólo el audio. Partituras y particellas
+    siguen en 30 MB, la autorización en 10 MB y la fotografía en 5 MB, como dice la
+    especificación.

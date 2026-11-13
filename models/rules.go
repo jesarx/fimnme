@@ -20,6 +20,7 @@ package models
 
 import (
 	"fmt"
+	"maps"
 	"net/mail"
 	"net/netip"
 	"net/url"
@@ -776,7 +777,7 @@ func RequisitosIniciales(tipo TipoConvocatoria) []RequisitoDocumental {
 				Obligatorio: true, MimesPermitidos: pdf, TamanoMaxBytes: megabytes(30), MaxArchivos: 1, Orden: 3},
 			{Clave: "audio", EtiquetaES: "Archivo de audio", EtiquetaEN: "Audio file", Ambito: AmbitoObra,
 				Obligatorio: false, MimesPermitidos: []string{"audio/wav", "audio/flac", "audio/mpeg"},
-				TamanoMaxBytes: megabytes(100), MaxArchivos: 1, Orden: 4},
+				TamanoMaxBytes: megabytes(20), MaxArchivos: 1, Orden: 4},
 		}
 	}
 	return []RequisitoDocumental{fotografia, partitura,
@@ -1177,16 +1178,22 @@ func ValidarNuevaPostulacion(c Convocatoria, sub Subcategoria, esJuradoORevisor 
 // en plazo. La edición acotada de una subsanación llegará con la revisión
 // documental.
 func ValidarEdicionDePostulacion(p Postulacion, c Convocatoria, ahora time.Time) []ErrorCampo {
-	if p.Estado != PostulacionBorrador {
-		return []ErrorCampo{{Campo: "estado", Clave: "error.postulacion_enviada"}}
-	}
-	return EnPlazoDePostulacion(c, ahora)
+	_, errores := PermisoDeEdicionDe(p, c, ahora)
+	return errores
 }
 
 // PuedeVerPostulacion: una postulación la ven su titular, el administrador y
 // el observador. El acceso de revisores y jurados llegará con sus módulos.
 func PuedeVerPostulacion(s *Sesion, p Postulacion) bool {
-	return s != nil && (s.Usuario.ID == p.UsuarioID || PuedeSupervisar(s))
+	if s == nil {
+		return false
+	}
+	if s.Usuario.ID == p.UsuarioID || PuedeSupervisar(s) {
+		return true
+	}
+	// El revisor ve las postulaciones ENVIADAS de su convocatoria. Un
+	// borrador no ha entrado al proceso: no es asunto suyo.
+	return p.Estado != PostulacionBorrador && s.TieneAsignacion(p.ConvocatoriaID, PerfilRevisorDocumental)
 }
 
 // ValidarIntegrantes valida la lista de integrantes de un ensamble (RN-10):
@@ -1757,4 +1764,424 @@ func ClasificarEnlace(porOEmbed bool, estadoHTTP int, pideIngreso bool) Resultad
 		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
 	}
 	return r
+}
+
+// --- Revisión documental y subsanación (§4.2 y §5.5) --------------------------
+
+const (
+	// LongitudMaxMotivo acota los textos del revisor y del postulante en la
+	// revisión: motivos, observaciones, justificaciones y la nota del correo.
+	LongitudMaxMotivo = 2000
+	// PlazoMaxSubsanacion es lo más lejos que puede fijarse la fecha límite
+	// de una subsanación.
+	PlazoMaxSubsanacion = 90 * 24 * time.Hour
+	// MaxProblemasPorSubsanacion acota cuántos elementos se señalan de una vez.
+	MaxProblemasPorSubsanacion = 100
+	// MaxSolicitudesDeDesbloqueo acota las solicitudes sin resolver de una
+	// misma subsanación.
+	MaxSolicitudesDeDesbloqueo = 20
+)
+
+// PuedeRevisar indica si la sesión puede hacer la revisión documental de una
+// convocatoria: sus revisores asignados y el administrador (§2.2).
+func PuedeRevisar(s *Sesion, convocatoriaID int64) bool {
+	return s != nil && (PuedeAdministrar(s) || s.TieneAsignacion(convocatoriaID, PerfilRevisorDocumental))
+}
+
+// PuedeVerRevision indica si la sesión puede ver lo que la revisión ha
+// dejado sobre las postulaciones de una convocatoria: quienes revisan y
+// quienes supervisan. El postulante no: los dictámenes y las observaciones
+// son internos, y de ellos sólo le llega lo que el revisor decide solicitar.
+func PuedeVerRevision(s *Sesion, convocatoriaID int64) bool {
+	return PuedeRevisar(s, convocatoriaID) || PuedeSupervisar(s)
+}
+
+// PermisoDeEdicion dice qué puede modificar el postulante en este momento.
+// Es el motor del desbloqueo selectivo (§4.2): en un borrador todo es
+// editable; durante una subsanación, sólo lo que el revisor señaló.
+type PermisoDeEdicion struct {
+	// Total: la postulación es un borrador dentro de plazo.
+	Total bool
+	// desbloqueados son los elementos editables durante una subsanación.
+	desbloqueados map[string]bool
+}
+
+// claveDeElemento identifica un elemento de la postulación: un campo o la
+// ranura de un documento, de la postulación (obraID 0) o de una obra.
+func claveDeElemento(clase ClaseProblema, campo string, obraID int64) string {
+	return fmt.Sprintf("%s|%s|%d", clase, campo, obraID)
+}
+
+// PermisoDeEdicionDe calcula qué puede modificar el postulante ahora (RN-02 y
+// RN-04). Si no puede modificar nada devuelve por qué.
+//
+//   - Borrador: todo, mientras la convocatoria esté en postulación y en plazo.
+//   - En subsanación, sin vencer: sólo los elementos listados en los problemas
+//     de la subsanación abierta. No existe otra vía (RN-12b).
+//   - Cualquier otro estado: nada.
+func PermisoDeEdicionDe(p Postulacion, c Convocatoria, ahora time.Time) (PermisoDeEdicion, []ErrorCampo) {
+	switch p.Estado {
+	case PostulacionBorrador:
+		if errores := EnPlazoDePostulacion(c, ahora); len(errores) > 0 {
+			return PermisoDeEdicion{}, errores
+		}
+		return PermisoDeEdicion{Total: true}, nil
+	case PostulacionEnSubsanacion:
+		subsanacion := p.SubsanacionAbierta(ahora)
+		if subsanacion == nil {
+			return PermisoDeEdicion{}, []ErrorCampo{{Campo: "estado", Clave: "error.subsanacion_vencida"}}
+		}
+		permiso := PermisoDeEdicion{desbloqueados: make(map[string]bool)}
+		for _, problema := range subsanacion.Problemas {
+			permiso.desbloqueados[claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)] = true
+		}
+		return permiso, nil
+	}
+	return PermisoDeEdicion{}, []ErrorCampo{{Campo: "estado", Clave: "error.postulacion_enviada"}}
+}
+
+// programaAbierto indica que el revisor autorizó cambiar la lista de obras
+// (RN-12c). Entonces también son editables los datos y los documentos de
+// cada obra: de nada serviría poder añadir una obra y no poder describirla.
+func (pe PermisoDeEdicion) programaAbierto() bool {
+	return pe.desbloqueados[claveDeElemento(ProblemaCampo, CampoObras, 0)]
+}
+
+// Campo indica si puede modificarse un campo. obraID es 0 para los campos de
+// la postulación. Vale también para las listas: CampoIntegrantes, CampoVideos
+// y CampoObras.
+func (pe PermisoDeEdicion) Campo(ruta string, obraID int64) bool {
+	return pe.Total || pe.desbloqueados[claveDeElemento(ProblemaCampo, ruta, obraID)] || (obraID != 0 && pe.programaAbierto())
+}
+
+// Documento indica si puede subirse o retirarse el documento de un requisito.
+func (pe PermisoDeEdicion) Documento(clave string, obraID int64) bool {
+	return pe.Total || pe.desbloqueados[claveDeElemento(ProblemaDocumento, clave, obraID)] || (obraID != 0 && pe.programaAbierto())
+}
+
+// validarElemento comprueba que un elemento exista en la postulación: que el
+// campo sea de su formulario, o que el requisito se le pida, y que la obra
+// sea suya.
+func validarElemento(p Postulacion, cfg ConfiguracionConvocatoria, clase ClaseProblema, campo string, obraID int64) []ErrorCampo {
+	inexistente := []ErrorCampo{{Campo: "campo", Clave: "error.elemento_inexistente"}}
+	formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
+	esDeLaPostulacion := obraID == 0 || slices.ContainsFunc(p.Obras, func(o Obra) bool { return o.ID == obraID })
+	switch {
+	case !esDeLaPostulacion:
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+	case clase == ProblemaDocumento:
+		if _, errores := RequisitoParaDocumento(p, cfg, campo, obraID); len(errores) > 0 {
+			return inexistente
+		}
+		return nil
+	case clase != ProblemaCampo:
+		return []ErrorCampo{{Campo: "clase", Clave: "error.elemento_inexistente"}}
+	case obraID != 0:
+		if _, existe := formulario.CampoDeObra(campo); !existe {
+			return inexistente
+		}
+		return nil
+	}
+	_, esCampo := formulario.Campo(campo)
+	esLista := campo == CampoObras || (campo == CampoIntegrantes && formulario.TieneIntegrantes) || (campo == CampoVideos && formulario.TieneVideos)
+	if !esCampo && !esLista {
+		return inexistente
+	}
+	return nil
+}
+
+// textoRequerido valida un texto libre obligatorio de la revisión.
+func textoRequerido(texto, campo string) []ErrorCampo {
+	switch largo := utf8.RuneCountInString(strings.TrimSpace(texto)); {
+	case largo == 0:
+		return []ErrorCampo{{Campo: campo, Clave: "error.texto_requerido"}}
+	case largo > LongitudMaxMotivo:
+		return []ErrorCampo{{Campo: campo, Clave: "error.texto_largo"}}
+	}
+	return nil
+}
+
+// ValidarAccionDeRevision comprueba que pueda revisarse una postulación: la
+// convocatoria debe estar en revisión documental y la postulación, enviada y
+// sin una subsanación en curso (mientras el postulante corrige, el revisor
+// espera).
+func ValidarAccionDeRevision(c Convocatoria, p Postulacion) []ErrorCampo {
+	if c.Estado != EstadoRevisionDocumental {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
+	}
+	if p.Estado != PostulacionEnviada && p.Estado != PostulacionEnRevision {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_revisable"}}
+	}
+	return nil
+}
+
+// ValidarDictamenDeDocumento: un documento inválido exige motivo (RN-11).
+func ValidarDictamenDeDocumento(dictamen, motivo string) []ErrorCampo {
+	switch dictamen {
+	case "valido", "pendiente":
+		return nil
+	case "invalido":
+		return textoRequerido(motivo, "motivo")
+	}
+	return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+}
+
+// ValidarObservacion valida una observación del revisor sobre la postulación
+// o sobre una de sus obras (RF-REV-04).
+func ValidarObservacion(p Postulacion, obraID int64, texto string) []ErrorCampo {
+	if obraID != 0 && !slices.ContainsFunc(p.Obras, func(o Obra) bool { return o.ID == obraID }) {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+	}
+	return textoRequerido(texto, "texto")
+}
+
+// ProblemasDeSubsanacion arma la lista definitiva de problemas de una
+// subsanación: los que el revisor señala a mano —campos y documentos que
+// faltan— más, automáticamente, cada documento vigente que dictaminó como
+// inválido, con el motivo de su dictamen. Así «solicitar subsanación» agrupa
+// todo lo señalado (RF-REV-05b) sin que el revisor lo repita.
+func ProblemasDeSubsanacion(p Postulacion, revision Revision, senalados []ProblemaSubsanacion) []ProblemaSubsanacion {
+	problemas := slices.Clone(senalados)
+	vistos := make(map[string]bool)
+	for _, problema := range problemas {
+		vistos[claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)] = true
+	}
+	motivos := make(map[int64]string)
+	for _, dictamen := range revision.Dictamenes {
+		motivos[dictamen.DocumentoID] = dictamen.Motivo
+	}
+	for _, documento := range p.Documentos {
+		clave := claveDeElemento(ProblemaDocumento, documento.Clave, documento.ObraID)
+		if documento.Dictamen != "invalido" || vistos[clave] {
+			continue
+		}
+		vistos[clave] = true
+		problemas = append(problemas, ProblemaSubsanacion{Clase: ProblemaDocumento, Campo: documento.Clave,
+			ObraID: documento.ObraID, DocumentoID: documento.ID, Problema: motivos[documento.ID]})
+	}
+	return problemas
+}
+
+// ValidarNuevaSubsanacion valida una solicitud de subsanación ya con su lista
+// definitiva de problemas: al menos uno, cada uno sobre un elemento que existe
+// y con su motivo, sin repetir, y con una fecha límite futura.
+func ValidarNuevaSubsanacion(p Postulacion, cfg ConfiguracionConvocatoria, n NuevaSubsanacion, ahora time.Time) []ErrorCampo {
+	if errores := ValidarAccionDeRevision(cfg.Convocatoria, p); len(errores) > 0 {
+		return errores
+	}
+	var errores []ErrorCampo
+	if len(n.Problemas) == 0 {
+		errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.sin_problemas"})
+	}
+	if len(n.Problemas) > MaxProblemasPorSubsanacion {
+		errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.demasiados_problemas"})
+	}
+	vistos := make(map[string]bool)
+	for _, problema := range n.Problemas {
+		clave := claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)
+		elemento := validarElemento(p, cfg, problema.Clase, problema.Campo, problema.ObraID)
+		motivo := textoRequerido(problema.Problema, "problema")
+		switch {
+		case len(elemento) > 0:
+			errores = append(errores, elemento...)
+		case len(motivo) > 0:
+			errores = append(errores, motivo...)
+		case vistos[clave]:
+			errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.problema_repetido"})
+		}
+		vistos[clave] = true
+	}
+	if !n.FechaLimite.After(ahora) || n.FechaLimite.After(ahora.Add(PlazoMaxSubsanacion)) {
+		errores = append(errores, ErrorCampo{Campo: "fecha_limite", Clave: "error.fecha_limite_invalida"})
+	}
+	if utf8.RuneCountInString(n.Nota) > LongitudMaxMotivo {
+		errores = append(errores, ErrorCampo{Campo: "nota", Clave: "error.texto_largo"})
+	}
+	return errores
+}
+
+// ValidarSolicitudDeDesbloqueo valida la petición de un postulante para
+// corregir algo que el revisor no señaló (RN-12d): debe haber una subsanación
+// abierta, el elemento debe existir y no estar ya desbloqueado ni pedido, y
+// la justificación es obligatoria.
+func ValidarSolicitudDeDesbloqueo(p Postulacion, cfg ConfiguracionConvocatoria, s SolicitudDesbloqueo, ahora time.Time) []ErrorCampo {
+	subsanacion := p.SubsanacionAbierta(ahora)
+	if subsanacion == nil {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.sin_subsanacion_abierta"}}
+	}
+	if errores := validarElemento(p, cfg, s.Clase, s.Campo, s.ObraID); len(errores) > 0 {
+		return errores
+	}
+	if errores := textoRequerido(s.Justificacion, "justificacion"); len(errores) > 0 {
+		return errores
+	}
+	permiso, _ := PermisoDeEdicionDe(p, cfg.Convocatoria, ahora)
+	if desbloqueado := permiso.desbloqueados[claveDeElemento(s.Clase, s.Campo, s.ObraID)]; desbloqueado {
+		return []ErrorCampo{{Campo: "campo", Clave: "error.ya_desbloqueado"}}
+	}
+	pendientes := 0
+	for _, otra := range subsanacion.Solicitudes {
+		if otra.Resuelta {
+			continue
+		}
+		pendientes++
+		if otra.Clase == s.Clase && otra.Campo == s.Campo && otra.ObraID == s.ObraID {
+			return []ErrorCampo{{Campo: "campo", Clave: "error.solicitud_repetida"}}
+		}
+	}
+	if pendientes >= MaxSolicitudesDeDesbloqueo {
+		return []ErrorCampo{{Campo: "campo", Clave: "error.demasiadas_solicitudes"}}
+	}
+	return nil
+}
+
+// ValidarRespuestaDeDesbloqueo: negar una solicitud exige decir por qué.
+func ValidarRespuestaDeDesbloqueo(concedida bool, motivo string) []ErrorCampo {
+	if concedida {
+		if utf8.RuneCountInString(motivo) > LongitudMaxMotivo {
+			return []ErrorCampo{{Campo: "motivo", Clave: "error.texto_largo"}}
+		}
+		return nil
+	}
+	return textoRequerido(motivo, "motivo")
+}
+
+// ValidarDictamenDePostulacion valida el dictamen con que termina la revisión
+// de una postulación: validada o descartada (RF-REV-08).
+//
+//   - Sólo durante la revisión documental.
+//   - Descartar exige motivo.
+//   - No se valida una postulación con un documento dictaminado inválido.
+//   - Mientras el postulante tiene una subsanación abierta no se dictamina:
+//     se espera a que reenvíe o a que venza el plazo. Vencida, sí (RF-REV-09).
+//   - Un dictamen ya emitido puede corregirse mientras dure la etapa.
+func ValidarDictamenDePostulacion(c Convocatoria, p Postulacion, dictamen EstadoDePostulacion, motivo string, ahora time.Time) []ErrorCampo {
+	if c.Estado != EstadoRevisionDocumental {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
+	}
+	switch p.Estado {
+	case PostulacionEnviada, PostulacionEnRevision, PostulacionValidada, PostulacionDescartada:
+	case PostulacionEnSubsanacion:
+		if !p.SubsanacionVencida(ahora) {
+			return []ErrorCampo{{Campo: "estado", Clave: "error.subsanacion_en_curso"}}
+		}
+	default:
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_revisable"}}
+	}
+	switch dictamen {
+	case PostulacionValidada:
+		if slices.ContainsFunc(p.Documentos, func(d Documento) bool { return d.Dictamen == "invalido" }) {
+			return []ErrorCampo{{Campo: "dictamen", Clave: "error.documentos_invalidos"}}
+		}
+		if utf8.RuneCountInString(motivo) > LongitudMaxMotivo {
+			return []ErrorCampo{{Campo: "motivo", Clave: "error.texto_largo"}}
+		}
+		return nil
+	case PostulacionDescartada:
+		return textoRequerido(motivo, "motivo")
+	}
+	return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+}
+
+// DiferenciasDeEnvio compara dos envíos de la misma postulación y devuelve lo
+// que cambió entre ellos: es lo que el revisor ve al volver una postulación
+// subsanada (RF-REV-07). Compara los snapshots, que son lo que de verdad se
+// envió cada vez.
+func DiferenciasDeEnvio(anterior, nuevo SnapshotEnvio) []CambioDeEnvio {
+	var cambios []CambioDeEnvio
+	// camposDistintos compara dos mapas de campos y anota las diferencias.
+	camposDistintos := func(antes, despues map[string]string, obraID int64) {
+		rutas := make(map[string]bool)
+		for ruta := range antes {
+			rutas[ruta] = true
+		}
+		for ruta := range despues {
+			rutas[ruta] = true
+		}
+		for _, ruta := range slices.Sorted(maps.Keys(rutas)) {
+			if antes[ruta] != despues[ruta] {
+				cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: ruta, ObraID: obraID, Antes: antes[ruta], Despues: despues[ruta]})
+			}
+		}
+	}
+	camposDistintos(anterior.Campos, nuevo.Campos, 0)
+
+	// Listas: se comparan enteras, como texto.
+	integrantes := func(s SnapshotEnvio) string {
+		var lista []string
+		for _, i := range s.Integrantes {
+			lista = append(lista, i.Nombre+" ("+i.Instrumento+")")
+		}
+		return strings.Join(lista, "; ")
+	}
+	videos := func(s SnapshotEnvio) string {
+		var lista []string
+		for _, v := range s.Videos {
+			lista = append(lista, v.URL)
+		}
+		return strings.Join(lista, " ")
+	}
+	if a, d := integrantes(anterior), integrantes(nuevo); a != d {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoIntegrantes, Antes: a, Despues: d})
+	}
+	if a, d := videos(anterior), videos(nuevo); a != d {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoVideos, Antes: a, Despues: d})
+	}
+
+	// Obras: por su id. Una obra que aparece o desaparece es un cambio del programa.
+	obrasAntes := make(map[int64]SnapshotObra)
+	for _, obra := range anterior.Obras {
+		obrasAntes[obra.ID] = obra
+	}
+	for _, obra := range nuevo.Obras {
+		previa, estaba := obrasAntes[obra.ID]
+		delete(obrasAntes, obra.ID)
+		if !estaba {
+			cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoObras, ObraID: obra.ID, Despues: obra.Campos["obra.titulo"]})
+			continue
+		}
+		camposDistintos(previa.Campos, obra.Campos, obra.ID)
+	}
+	for _, id := range slices.Sorted(maps.Keys(obrasAntes)) {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoObras, ObraID: id, Antes: obrasAntes[id].Campos["obra.titulo"]})
+	}
+
+	// Documentos: por requisito y obra; cambia si cambia la suma del archivo.
+	sumas := func(s SnapshotEnvio) map[string]SnapshotDocumento {
+		porRanura := make(map[string]SnapshotDocumento)
+		for _, d := range s.Documentos {
+			porRanura[claveDeElemento(ProblemaDocumento, d.Clave, d.ObraID)] = d
+		}
+		return porRanura
+	}
+	antes, despues := sumas(anterior), sumas(nuevo)
+	ranuras := make(map[string]bool)
+	for ranura := range antes {
+		ranuras[ranura] = true
+	}
+	for ranura := range despues {
+		ranuras[ranura] = true
+	}
+	for _, ranura := range slices.Sorted(maps.Keys(ranuras)) {
+		a, d := antes[ranura], despues[ranura]
+		if a.SHA256 == d.SHA256 {
+			continue
+		}
+		referencia := d
+		if referencia.Clave == "" {
+			referencia = a
+		}
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaDocumento, Campo: referencia.Clave, ObraID: referencia.ObraID,
+			Antes: inicioDeSuma(a.SHA256), Despues: inicioDeSuma(d.SHA256)})
+	}
+	return cambios
+}
+
+// inicioDeSuma devuelve los primeros 12 caracteres de un SHA-256, que bastan
+// para distinguir a la vista un archivo de otro.
+func inicioDeSuma(suma string) string {
+	if len(suma) > 12 {
+		return suma[:12]
+	}
+	return suma
 }
