@@ -164,6 +164,7 @@ type rutaAPI struct {
 func (a *App) rutasAPI() []rutaAPI {
 	return []rutaAPI{
 		{"GET", "/api/v1/openapi.json", a.apiOpenAPI},
+		{"GET", "/api/v1/catalogos", a.apiCatalogos},
 		{"GET", "/api/v1/sesion", a.conSesion(a.apiSesion)},
 		{"GET", "/api/v1/auditoria", a.conSesion(a.apiAuditoria)},
 		{"GET", "/api/v1/ediciones", a.supervisa(a.apiEdiciones)},
@@ -189,6 +190,19 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/usuarios", a.administra(a.apiUsuarios)},
 		{"POST", "/api/v1/usuarios", a.administra(a.apiCrearUsuario)},
 		{"POST", "/api/v1/usuarios/{id}/activacion", a.administra(a.apiReenviarActivacion)},
+
+		// Postulaciones: cada cuenta sobre las suyas.
+		{"GET", "/api/v1/postulaciones", a.conSesion(a.apiMisPostulaciones)},
+		{"POST", "/api/v1/convocatorias/{id}/postulaciones", a.conSesion(a.apiCrearPostulacion)},
+		{"GET", "/api/v1/postulaciones/{id}", a.conSesion(a.apiPostulacion)},
+		{"PATCH", "/api/v1/postulaciones/{id}", a.conSesion(a.apiGuardarPostulacion)},
+		{"PUT", "/api/v1/postulaciones/{id}/subcategoria", a.conSesion(a.apiCambiarSubcategoria)},
+		{"PUT", "/api/v1/postulaciones/{id}/integrantes", a.conSesion(a.apiDefinirIntegrantes)},
+		{"PUT", "/api/v1/postulaciones/{id}/videos", a.conSesion(a.apiDefinirVideos)},
+		{"POST", "/api/v1/postulaciones/{id}/obras", a.conSesion(a.apiAgregarObra)},
+		{"PUT", "/api/v1/postulaciones/{id}/obras/orden", a.conSesion(a.apiOrdenarObras)},
+		{"PATCH", "/api/v1/obras/{id}", a.conSesion(a.apiGuardarObra)},
+		{"DELETE", "/api/v1/obras/{id}", a.conSesion(a.apiBorrarObra)},
 	}
 }
 

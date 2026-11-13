@@ -97,6 +97,20 @@ type Persistencia interface {
 	RetirarAsignacion(ctx context.Context, actor Actor, id int64) (int64, error)
 	UsuarioPorID(ctx context.Context, id int64) (CuentaAdmin, error)
 	BuscarUsuarios(ctx context.Context, texto string, pagina, tamano int) ([]CuentaAdmin, int, error)
+
+	// Postulaciones. Las escrituras sólo actúan sobre postulaciones de la
+	// cuenta indicada.
+	PostulacionPorID(ctx context.Context, id int64) (Postulacion, error)
+	PostulacionesDeUsuario(ctx context.Context, usuarioID int64) ([]ResumenPostulacion, error)
+	CrearPostulacion(ctx context.Context, actor Actor, convocatoriaID, usuarioID int64, sub Subcategoria) (int64, error)
+	GuardarCamposDePostulacion(ctx context.Context, usuarioID, postulacionID int64, cambios map[string]string) (ResultadoGuardado, error)
+	GuardarCamposDeObra(ctx context.Context, usuarioID, obraID int64, cambios map[string]string) (int64, ResultadoGuardado, error)
+	AgregarObra(ctx context.Context, usuarioID, postulacionID int64) (int64, error)
+	BorrarObra(ctx context.Context, usuarioID, obraID int64) (int64, error)
+	OrdenarObras(ctx context.Context, usuarioID, postulacionID int64, ids []int64) error
+	DefinirIntegrantes(ctx context.Context, usuarioID, postulacionID int64, integrantes []Integrante) error
+	DefinirVideos(ctx context.Context, usuarioID, postulacionID int64, ligas []string) error
+	CambiarSubcategoria(ctx context.Context, actor Actor, usuarioID, postulacionID int64, sub Subcategoria) error
 }
 
 // Comprobación en tiempo de compilación: si a *Repositorio le falta un método

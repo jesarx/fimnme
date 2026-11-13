@@ -19,8 +19,12 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 4 de 14: configuración de ediciones y convocatorias.** Hoy el sistema tiene:
+**Paso 5 de 14: captura de postulaciones.** Hoy el sistema tiene:
 
+- **Captura de postulaciones por API** (para el postulante): una postulación por
+  convocatoria, autoguardado por campo, datos de solista, ensamble o compositor,
+  integrantes, propuesta de concierto, obras y ligas de video. En todo momento la API
+  dice **qué le falta a la postulación para poder enviarse**.
 - **Configuración por API** (para el administrador): ediciones, convocatorias con sus
   bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios
   de evaluación, cuentas internas y asignación de jurados y revisores.
@@ -33,8 +37,11 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La configuración aún no tiene pantallas.** Se hace por la API (`curl` o cualquier
-> cliente HTTP); el panel de administración llega en el paso 13.
+> **La configuración y la captura aún no tienen pantallas.** Se hacen por la API (`curl`
+> o cualquier cliente HTTP); el formulario del postulante llega en el paso 11 y el panel
+> de administración en el paso 13.
+>
+> **Todavía no se pueden subir documentos ni enviar la postulación.** Llega en el paso 6.
 >
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
@@ -157,6 +164,57 @@ A partir de ahí la convocatoria **avanza sola** al llegar cada fecha, siempre q
 las reglas; si no, se queda donde está y el log lo avisa. Las reglas de cada transición
 están en el [ADR 0005](docs/adr/0005-configuracion-de-convocatorias.md).
 
+### API de postulaciones
+
+Para cualquier cuenta con sesión, sobre **sus propias** postulaciones; lo ajeno responde
+`404`. `admin_sistema` y `coordinacion_nacional` pueden consultar cualquiera, sin
+editarla. Sólo se captura con la convocatoria en etapa de postulación y dentro de su
+plazo.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/catalogos` | Público. Países (códigos ISO 3166-1), entidades federativas, opciones de género y de estreno |
+| `GET /api/v1/postulaciones` | Las postulaciones de la cuenta, de todas las ediciones |
+| `POST /api/v1/convocatorias/{id}/postulaciones` | Abre un borrador. En Intérpretes: `subcategoria` (`solista` o `ensamble`). Una por convocatoria y cuenta |
+| `GET /api/v1/postulaciones/{id}` | La postulación completa: `campos`, `integrantes`, `videos`, `obras`, la `definicion` de su formulario, las `secciones` con sus pendientes y los `bloqueadores` del envío |
+| `PATCH /api/v1/postulaciones/{id}` | Autoguardado: `{"campos": {"datos.telefono": "…", "concierto.entidad": "CDMX"}}`. Guarda lo válido y devuelve en `errores` lo rechazado; `null` vacía un campo |
+| `PUT /api/v1/postulaciones/{id}/subcategoria` | De solista a ensamble o al revés: `subcategoria` y `"confirmar": true`. **Borra los datos generales** |
+| `PUT /api/v1/postulaciones/{id}/integrantes` | Sustituye la lista: `integrantes` con `nombre` e `instrumento` (sólo ensambles) |
+| `PUT /api/v1/postulaciones/{id}/videos` | Sustituye las ligas: `urls` (sólo Intérpretes; `https`, sin repetir) |
+| `POST /api/v1/postulaciones/{id}/obras` | Añade una obra vacía |
+| `PUT /api/v1/postulaciones/{id}/obras/orden` | Fija el orden del programa: `ids` |
+| `PATCH` · `DELETE /api/v1/obras/{id}` | Autoguardado de una obra (`{"campos": {"obra.titulo": "…"}}`), o la quita |
+
+Los nombres de los campos (`datos.*`, `concierto.*`, `obra.*`) no hay que memorizarlos:
+cada postulación trae en `definicion` la lista de los suyos, con tipo, obligatoriedad,
+límites y etiqueta en el idioma de la cuenta.
+
+Ejemplo, con la sesión de un postulante en `cookies.txt` y la convocatoria 1 de la
+demostración (Intérpretes, abierta):
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"subcategoria":"solista"}' http://127.0.0.1:8080/api/v1/convocatorias/1/postulaciones
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PATCH -d '{"campos":{"datos.nombre_completo":"Ana López","datos.pais_residencia":"MX","datos.entidad_residencia":"JAL","concierto.entidad":"OAX"}}' http://127.0.0.1:8080/api/v1/postulaciones/1
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"urls":["https://vimeo.com/123456"]}' http://127.0.0.1:8080/api/v1/postulaciones/1/videos
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST http://127.0.0.1:8080/api/v1/postulaciones/1/obras
+```
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/v1/postulaciones/1
+```
+
+La última respuesta lista en `bloqueadores` todo lo que falta. Las decisiones de este
+módulo están en el [ADR 0007](docs/adr/0007-captura-de-postulaciones.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -182,6 +240,7 @@ cmd/
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
+  catalogos.go        catálogos fijos: países y entidades federativas
   persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
   repository.go       persistencia sobre SQLite: TODO el SQL del sistema
   seguridad.go        Argon2id y secretos de un solo uso
@@ -194,6 +253,7 @@ controllers/        CONTROLADOR
   cuenta.go           registro, ingreso, recuperación, activación, «Mi cuenta»
   api.go              API REST /api/v1: sesión y bitácora
   configuracion.go    API de configuración de ediciones y convocatorias
+  postulaciones.go    API de captura de postulaciones
   trabajadores.go     correo saliente, limpieza de sesiones y avance de etapa
 views/              VISTA (todo incrustado con //go:embed)
   views.go            motor de plantillas
@@ -202,6 +262,7 @@ views/              VISTA (todo incrustado con //go:embed)
   correo.go           armado de los correos a partir de sus plantillas
   datos.go            respuestas JSON y CSV de la API
   configuracion.go    respuestas JSON de la configuración
+  postulaciones.go    respuestas JSON de las postulaciones y su formulario
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos

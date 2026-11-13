@@ -516,3 +516,125 @@ type CuentaAdmin struct {
 	Perfiles []Perfil
 	Activada bool
 }
+
+// ---------------------------------------------------------------------------
+// Postulaciones
+// ---------------------------------------------------------------------------
+
+// Subcategoria distingue, sólo en Intérpretes, a quien postula.
+type Subcategoria string
+
+const (
+	SubcategoriaSolista  Subcategoria = "solista"
+	SubcategoriaEnsamble Subcategoria = "ensamble"
+)
+
+// EstadoDePostulacion es el estado de una postulación en su ciclo de vida
+// (§4). No confundir con EstadoPostulacion, que es la etapa «postulación» de
+// una convocatoria.
+type EstadoDePostulacion string
+
+const (
+	PostulacionBorrador      EstadoDePostulacion = "borrador"
+	PostulacionEnviada       EstadoDePostulacion = "enviada"
+	PostulacionEnRevision    EstadoDePostulacion = "en_revision"
+	PostulacionEnSubsanacion EstadoDePostulacion = "en_subsanacion"
+	PostulacionValidada      EstadoDePostulacion = "validada"
+	PostulacionDescartada    EstadoDePostulacion = "descartada"
+	PostulacionEnEvaluacion  EstadoDePostulacion = "en_evaluacion"
+	PostulacionEvaluada      EstadoDePostulacion = "evaluada"
+)
+
+// EstadoEnlace es el resultado de la comprobación automática de una liga.
+type EstadoEnlace string
+
+const (
+	EnlacePendiente   EstadoEnlace = "pendiente"
+	EnlaceOK          EstadoEnlace = "ok"
+	EnlaceInaccesible EstadoEnlace = "inaccesible"
+	EnlaceNoPublico   EstadoEnlace = "no_publico"
+)
+
+// Integrante es un miembro de un ensamble: nombre e instrumento (D-05).
+type Integrante struct {
+	Nombre      string
+	Instrumento string
+}
+
+// EnlaceVideo es una liga a un video de ejecución (sólo Intérpretes).
+type EnlaceVideo struct {
+	URL        string
+	Estado     EstadoEnlace
+	Plataforma string // youtube, vimeo, soundcloud, bandcamp, drive u otro
+}
+
+// Obra es una pieza incluida en una postulación. Sus datos van en Campos, por
+// ruta canónica («obra.titulo», «obra.duracion_min»…), igual que los de la
+// postulación.
+type Obra struct {
+	ID     int64
+	Orden  int
+	Campos map[string]string
+}
+
+// DocumentoPresente indica que la postulación ya tiene un documento vigente
+// para un requisito. ObraID es 0 si el documento es de la postulación.
+type DocumentoPresente struct {
+	Clave  string // clave del requisito: fotografia, partitura…
+	ObraID int64
+}
+
+// Postulacion es la solicitud de un postulante a una convocatoria, con todo lo
+// que ha capturado.
+//
+// Los datos capturados se manejan como un mapa de ruta canónica a valor
+// («datos.telefono», «concierto.entidad»…), siempre como texto; un campo sin
+// capturar no aparece en el mapa. En la base cada ruta es una columna tipada
+// (§8.1); el mapa existe para que una sola definición declarativa del
+// formulario (rules.go) gobierne la captura, la validación del envío y, más
+// adelante, el desbloqueo selectivo de la subsanación.
+type Postulacion struct {
+	ID             int64
+	ConvocatoriaID int64
+	UsuarioID      int64
+	Subcategoria   Subcategoria // vacía en Compositores
+	Folio          string       // vacío mientras es borrador
+	Estado         EstadoDePostulacion
+	Envios         int
+	CreadoAt       time.Time
+	ActualizadoAt  time.Time
+
+	Campos      map[string]string
+	Integrantes []Integrante
+	Videos      []EnlaceVideo
+	Obras       []Obra
+	Documentos  []DocumentoPresente
+}
+
+// ResumenPostulacion es una postulación en un listado, con lo esencial de su
+// convocatoria.
+type ResumenPostulacion struct {
+	ID            int64
+	Subcategoria  Subcategoria
+	Folio         string
+	Estado        EstadoDePostulacion
+	ActualizadoAt time.Time
+	Convocatoria  Convocatoria // sin bases ni calendario
+}
+
+// ResultadoGuardado es la respuesta a un guardado parcial (autoguardado): qué
+// campos se guardaron, cuáles se rechazaron y por qué, y a qué hora.
+type ResultadoGuardado struct {
+	Guardados  []string
+	Errores    []ErrorCampo
+	GuardadoAt time.Time
+}
+
+// Bloqueador es un motivo por el que una postulación aún no puede enviarse.
+type Bloqueador struct {
+	Seccion   string               // datos, concierto, obras, documentos o envio
+	Campo     string               // ruta canónica, «integrantes», «videos», «obras» o «documento.<clave>»
+	ObraID    int64                // obra a la que se refiere; 0 si es de la postulación
+	Clave     string               // clave de traducción del motivo
+	Requisito *RequisitoDocumental // el documento que falta, si el bloqueador es de un documento
+}

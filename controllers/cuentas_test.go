@@ -619,7 +619,9 @@ func TestActivacionPerfilesYAuditoria(t *testing.T) {
 	if _, cuerpo := admin.json("/api/v1/auditoria?accion=cuenta.activada&desde=2026-11-12&hasta=2026-11-12"); cuerpo["total"].(float64) != 2 {
 		t.Errorf("filtro por día: %v", cuerpo["total"])
 	}
-	if _, cuerpo := admin.json("/api/v1/auditoria?desde=2026-11-13"); cuerpo["total"].(float64) != 0 {
+	// Se filtra además por acción: los asientos de la siembra de la base de
+	// pruebas llevan la fecha real del sistema, no la del reloj de prueba.
+	if _, cuerpo := admin.json("/api/v1/auditoria?accion=cuenta.activada&desde=2026-11-13"); cuerpo["total"].(float64) != 0 {
 		t.Errorf("filtro «desde» posterior: %v", cuerpo["total"])
 	}
 	for _, mala := range []string{"pagina=0", "tamano=1000", "desde=ayer", "entidad_id=x", "formato=xml"} {

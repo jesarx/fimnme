@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +58,7 @@ import (
 //   7. Enlaces de un solo uso (tokens)
 //   8. Correo saliente (bandeja de salida)
 //   9. Consulta de la bitácora
+//  10. Postulaciones
 
 // ---------------------------------------------------------------------------
 // 1. Apertura y conexiones
@@ -2214,4 +2216,624 @@ func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria)
 		asientos = append(asientos, a)
 	}
 	return asientos, total, filas.Err()
+}
+
+// ---------------------------------------------------------------------------
+// 10. Postulaciones
+// ---------------------------------------------------------------------------
+
+// Toda operación de escritura de esta sección recibe el id de la cuenta que la
+// pide y sólo actúa sobre postulaciones SUYAS: la condición «usuario_id = ?»
+// va en la propia consulta. Una postulación ajena responde ErrNoEncontrado,
+// igual que una que no existe.
+
+const sqlPostulacion = `
+SELECT p.id, p.convocatoria_id, p.usuario_id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''),
+       p.estado, p.envios, p.creado_at, p.actualizado_at
+FROM postulacion p`
+
+// leerPostulacion vuelca una fila de sqlPostulacion en la entidad, sin lo capturado.
+func leerPostulacion(f fila) (Postulacion, error) {
+	var p Postulacion
+	var subcategoria, estado, creado, actualizado string
+	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Postulacion{}, ErrNoEncontrado
+	}
+	if err != nil {
+		return Postulacion{}, err
+	}
+	p.Subcategoria, p.Estado = Subcategoria(subcategoria), EstadoDePostulacion(estado)
+	if p.CreadoAt, err = deMarca(creado); err != nil {
+		return Postulacion{}, err
+	}
+	p.ActualizadoAt, err = deMarca(actualizado)
+	return p, err
+}
+
+// leerCampos lee de una tabla las columnas de las definiciones que le
+// corresponden y deja en destino, por ruta canónica, las que tienen valor.
+// Los nombres de tabla y de columna salen de la definición del formulario,
+// que es código, nunca de la petición.
+func leerCampos(ctx context.Context, q consultor, tabla, llave string, id int64, definiciones []DefinicionCampo, destino map[string]string) error {
+	var columnas []string
+	var rutas []string
+	for _, def := range definiciones {
+		if def.tabla == tabla {
+			columnas = append(columnas, def.columna)
+			rutas = append(rutas, def.Ruta)
+		}
+	}
+	if len(columnas) == 0 {
+		return nil
+	}
+	valores := make([]sql.NullString, len(columnas))
+	destinos := make([]any, len(columnas))
+	for i := range valores {
+		destinos[i] = &valores[i]
+	}
+	err := q.QueryRowContext(ctx, "SELECT "+strings.Join(columnas, ", ")+" FROM "+tabla+" WHERE "+llave+" = ?", id).Scan(destinos...)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("leer %s: %w", tabla, err)
+	}
+	for i, valor := range valores {
+		if valor.Valid && valor.String != "" {
+			destino[rutas[i]] = valor.String
+		}
+	}
+	return nil
+}
+
+// tablasDe devuelve, sin repetir, las tablas en que se guardan unos campos.
+func tablasDe(definiciones []DefinicionCampo) []string {
+	var tablas []string
+	for _, def := range definiciones {
+		if !slices.Contains(tablas, def.tabla) {
+			tablas = append(tablas, def.tabla)
+		}
+	}
+	return tablas
+}
+
+// completarPostulacion añade a una postulación todo lo capturado: campos,
+// integrantes, videos y obras.
+func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo TipoConvocatoria) error {
+	formulario := FormularioDe(tipo, p.Subcategoria)
+	p.Campos = make(map[string]string)
+	for _, tabla := range tablasDe(formulario.Campos) {
+		if err := leerCampos(ctx, q, tabla, "postulacion_id", p.ID, formulario.Campos, p.Campos); err != nil {
+			return err
+		}
+	}
+
+	filas, err := q.QueryContext(ctx, "SELECT nombre, instrumento FROM integrante WHERE postulacion_id = ? ORDER BY orden", p.ID)
+	if err != nil {
+		return fmt.Errorf("leer integrantes: %w", err)
+	}
+	for filas.Next() {
+		var i Integrante
+		if err := filas.Scan(&i.Nombre, &i.Instrumento); err != nil {
+			filas.Close()
+			return fmt.Errorf("leer integrantes: %w", err)
+		}
+		p.Integrantes = append(p.Integrantes, i)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return fmt.Errorf("leer integrantes: %w", err)
+	}
+
+	filas, err = q.QueryContext(ctx, "SELECT url, estado, COALESCE(plataforma, '') FROM enlace_video WHERE postulacion_id = ? ORDER BY orden", p.ID)
+	if err != nil {
+		return fmt.Errorf("leer videos: %w", err)
+	}
+	for filas.Next() {
+		var v EnlaceVideo
+		var estado string
+		if err := filas.Scan(&v.URL, &estado, &v.Plataforma); err != nil {
+			filas.Close()
+			return fmt.Errorf("leer videos: %w", err)
+		}
+		v.Estado = EstadoEnlace(estado)
+		p.Videos = append(p.Videos, v)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return fmt.Errorf("leer videos: %w", err)
+	}
+
+	filas, err = q.QueryContext(ctx, "SELECT id, orden FROM obra WHERE postulacion_id = ? ORDER BY orden", p.ID)
+	if err != nil {
+		return fmt.Errorf("leer obras: %w", err)
+	}
+	for filas.Next() {
+		obra := Obra{Campos: make(map[string]string)}
+		if err := filas.Scan(&obra.ID, &obra.Orden); err != nil {
+			filas.Close()
+			return fmt.Errorf("leer obras: %w", err)
+		}
+		p.Obras = append(p.Obras, obra)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return fmt.Errorf("leer obras: %w", err)
+	}
+	for i := range p.Obras {
+		if err := leerCampos(ctx, q, "obra", "id", p.Obras[i].ID, formulario.CamposObra, p.Obras[i].Campos); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tipoDeConvocatoria devuelve el tipo de una convocatoria.
+func tipoDeConvocatoria(ctx context.Context, q consultor, convocatoriaID int64) (TipoConvocatoria, error) {
+	var tipo string
+	err := q.QueryRowContext(ctx, "SELECT tipo FROM convocatoria WHERE id = ?", convocatoriaID).Scan(&tipo)
+	return TipoConvocatoria(tipo), err
+}
+
+// PostulacionPorID devuelve una postulación con todo lo capturado, o
+// ErrNoEncontrado. NO comprueba quién la pide: decidir si puede verla es
+// asunto del controlador, con la regla PuedeVerPostulacion.
+func (r *Repositorio) PostulacionPorID(ctx context.Context, id int64) (Postulacion, error) {
+	p, err := leerPostulacion(r.lectura.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ?", id))
+	if errors.Is(err, ErrNoEncontrado) {
+		return Postulacion{}, err
+	}
+	if err != nil {
+		return Postulacion{}, fmt.Errorf("leer postulación: %w", err)
+	}
+	tipo, err := tipoDeConvocatoria(ctx, r.lectura, p.ConvocatoriaID)
+	if err != nil {
+		return Postulacion{}, fmt.Errorf("leer postulación: %w", err)
+	}
+	if err := completarPostulacion(ctx, r.lectura, &p, tipo); err != nil {
+		return Postulacion{}, fmt.Errorf("leer postulación: %w", err)
+	}
+	return p, nil
+}
+
+// PostulacionesDeUsuario devuelve las postulaciones de una cuenta en todas las
+// ediciones, la más reciente primero: su historial (RF-POST-12).
+func (r *Repositorio) PostulacionesDeUsuario(ctx context.Context, usuarioID int64) ([]ResumenPostulacion, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT p.id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''), p.estado, p.actualizado_at,
+		       c.id, c.tipo, c.titulo_es, c.titulo_en, c.estado, e.id, e.numero, e.anio, e.nombre_es, e.nombre_en
+		FROM postulacion p
+		JOIN convocatoria c ON c.id = p.convocatoria_id
+		JOIN edicion e ON e.id = c.edicion_id
+		WHERE p.usuario_id = ?
+		ORDER BY e.numero DESC, c.id`, usuarioID)
+	if err != nil {
+		return nil, fmt.Errorf("leer postulaciones: %w", err)
+	}
+	defer filas.Close()
+	var lista []ResumenPostulacion
+	for filas.Next() {
+		var rp ResumenPostulacion
+		var subcategoria, estado, actualizado, tipo, estadoConvocatoria string
+		c := &rp.Convocatoria
+		if err := filas.Scan(&rp.ID, &subcategoria, &rp.Folio, &estado, &actualizado,
+			&c.ID, &tipo, &c.TituloES, &c.TituloEN, &estadoConvocatoria,
+			&c.Edicion.ID, &c.Edicion.Numero, &c.Edicion.Anio, &c.Edicion.NombreES, &c.Edicion.NombreEN); err != nil {
+			return nil, fmt.Errorf("leer postulaciones: %w", err)
+		}
+		rp.Subcategoria, rp.Estado = Subcategoria(subcategoria), EstadoDePostulacion(estado)
+		c.Tipo, c.Estado = TipoConvocatoria(tipo), EstadoConvocatoria(estadoConvocatoria)
+		if rp.ActualizadoAt, err = deMarca(actualizado); err != nil {
+			return nil, err
+		}
+		lista = append(lista, rp)
+	}
+	return lista, filas.Err()
+}
+
+// CrearPostulacion abre una postulación en borrador para una cuenta en una
+// convocatoria (RF-POST-01). Aplica, en la misma transacción: que la
+// convocatoria esté en plazo (RN-02), que la cuenta no sea jurado ni revisor
+// de ella, y que no tenga ya una postulación ahí (RN-01).
+func (r *Repositorio) CrearPostulacion(ctx context.Context, actor Actor, convocatoriaID, usuarioID int64, sub Subcategoria) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "crear postulación", func(tx *sql.Tx) error {
+		c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		if !ConvocatoriaVisibleAlPublico(c) {
+			return ErrNoEncontrado // un borrador no existe para el público
+		}
+		asignado, err := existe(ctx, tx,
+			"SELECT COUNT(*) FROM asignacion WHERE convocatoria_id = ? AND usuario_id = ? AND activo = 1", convocatoriaID, usuarioID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarNuevaPostulacion(c, sub, asignado, r.ahora())); err != nil {
+			return err
+		}
+		if repetida, err := existe(ctx, tx,
+			"SELECT COUNT(*) FROM postulacion WHERE convocatoria_id = ? AND usuario_id = ?", convocatoriaID, usuarioID); err != nil {
+			return err
+		} else if repetida {
+			return ErrDuplicado
+		}
+		marca := r.marca()
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO postulacion (convocatoria_id, usuario_id, subcategoria, creado_at, actualizado_at) VALUES (?, ?, ?, ?, ?)",
+			convocatoriaID, usuarioID, nuloSiVacio(string(sub)), marca, marca)
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		// Las filas 1:1 de datos nacen vacías: así el autoguardado es siempre
+		// un UPDATE de una sola fila (§7.5).
+		for _, tabla := range tablasDe(FormularioDe(c.Tipo, sub).Campos) {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO "+tabla+" (postulacion_id) VALUES (?)", id); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.crear", "postulacion", id, nil,
+			map[string]any{"convocatoria_id": convocatoriaID, "subcategoria": sub})
+	})
+	return id, err
+}
+
+// postulacionEditable lee una postulación de la cuenta dada, con su
+// convocatoria, y comprueba que pueda modificarse ahora (RN-02, RN-04).
+func (r *Repositorio) postulacionEditable(ctx context.Context, tx *sql.Tx, usuarioID, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+	p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ? AND p.usuario_id = ?", postulacionID, usuarioID))
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	cfg, err := configuracion(ctx, tx, p.ConvocatoriaID)
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	return p, cfg, validacion(ValidarEdicionDePostulacion(p, cfg.Convocatoria, r.ahora()))
+}
+
+// tocar actualiza la marca de última modificación de una postulación.
+func (r *Repositorio) tocar(ctx context.Context, tx *sql.Tx, postulacionID int64) (time.Time, error) {
+	ahora := r.ahora().UTC().Truncate(time.Second)
+	_, err := tx.ExecContext(ctx, "UPDATE postulacion SET actualizado_at = ? WHERE id = ?", aMarca(ahora), postulacionID)
+	return ahora, err
+}
+
+// guardarCampos aplica un guardado parcial sobre una fila: valida el formato
+// de cada valor y escribe los aceptables, cada uno en su columna. Los
+// rechazados no se guardan y se devuelven con su motivo. Las rutas se
+// recorren en orden alfabético para que el resultado sea determinista.
+func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (DefinicionCampo, bool), llave string, id int64,
+	cambios map[string]string, contexto ContextoCampos) (ResultadoGuardado, error) {
+	var resultado ResultadoGuardado
+	rutas := make([]string, 0, len(cambios))
+	for ruta := range cambios {
+		rutas = append(rutas, ruta)
+	}
+	sort.Strings(rutas)
+	for _, ruta := range rutas {
+		def, ok := buscar(ruta)
+		if !ok {
+			// Un campo que no es de este formulario: ni se guarda ni se ignora
+			// en silencio.
+			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: "error.campo_desconocido"})
+			continue
+		}
+		valor := strings.TrimSpace(cambios[ruta])
+		if clave := ValidarValorDeCampo(def, valor, contexto); clave != "" {
+			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: clave})
+			continue
+		}
+		// Vacío se guarda como NULL; los enteros, como enteros.
+		var dato any = nuloSiVacio(valor)
+		if valor != "" && (def.Tipo == CampoEntero || def.Tipo == CampoAnio || def.Tipo == CampoDotacion) {
+			n, err := strconv.ParseInt(valor, 10, 64)
+			if err != nil {
+				return resultado, err // ya validado: no debería ocurrir
+			}
+			dato = n
+		}
+		consulta := "UPDATE " + def.tabla + " SET " + def.columna + " = ?"
+		if ruta == "obra.liga_media" {
+			// Una liga nueva está por comprobar.
+			consulta += ", liga_media_estado = 'pendiente'"
+		}
+		if _, err := tx.ExecContext(ctx, consulta+" WHERE "+llave+" = ?", dato, id); err != nil {
+			return resultado, fmt.Errorf("guardar %s: %w", ruta, err)
+		}
+		resultado.Guardados = append(resultado.Guardados, ruta)
+	}
+	return resultado, nil
+}
+
+// GuardarCamposDePostulacion es el autoguardado de los datos generales y de la
+// propuesta de concierto (RF-POST-03): recibe campos sueltos, por ruta
+// canónica, y guarda cada uno en su columna. No exige que la postulación esté
+// completa; sólo que cada valor tenga un formato aceptable.
+func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID, postulacionID int64, cambios map[string]string) (ResultadoGuardado, error) {
+	var resultado ResultadoGuardado
+	err := r.operacion(ctx, "guardar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
+		// La entidad de residencia se valida contra el país que quedará
+		// guardado: el de esta misma petición, si lo trae, o el actual.
+		pais, viene := cambios["datos.pais_residencia"]
+		if !viene {
+			actuales := make(map[string]string)
+			if err := leerCampos(ctx, tx, tablaDeDatos(cfg.Convocatoria.Tipo, p.Subcategoria), "postulacion_id", p.ID, formulario.Campos, actuales); err != nil {
+				return err
+			}
+			pais = actuales["datos.pais_residencia"]
+		}
+		contexto := ContextoCampos{Ahora: r.ahora(), PaisResidencia: strings.TrimSpace(pais), Dotaciones: cfg.Dotaciones}
+		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto); err != nil {
+			return err
+		}
+		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+	return resultado, err
+}
+
+// obraEditable localiza una obra de una postulación de la cuenta dada y
+// comprueba que pueda modificarse.
+func (r *Repositorio) obraEditable(ctx context.Context, tx *sql.Tx, usuarioID, obraID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+	var postulacionID int64
+	err := tx.QueryRowContext(ctx, `
+		SELECT o.postulacion_id FROM obra o JOIN postulacion p ON p.id = o.postulacion_id
+		WHERE o.id = ? AND p.usuario_id = ?`, obraID, usuarioID).Scan(&postulacionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Postulacion{}, ConfiguracionConvocatoria{}, ErrNoEncontrado
+	}
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	return r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+}
+
+// GuardarCamposDeObra es el autoguardado de una obra. Devuelve además el id
+// de la postulación a la que pertenece.
+func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID int64, cambios map[string]string) (int64, ResultadoGuardado, error) {
+	var resultado ResultadoGuardado
+	var postulacionID int64
+	err := r.operacion(ctx, "guardar obra", func(tx *sql.Tx) error {
+		p, cfg, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		if err != nil {
+			return err
+		}
+		postulacionID = p.ID
+		formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
+		contexto := ContextoCampos{Ahora: r.ahora(), Dotaciones: cfg.Dotaciones}
+		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto); err != nil {
+			return err
+		}
+		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+	return postulacionID, resultado, err
+}
+
+// AgregarObra añade una obra vacía al final del programa (RF-POST-05) y
+// devuelve su id. En Compositores respeta el máximo de obras (RN-05).
+func (r *Repositorio) AgregarObra(ctx context.Context, usuarioID, postulacionID int64) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "agregar obra", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		var cuantas, ultimoOrden int
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MAX(orden), 0) FROM obra WHERE postulacion_id = ?", p.ID).
+			Scan(&cuantas, &ultimoOrden); err != nil {
+			return err
+		}
+		if err := validacion(ValidarNuevaObra(cfg.Convocatoria, cuantas)); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, "INSERT INTO obra (postulacion_id, orden, creado_at) VALUES (?, ?, ?)", p.ID, ultimoOrden+1, r.marca())
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		_, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+	return id, err
+}
+
+// BorrarObra quita una obra de un borrador, renumera las que quedan y
+// devuelve el id de su postulación.
+// Sólo es posible mientras la postulación es editable: lo que se envió queda
+// en el snapshot del acuse y ya no se borra.
+func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (int64, error) {
+	var postulacionID int64
+	err := r.operacion(ctx, "borrar obra", func(tx *sql.Tx) error {
+		p, _, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		if err != nil {
+			return err
+		}
+		postulacionID = p.ID
+		if _, err := tx.ExecContext(ctx, "DELETE FROM obra WHERE id = ?", obraID); err != nil {
+			return err
+		}
+		// Se cierra el hueco que deja la obra en el orden del programa, para
+		// que siempre sea 1, 2, 3… En orden ascendente cada obra baja a un
+		// lugar ya libre, así que no choca con la unicidad del orden.
+		filas, err := tx.QueryContext(ctx, "SELECT id FROM obra WHERE postulacion_id = ? ORDER BY orden", p.ID)
+		if err != nil {
+			return err
+		}
+		var restantes []int64
+		for filas.Next() {
+			var id int64
+			if err := filas.Scan(&id); err != nil {
+				filas.Close()
+				return err
+			}
+			restantes = append(restantes, id)
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		for i, id := range restantes {
+			if _, err := tx.ExecContext(ctx, "UPDATE obra SET orden = ? WHERE id = ?", i+1, id); err != nil {
+				return err
+			}
+		}
+		_, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+	return postulacionID, err
+}
+
+// OrdenarObras fija el orden del programa. ids debe traer exactamente las
+// obras de la postulación, en el orden deseado.
+func (r *Repositorio) OrdenarObras(ctx context.Context, usuarioID, postulacionID int64, ids []int64) error {
+	return r.operacion(ctx, "ordenar obras", func(tx *sql.Tx) error {
+		p, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		filas, err := tx.QueryContext(ctx, "SELECT id FROM obra WHERE postulacion_id = ?", p.ID)
+		if err != nil {
+			return err
+		}
+		var actuales []int64
+		for filas.Next() {
+			var id int64
+			if err := filas.Scan(&id); err != nil {
+				filas.Close()
+				return err
+			}
+			actuales = append(actuales, id)
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		pedidas := slices.Clone(ids)
+		slices.Sort(actuales)
+		slices.Sort(pedidas)
+		if !slices.Equal(actuales, pedidas) {
+			return validacion([]ErrorCampo{{Campo: "ids", Clave: "error.orden_incompleto"}})
+		}
+		// El orden es único por postulación: se pasa por valores negativos
+		// para no chocar con el orden que otra obra aún ocupa.
+		for i, id := range ids {
+			if _, err := tx.ExecContext(ctx, "UPDATE obra SET orden = ? WHERE id = ?", -(i + 1), id); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE obra SET orden = -orden WHERE postulacion_id = ?", p.ID); err != nil {
+			return err
+		}
+		_, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+}
+
+// DefinirIntegrantes sustituye la lista de integrantes de un ensamble
+// (RF-POST-06). El orden de la lista es el orden en que se guardan.
+func (r *Repositorio) DefinirIntegrantes(ctx context.Context, usuarioID, postulacionID int64, integrantes []Integrante) error {
+	return r.operacion(ctx, "definir integrantes", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneIntegrantes {
+			return validacion([]ErrorCampo{{Campo: "integrantes", Clave: "error.integrantes_no_aplican"}})
+		}
+		if err := validacion(ValidarIntegrantes(integrantes)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM integrante WHERE postulacion_id = ?", p.ID); err != nil {
+			return err
+		}
+		for i, integrante := range integrantes {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO integrante (postulacion_id, nombre, instrumento, orden) VALUES (?, ?, ?, ?)",
+				p.ID, strings.TrimSpace(integrante.Nombre), strings.TrimSpace(integrante.Instrumento), i+1); err != nil {
+				return err
+			}
+		}
+		_, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+}
+
+// DefinirVideos sustituye las ligas a videos de ejecución (RF-POST-08). Cada
+// liga queda «pendiente» hasta que el sistema la compruebe por red.
+func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionID int64, ligas []string) error {
+	return r.operacion(ctx, "definir videos", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneVideos {
+			return validacion([]ErrorCampo{{Campo: "videos", Clave: "error.videos_no_aplican"}})
+		}
+		if err := validacion(ValidarVideos(ligas, cfg.Convocatoria.MaxVideos)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM enlace_video WHERE postulacion_id = ?", p.ID); err != nil {
+			return err
+		}
+		for i, liga := range ligas {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO enlace_video (postulacion_id, url, orden, plataforma) VALUES (?, ?, ?, ?)",
+				p.ID, liga, i+1, PlataformaDeVideo(liga)); err != nil {
+				return err
+			}
+		}
+		_, err = r.tocar(ctx, tx, p.ID)
+		return err
+	})
+}
+
+// CambiarSubcategoria cambia un borrador de solista a ensamble o al revés
+// (RF-POST-02). Los datos generales de la subcategoría anterior —y los
+// integrantes— SE PIERDEN: son formularios distintos. Se conservan la
+// propuesta de concierto, las obras y los videos, que son comunes.
+func (r *Repositorio) CambiarSubcategoria(ctx context.Context, actor Actor, usuarioID, postulacionID int64, sub Subcategoria) error {
+	return r.operacion(ctx, "cambiar subcategoría", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		if cfg.Convocatoria.Tipo != TipoInterpretes {
+			return validacion([]ErrorCampo{{Campo: "subcategoria", Clave: "error.subcategoria_no_aplica"}})
+		}
+		if sub != SubcategoriaSolista && sub != SubcategoriaEnsamble {
+			return validacion([]ErrorCampo{{Campo: "subcategoria", Clave: "error.subcategoria_requerida"}})
+		}
+		if sub == p.Subcategoria {
+			return nil
+		}
+		for _, consulta := range []string{
+			"DELETE FROM " + tablaDeDatos(TipoInterpretes, p.Subcategoria) + " WHERE postulacion_id = ?",
+			"DELETE FROM integrante WHERE postulacion_id = ?",
+			"INSERT INTO " + tablaDeDatos(TipoInterpretes, sub) + " (postulacion_id) VALUES (?)",
+		} {
+			if _, err := tx.ExecContext(ctx, consulta, p.ID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET subcategoria = ? WHERE id = ?", string(sub), p.ID); err != nil {
+			return err
+		}
+		if _, err := r.tocar(ctx, tx, p.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.subcategoria", "postulacion", p.ID,
+			map[string]any{"subcategoria": p.Subcategoria}, map[string]any{"subcategoria": sub})
+	})
 }
