@@ -3,8 +3,9 @@
 - **Estado:** aceptada
 - **Fecha:** 2026-11-13
 
-Decisiones del paso 7. No añade dependencias. Una migración nueva (`0004`), sólo de datos:
-tres plantillas de correo y el límite del audio.
+Decisiones del paso 7. No añade dependencias. Dos migraciones nuevas, sólo de datos:
+`0004` (tres plantillas de correo y el límite del audio) y `0005` (límites definitivos de
+los documentos).
 
 ## 1. El desbloqueo selectivo es un solo objeto: `PermisoDeEdicion`
 
@@ -101,8 +102,10 @@ base.
 El revisor ve las postulaciones **enviadas** de su convocatoria, nunca los borradores, y
 puede descargar sus documentos (queda registrado). Las observaciones son internas.
 
-**El postulante no ve el motivo del descarte**, sólo el estado. La especificación exige
-registrar el motivo, no mostrarlo; queda como punto por confirmar.
+**El descarte es un estado interno** (decisión de la CNMO del 13 de noviembre de 2026).
+Al postulante no se le muestra: ni el motivo ni el estado. Su postulación descartada le
+sigue apareciendo «en revisión», en el detalle y en su lista (`models.EstadoParaTitular`).
+Los demás estados sí los ve. Quien revisa o supervisa ve el estado real.
 
 ## 9. Toma blanda
 
@@ -117,15 +120,25 @@ reparto, con filtros por estado, subcategoría, toma y texto (folio o nombre), y
 con el total y la cuenta por estado. Los filtros se aplican en memoria: son unas centenas
 de renglones. La búsqueda tolerante a acentos y erratas llega con el archivo (paso 9).
 
-## 11. Límite del audio: 20 MB
+## 11. Límites de los documentos
 
-Decisión de la CNMO del 13 de noviembre de 2026. Las convocatorias nuevas nacen con el
-audio en 20 MB, y la migración `0004` baja a 20 MB los requisitos que seguían en los
-100 MB iniciales. Sigue siendo configurable por convocatoria.
+Decisiones de la CNMO del 13 de noviembre de 2026:
 
-**Consecuencia a tener presente:** en 20 MB caben unos 2 minutos de WAV estéreo con
-calidad de CD, unos 4 de FLAC, y de 8 a 14 minutos de MP3 según su calidad. Para una obra
-completa, en la práctica el audio tendrá que ser MP3.
+| Documento | Máximo | Formato |
+|---|---|---|
+| Audio | **30 MB** | WAV, FLAC o MP3 |
+| Partitura | 30 MB | PDF |
+| Particellas | 30 MB | **Un solo PDF** con todas |
+| Autorización | 10 MB | PDF |
+| Fotografía | 5 MB | JPEG o PNG |
+
+Las convocatorias nuevas nacen así. Para las existentes, la migración `0004` bajó el
+audio de 100 a 20 MB (primera decisión) y la `0005` lo deja en 30 MB y fija las
+particellas en un solo archivo, con su texto de ayuda. Todo sigue siendo configurable por
+convocatoria.
+
+**A tener presente:** en 30 MB caben unos 3 minutos de WAV estéreo con calidad de CD,
+unos 6 de FLAC, y de 12 a 20 minutos de MP3 según su calidad.
 
 ## Lo que no se hizo
 

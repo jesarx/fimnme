@@ -418,9 +418,20 @@ func TestRevisionSubsanacionYDictamen(t *testing.T) {
 	if vista["estado"] != "descartada" || vista["revision"].(obj)["motivo_descarte"] != "El programa no es de música nueva." {
 		t.Errorf("descartada: %v %v", vista["estado"], vista["revision"].(obj)["motivo_descarte"])
 	}
-	// El postulante ve su estado, no el motivo; y no recibe ningún correo.
-	if propia = luis.exige(http.StatusOK, "GET", ruta, nil); propia["estado"] != "descartada" || strings.Contains(fmt.Sprint(propia), "música nueva.") {
-		t.Error("el postulante ve el estado, pero no el motivo del descarte")
+	// El descarte es un estado interno: al postulante su postulación le sigue
+	// apareciendo «en revisión», en el detalle y en su lista, sin el motivo. Y
+	// no recibe ningún correo.
+	if propia = luis.exige(http.StatusOK, "GET", ruta, nil); propia["estado"] != "en_revision" || strings.Contains(fmt.Sprint(propia), "descartada") ||
+		strings.Contains(fmt.Sprint(propia), "música nueva.") {
+		t.Errorf("el postulante no debe ver que fue descartada: %v", propia["estado"])
+	}
+	if mias := luis.exige(http.StatusOK, "GET", "/api/v1/postulaciones", nil); strings.Contains(fmt.Sprint(mias), "descartada") ||
+		lista(mias, "postulaciones")[0]["estado"] != "en_revision" {
+		t.Errorf("la lista del postulante no debe mostrar el descarte: %v", mias)
+	}
+	// Quien revisa o supervisa sí lo ve.
+	if real := observador.exige(http.StatusOK, "GET", ruta, nil); real["estado"] != "descartada" {
+		t.Errorf("el observador ve el estado real: %v", real["estado"])
 	}
 	if len(e.correos()) != correosAntes {
 		t.Error("el dictamen no debe enviar ningún correo")

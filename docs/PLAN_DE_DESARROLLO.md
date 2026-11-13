@@ -118,8 +118,10 @@ páginas de manual.
   dos envíos.
 - **Dictamen** (RF-REV-08). Validada o descartada, con motivo al descartar. Sin correo.
 - **Vencimiento** (RF-REV-09). No descarta: marca la postulación para el revisor.
-- **Límite del audio a 20 MB**, por decisión de la CNMO.
-- **Migración `0004`**: plantillas de correo de la subsanación y el nuevo límite.
+- **Límites de los documentos**, por decisión de la CNMO: audio, partitura y particellas
+  hasta 30 MB; las particellas, en un solo PDF.
+- **El descarte no se muestra al postulante**: es un estado interno de la revisión.
+- **Migraciones `0004` y `0005`**: plantillas de correo de la subsanación y los límites.
 - **Pruebas.** El motor de desbloqueo caso por caso; y un recorrido completo por la API:
   revisión, subsanación, lo que el postulante puede y no puede tocar, desbloqueos,
   reenvío, *diff*, dictamen y vencimiento.
@@ -417,16 +419,17 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 23. **Formato del folio:** `FIM49-INT-0137`, consecutivo por convocatoria, como el ejemplo
     de la especificación.
 24. **Tope de 30 versiones por documento** y de **200 MB** por archivo (el máximo de cada
-    documento lo fija el administrador; por omisión, 20 MB para audio).
-25. ~~Formatos de audio.~~ **Resuelto (13-nov-2026):** WAV, FLAC y MP3 están bien, con un
-    máximo de **20 MB** (ADR 0010, §11). En ese tamaño una obra completa sólo cabe en MP3.
-26. **El postulante no ve el motivo del descarte**, sólo el estado «descartada». La
-    especificación pide registrar el motivo, no mostrarlo (ADR 0010, §8).
+    documento lo fija el administrador; por omisión, 30 MB para audio).
+25. ~~Formatos de audio.~~ **Resuelto (13-nov-2026):** WAV, FLAC y MP3, con un máximo de
+    **30 MB** (ADR 0010, §11).
+26. ~~Qué ve el postulante de un descarte.~~ **Resuelto (13-nov-2026):** nada. El descarte
+    es un estado interno; al postulante su postulación le sigue apareciendo «en revisión».
+    Los demás estados sí los ve (ADR 0010, §8).
 27. **El revisor ve las postulaciones enviadas desde que llegan**, pero sólo puede actuar
     en la etapa de revisión documental.
 28. **Un dictamen puede corregirse** (de validada a descartada o al revés) mientras la
     convocatoria siga en revisión documental; cada cambio queda en la bitácora.
 29. **Plazo máximo de una subsanación: 90 días.** La especificación no lo fija.
-30. **¿Los demás documentos también a 20 MB?** Hoy sólo el audio. Partituras y particellas
-    siguen en 30 MB, la autorización en 10 MB y la fotografía en 5 MB, como dice la
-    especificación.
+30. ~~Tamaños de los demás documentos.~~ **Resuelto (13-nov-2026):** audio, partitura y
+    particellas, 30 MB; las particellas, en un solo PDF; autorización (10 MB) y fotografía
+    (5 MB), como estaban.

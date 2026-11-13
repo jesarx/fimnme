@@ -773,11 +773,13 @@ func RequisitosIniciales(tipo TipoConvocatoria) []RequisitoDocumental {
 	}
 	if tipo == TipoCompositores {
 		return []RequisitoDocumental{fotografia, partitura,
+			// Las particellas van reunidas en un solo PDF (decisión de la CNMO).
 			{Clave: "particellas", EtiquetaES: "Particellas", EtiquetaEN: "Parts", Ambito: AmbitoObra,
+				AyudaES: "Todas las particellas reunidas en un solo archivo PDF.", AyudaEN: "All the parts together in a single PDF file.",
 				Obligatorio: true, MimesPermitidos: pdf, TamanoMaxBytes: megabytes(30), MaxArchivos: 1, Orden: 3},
 			{Clave: "audio", EtiquetaES: "Archivo de audio", EtiquetaEN: "Audio file", Ambito: AmbitoObra,
 				Obligatorio: false, MimesPermitidos: []string{"audio/wav", "audio/flac", "audio/mpeg"},
-				TamanoMaxBytes: megabytes(20), MaxArchivos: 1, Orden: 4},
+				TamanoMaxBytes: megabytes(30), MaxArchivos: 1, Orden: 4},
 		}
 	}
 	return []RequisitoDocumental{fotografia, partitura,
@@ -2184,4 +2186,15 @@ func inicioDeSuma(suma string) string {
 		return suma[:12]
 	}
 	return suma
+}
+
+// EstadoParaTitular devuelve el estado de una postulación tal como se le
+// muestra a su titular. El descarte es un estado INTERNO de la revisión
+// (decisión de la CNMO): al postulante no se le muestra, y su postulación
+// sigue apareciéndole «en revisión». Los demás estados se muestran tal cual.
+func EstadoParaTitular(estado EstadoDePostulacion) EstadoDePostulacion {
+	if estado == PostulacionDescartada {
+		return PostulacionEnRevision
+	}
+	return estado
 }

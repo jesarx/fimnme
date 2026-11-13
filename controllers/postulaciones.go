@@ -110,8 +110,11 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 	nombrar := a.nombreDeElemento(idiomaDe(r), cfg)
 	cuerpo["subsanacion"] = views.SubsanacionPendienteJSON(p, ahora, nombrar)
 
-	// Lo que dejó la revisión sólo lo ven quienes revisan o supervisan.
-	if models.PuedeVerRevision(sesion, p.ConvocatoriaID) {
+	// Lo que dejó la revisión sólo lo ven quienes revisan o supervisan. A los
+	// demás —el titular— ni siquiera se les muestra que fue descartada.
+	if !models.PuedeVerRevision(sesion, p.ConvocatoriaID) {
+		cuerpo["estado"] = string(models.EstadoParaTitular(p.Estado))
+	} else {
 		revision, err := a.datos.RevisionDe(r.Context(), p.ID)
 		if a.falloDatos(w, r, err) {
 			return
@@ -135,6 +138,10 @@ func (a *App) apiMisPostulaciones(w http.ResponseWriter, r *http.Request) {
 	resumenes, err := a.datos.PostulacionesDeUsuario(r.Context(), sesionDe(r).Usuario.ID)
 	if a.falloDatos(w, r, err) {
 		return
+	}
+	// Es la lista del propio postulante: el descarte no se le muestra.
+	for i := range resumenes {
+		resumenes[i].Estado = models.EstadoParaTitular(resumenes[i].Estado)
 	}
 	a.responder(w, http.StatusOK, views.PostulacionesJSON(resumenes))
 }

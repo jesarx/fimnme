@@ -22,7 +22,7 @@ server {
 
     # Tamaño máximo de una petición. Los postulantes suben partituras y audio:
     # la aplicación admite archivos de hasta 200 MB (el límite de cada
-    # documento lo fija el administrador, por omisión 20 MB para audio).
+    # documento lo fija el administrador, por omisión 30 MB para audio).
     client_max_body_size 210m;
 
     gzip on;
