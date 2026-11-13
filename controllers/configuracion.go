@@ -139,7 +139,11 @@ func (a *App) responderConfiguracion(w http.ResponseWriter, r *http.Request, est
 	if siguiente != "" {
 		pendientes = a.bloqueadores(r, models.ValidarCambioDeEstado(cfg, siguiente, "", a.ahora()))
 	}
-	a.responder(w, estado, views.ConfiguracionJSON(cfg, siguiente, pendientes))
+	archivos, err := a.datos.ArchivosDeConvocatoria(r.Context(), convocatoriaID)
+	if a.falloDatos(w, r, err) {
+		return
+	}
+	a.responder(w, estado, views.ConfiguracionJSON(cfg, archivos, siguiente, pendientes))
 }
 
 // responderEdicion responde con una edición y el resumen de sus convocatorias.

@@ -462,6 +462,220 @@
         ]
       }
     },
+    "/api/v1/convocatorias/{id}/archivos/{clase}": {
+      "put": {
+        "tags": [
+          "Configuración"
+        ],
+        "summary": "Carga las bases en PDF o la imagen de cabecera",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Bases: PDF de hasta 20 MB, uno por idioma. Imagen: JPEG o PNG de hasta 5 MB. Se publican en /convocatorias/{edicion}/{tipo}/bases.pdf y /convocatorias/{edicion}/{tipo}/imagen.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "clase",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bases_pdf_es",
+                "bases_pdf_en",
+                "imagen"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Formulario con un solo campo",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "archivo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "El archivo. Debe ser el ÚLTIMO campo del formulario"
+                  }
+                },
+                "required": [
+                  "archivo"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Configuración"
+        ],
+        "summary": "Retira las bases en PDF o la imagen de cabecera",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Configuración",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Configuracion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "clase",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "bases_pdf_es",
+                "bases_pdf_en",
+                "imagen"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/convocatorias/{id}/asignaciones": {
       "post": {
         "tags": [
@@ -1710,6 +1924,148 @@
         ]
       }
     },
+    "/api/v1/documentos/{id}": {
+      "delete": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Retira un documento del borrador",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El documento deja de estar vigente; su archivo no se borra.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/documentos/{id}/archivo": {
+      "get": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Descarga un documento",
+        "x-perfiles": [
+          "titular de la postulación",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo, con su tipo de contenido. Admite peticiones por rangos (Range)",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Toda descarga queda registrada con cuenta, IP y momento.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "descargar",
+            "in": "query",
+            "required": false,
+            "description": "Con cualquier valor, el archivo se ofrece como descarga en vez de mostrarse en el navegador",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/dotaciones/{id}": {
       "put": {
         "tags": [
@@ -2750,6 +3106,312 @@
                 },
                 "required": [
                   "campos"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/acuses/{version}": {
+      "get": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Descarga un acuse de recibo en PDF",
+        "x-perfiles": [
+          "titular de la postulación",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo, con su tipo de contenido. Admite peticiones por rangos (Range)",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "description": "1 = envío original; 2 en adelante, reenvíos tras una subsanación"
+          },
+          {
+            "name": "descargar",
+            "in": "query",
+            "required": false,
+            "description": "Con cualquier valor, el archivo se ofrece como descarga en vez de mostrarse en el navegador",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/documentos": {
+      "post": {
+        "tags": [
+          "Documentos"
+        ],
+        "summary": "Sube un documento de la postulación o de una obra",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación, con el documento ya registrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El formato se reconoce por la firma del contenido, no por la extensión. Si el requisito admite un solo archivo y ya hay uno, el nuevo lo reemplaza: el anterior se conserva como versión no vigente. Nada se sobrescribe.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Los campos de texto deben ir ANTES del archivo: el servidor procesa la subida al vuelo.",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string",
+                    "description": "Clave del requisito que cumple: fotografia, partitura, particellas, audio, autorizacion…"
+                  },
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "Obra a la que pertenece el documento; se omite si es de la postulación"
+                  },
+                  "reemplaza": {
+                    "type": "integer",
+                    "description": "Id del documento vigente que se sustituye; sólo hace falta si el requisito admite varios archivos"
+                  },
+                  "archivo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "El archivo. Debe ser el ÚLTIMO campo del formulario"
+                  }
+                },
+                "required": [
+                  "clave",
+                  "archivo"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/postulaciones/{id}/envio": {
+      "post": {
+        "tags": [
+          "Postulaciones"
+        ],
+        "summary": "Envía la postulación (irreversible)",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación enviada, con su folio y su acuse",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Falta una confirmación (ErrorValidacion) o a la postulación le falta algo (ErrorDeEnvio)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorValidacion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorDeEnvio"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Comprueba las ligas de video, ejecuta la validación completa y, en una sola transacción, asigna el folio, congela lo enviado, genera el acuse en PDF y encola el correo que lo lleva adjunto.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Entiendo que ya no podré editar mi postulación"
+                  },
+                  "acepto_bases": {
+                    "type": "boolean",
+                    "description": "Acepto las bases de la convocatoria"
+                  }
+                },
+                "required": [
+                  "confirmo",
+                  "acepto_bases"
                 ]
               }
             }
@@ -4225,6 +4887,75 @@
                 }
               }
             ]
+          },
+          "archivos": {
+            "type": "object",
+            "properties": {
+              "bases_pdf_es": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "bases_pdf_en": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "imagen": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "mime": {
+                        "type": "string"
+                      },
+                      "tamano_bytes": {
+                        "type": "integer"
+                      },
+                      "sha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "description": "Archivos públicos cargados; null el que falta"
           }
         },
         "description": "Una convocatoria con toda su configuración"
@@ -4411,6 +5142,14 @@
                 },
                 "plataforma": {
                   "type": "string"
+                },
+                "estado_texto": {
+                  "type": "string",
+                  "description": "El estado, en el idioma de la petición"
+                },
+                "detalle": {
+                  "type": "string",
+                  "description": "Resultado de la comprobación en red, en el idioma de la petición; falta si aún no se comprueba"
                 }
               }
             }
@@ -4579,8 +5318,174 @@
           },
           "lista_para_enviar": {
             "type": "boolean"
+          },
+          "requisitos": {
+            "type": "array",
+            "description": "Documentos que se piden: a la postulación (obra_id null) y a cada obra, según su dotación",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "ayuda_es": {
+                  "type": "string"
+                },
+                "ayuda_en": {
+                  "type": "string"
+                },
+                "obligatorio": {
+                  "type": "boolean"
+                },
+                "mimes_permitidos": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "tamano_max_bytes": {
+                  "type": "integer"
+                },
+                "max_archivos": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "documentos": {
+            "type": "array",
+            "description": "Documentos vigentes",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "clave": {
+                  "type": "string"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer"
+                },
+                "dictamen": {
+                  "type": "string",
+                  "enum": [
+                    "pendiente",
+                    "valido",
+                    "invalido"
+                  ]
+                },
+                "nombre": {
+                  "type": "string",
+                  "description": "Nombre con que se descarga: folio, requisito, obra y versión"
+                },
+                "mime": {
+                  "type": "string"
+                },
+                "tamano_bytes": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "subido_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                }
+              }
+            }
+          },
+          "acuses": {
+            "type": "array",
+            "description": "Un acuse por envío",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "idioma": {
+                  "type": "string",
+                  "enum": [
+                    "es",
+                    "en"
+                  ]
+                },
+                "generado_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                },
+                "tamano_bytes": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
+      },
+      "ErrorDeEnvio": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "codigo": {
+                "type": "string",
+                "const": "incompleta"
+              },
+              "mensaje": {
+                "type": "string"
+              },
+              "bloqueadores": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "seccion": {
+                      "type": "string"
+                    },
+                    "campo": {
+                      "type": "string"
+                    },
+                    "obra_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "mensaje": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "description": "A la postulación le falta algo para poder enviarse"
       }
     }
   }

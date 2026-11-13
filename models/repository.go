@@ -444,7 +444,8 @@ func validacion(errores []ErrorCampo) error {
 // duplicado, regla incumplida) y no un fallo interno que haya que envolver.
 func esDeDominio(err error) bool {
 	var regla *ErrorValidacion
-	return errors.Is(err, ErrNoEncontrado) || errors.Is(err, ErrDuplicado) || errors.As(err, &regla)
+	var envio *ErrorDeEnvio
+	return errors.Is(err, ErrNoEncontrado) || errors.Is(err, ErrDuplicado) || errors.As(err, &regla) || errors.As(err, &envio)
 }
 
 // operacion ejecuta una escritura en transacción y, si falla por un motivo
@@ -1472,11 +1473,21 @@ func emailEnUso(ctx context.Context, tx *sql.Tx, email string, exceptoID int64) 
 // transacción de negocio. Nunca se envía correo dentro de una transacción.
 func (r *Repositorio) encolarCorreo(ctx context.Context, tx *sql.Tx, c CorreoSaliente) error {
 	marca := r.marca()
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO email_outbox (destinatario, idioma, asunto, cuerpo_html, cuerpo_texto,
-		                          plantilla_clave, programado_para, creado_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Destinatario, c.Idioma, c.Asunto, c.HTML, c.Texto, nuloSiVacio(c.PlantillaClave), marca, marca)
+	adjuntos := c.Adjuntos
+	if adjuntos == nil {
+		adjuntos = []Adjunto{}
+	}
+	// adjuntos es un arreglo JSON en texto (§8.3): [{archivo_id, nombre}].
+	listaDeAdjuntos, err := json.Marshal(adjuntos)
+	if err != nil {
+		return fmt.Errorf("encolar correo: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO email_outbox (destinatario, idioma, asunto, cuerpo_html, cuerpo_texto, adjuntos,
+		                          plantilla_clave, postulacion_id, programado_para, creado_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Destinatario, c.Idioma, c.Asunto, c.HTML, c.Texto, string(listaDeAdjuntos),
+		nuloSiVacio(c.PlantillaClave), nuloSiCero(c.PostulacionID), marca, marca)
 	if err != nil {
 		return fmt.Errorf("encolar correo: %w", err)
 	}
@@ -2082,7 +2093,8 @@ func (r *Repositorio) PlantillaCorreo(ctx context.Context, clave, idioma string)
 // ya toca, los más antiguos primero.
 func (r *Repositorio) CorreosPendientes(ctx context.Context, limite int) ([]CorreoSaliente, error) {
 	filas, err := r.lectura.QueryContext(ctx, `
-		SELECT id, destinatario, idioma, asunto, cuerpo_html, cuerpo_texto, COALESCE(plantilla_clave, ''), intentos
+		SELECT id, destinatario, idioma, asunto, cuerpo_html, cuerpo_texto, COALESCE(plantilla_clave, ''), intentos,
+		       COALESCE(postulacion_id, 0), adjuntos
 		FROM email_outbox
 		WHERE estado = 'pendiente' AND programado_para <= ?
 		ORDER BY id LIMIT ?`, r.marca(), limite)
@@ -2093,8 +2105,13 @@ func (r *Repositorio) CorreosPendientes(ctx context.Context, limite int) ([]Corr
 	var correos []CorreoSaliente
 	for filas.Next() {
 		var c CorreoSaliente
-		if err := filas.Scan(&c.ID, &c.Destinatario, &c.Idioma, &c.Asunto, &c.HTML, &c.Texto, &c.PlantillaClave, &c.Intentos); err != nil {
+		var adjuntos string
+		if err := filas.Scan(&c.ID, &c.Destinatario, &c.Idioma, &c.Asunto, &c.HTML, &c.Texto, &c.PlantillaClave, &c.Intentos,
+			&c.PostulacionID, &adjuntos); err != nil {
 			return nil, fmt.Errorf("leer bandeja de salida: %w", err)
+		}
+		if err := json.Unmarshal([]byte(adjuntos), &c.Adjuntos); err != nil {
+			return nil, fmt.Errorf("correo %d: adjuntos no es JSON válido: %w", c.ID, err)
 		}
 		correos = append(correos, c)
 	}
@@ -2299,7 +2316,7 @@ func tablasDe(definiciones []DefinicionCampo) []string {
 }
 
 // completarPostulacion añade a una postulación todo lo capturado: campos,
-// integrantes, videos y obras.
+// integrantes, videos, obras, documentos vigentes y acuses.
 func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo TipoConvocatoria) error {
 	formulario := FormularioDe(tipo, p.Subcategoria)
 	p.Campos = make(map[string]string)
@@ -2326,14 +2343,14 @@ func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo
 		return fmt.Errorf("leer integrantes: %w", err)
 	}
 
-	filas, err = q.QueryContext(ctx, "SELECT url, estado, COALESCE(plataforma, '') FROM enlace_video WHERE postulacion_id = ? ORDER BY orden", p.ID)
+	filas, err = q.QueryContext(ctx, "SELECT url, estado, COALESCE(plataforma, ''), COALESCE(detalle, '') FROM enlace_video WHERE postulacion_id = ? ORDER BY orden", p.ID)
 	if err != nil {
 		return fmt.Errorf("leer videos: %w", err)
 	}
 	for filas.Next() {
 		var v EnlaceVideo
 		var estado string
-		if err := filas.Scan(&v.URL, &estado, &v.Plataforma); err != nil {
+		if err := filas.Scan(&v.URL, &estado, &v.Plataforma, &v.Detalle); err != nil {
 			filas.Close()
 			return fmt.Errorf("leer videos: %w", err)
 		}
@@ -2366,7 +2383,11 @@ func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo
 			return err
 		}
 	}
-	return nil
+	if p.Documentos, err = documentosVigentes(ctx, q, p.ID); err != nil {
+		return err
+	}
+	p.Acuses, err = acusesDe(ctx, q, p.ID)
+	return err
 }
 
 // tipoDeConvocatoria devuelve el tipo de una convocatoria.
@@ -2663,6 +2684,14 @@ func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (
 			return err
 		}
 		postulacionID = p.ID
+		// Con la obra se van sus documentos (los archivos siguen en el
+		// almacén). Si alguno se descargó, el registro de esa descarga se
+		// conserva, ligado a la postulación; el documento que ya no existe
+		// queda identificado en la bitácora, que no se toca.
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE descarga SET documento_id = NULL WHERE documento_id IN (SELECT id FROM documento WHERE obra_id = ?)", obraID); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM obra WHERE id = ?", obraID); err != nil {
 			return err
 		}
@@ -2785,12 +2814,44 @@ func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionI
 		if err := validacion(ValidarVideos(ligas, cfg.Convocatoria.MaxVideos)); err != nil {
 			return err
 		}
+		// La lista se sustituye completa, pero una liga que no cambia conserva
+		// el resultado de su comprobación: no hay por qué repetirla.
+		type comprobacion struct {
+			estado       string
+			estadoHTTP   sql.NullInt64
+			verificadoAt sql.NullString
+			detalle      sql.NullString
+		}
+		anteriores := make(map[string]comprobacion)
+		filas, err := tx.QueryContext(ctx, "SELECT url, estado, http_status, verificado_at, detalle FROM enlace_video WHERE postulacion_id = ?", p.ID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var liga string
+			var c comprobacion
+			if err := filas.Scan(&liga, &c.estado, &c.estadoHTTP, &c.verificadoAt, &c.detalle); err != nil {
+				filas.Close()
+				return err
+			}
+			anteriores[liga] = c
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM enlace_video WHERE postulacion_id = ?", p.ID); err != nil {
 			return err
 		}
 		for i, liga := range ligas {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO enlace_video (postulacion_id, url, orden, plataforma) VALUES (?, ?, ?, ?)",
-				p.ID, liga, i+1, PlataformaDeVideo(liga)); err != nil {
+			c, conocida := anteriores[liga]
+			if !conocida {
+				c.estado = string(EnlacePendiente)
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO enlace_video (postulacion_id, url, orden, plataforma, estado, http_status, verificado_at, detalle)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				p.ID, liga, i+1, PlataformaDeVideo(liga), c.estado, c.estadoHTTP, c.verificadoAt, c.detalle); err != nil {
 				return err
 			}
 		}
@@ -2835,5 +2896,557 @@ func (r *Repositorio) CambiarSubcategoria(ctx context.Context, actor Actor, usua
 		}
 		return r.auditar(ctx, tx, actor, "postulacion.subcategoria", "postulacion", p.ID,
 			map[string]any{"subcategoria": p.Subcategoria}, map[string]any{"subcategoria": sub})
+	})
+}
+
+// =============================================================================
+// 11. Documentos, envío y acuses
+// =============================================================================
+
+// sqlDocumento lee un documento con los metadatos de su archivo y la clave de
+// su requisito.
+const sqlDocumento = `
+SELECT d.id, d.postulacion_id, COALESCE(d.obra_id, 0), rq.clave, d.version, d.vigente, d.dictamen, d.subido_at,
+       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+FROM documento d
+JOIN requisito_documental rq ON rq.id = d.requisito_id
+JOIN archivo a ON a.id = d.archivo_id`
+
+// leerDocumento vuelca una fila de sqlDocumento en la entidad.
+func leerDocumento(f fila) (Documento, error) {
+	var d Documento
+	var subido string
+	err := f.Scan(&d.ID, &d.PostulacionID, &d.ObraID, &d.Clave, &d.Version, &d.Vigente, &d.Dictamen, &subido,
+		&d.Archivo.ID, &d.Archivo.SHA256, &d.Archivo.Clave, &d.Archivo.MIME, &d.Archivo.TamanoBytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Documento{}, ErrNoEncontrado
+	}
+	if err != nil {
+		return Documento{}, err
+	}
+	d.SubidoAt, err = deMarca(subido)
+	return d, err
+}
+
+// documentosVigentes devuelve los documentos vigentes de una postulación:
+// primero los de la postulación y luego los de cada obra, en el orden de sus
+// requisitos.
+func documentosVigentes(ctx context.Context, q consultor, postulacionID int64) ([]Documento, error) {
+	filas, err := q.QueryContext(ctx, sqlDocumento+`
+		WHERE d.postulacion_id = ? AND d.vigente = 1
+		ORDER BY COALESCE(d.obra_id, 0), rq.orden, d.id`, postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer documentos: %w", err)
+	}
+	defer filas.Close()
+	var documentos []Documento
+	for filas.Next() {
+		d, err := leerDocumento(filas)
+		if err != nil {
+			return nil, fmt.Errorf("leer documentos: %w", err)
+		}
+		documentos = append(documentos, d)
+	}
+	return documentos, filas.Err()
+}
+
+// acusesDe devuelve los acuses de una postulación, del primero al último.
+func acusesDe(ctx context.Context, q consultor, postulacionID int64) ([]Acuse, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT ac.id, ac.postulacion_id, ac.version, ac.idioma, ac.generado_at,
+		       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+		FROM acuse ac JOIN archivo a ON a.id = ac.archivo_id
+		WHERE ac.postulacion_id = ? ORDER BY ac.version`, postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer acuses: %w", err)
+	}
+	defer filas.Close()
+	var acuses []Acuse
+	for filas.Next() {
+		var ac Acuse
+		var generado string
+		if err := filas.Scan(&ac.ID, &ac.PostulacionID, &ac.Version, &ac.Idioma, &generado,
+			&ac.Archivo.ID, &ac.Archivo.SHA256, &ac.Archivo.Clave, &ac.Archivo.MIME, &ac.Archivo.TamanoBytes); err != nil {
+			return nil, fmt.Errorf("leer acuses: %w", err)
+		}
+		if ac.GeneradoAt, err = deMarca(generado); err != nil {
+			return nil, err
+		}
+		acuses = append(acuses, ac)
+	}
+	return acuses, filas.Err()
+}
+
+// guardarArchivo registra en la tabla «archivo» un contenido que ya está en el
+// almacén y devuelve su id. Si ese contenido ya estaba registrado (mismo
+// SHA-256) devuelve el id existente: es la deduplicación de RF-DOC-02.
+func (r *Repositorio) guardarArchivo(ctx context.Context, tx *sql.Tx, blob Blob, mime, nombreOriginal string) (int64, error) {
+	var id int64
+	err := tx.QueryRowContext(ctx, "SELECT id FROM archivo WHERE sha256 = ?", blob.SHA256).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("buscar archivo: %w", err)
+	}
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO archivo (sha256, clave, mime, tamano_bytes, nombre_original, creado_at) VALUES (?, ?, ?, ?, ?, ?)",
+		blob.SHA256, blob.Clave, mime, blob.Tamano, nombreOriginal, r.marca())
+	if err != nil {
+		return 0, fmt.Errorf("registrar archivo: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// RegistrarDocumento añade a una postulación un documento cuyo contenido ya
+// está en el almacén. Aplica en la misma transacción las reglas de la subida:
+// que la postulación sea editable, que el requisito exista para esa obra, que
+// el formato y el tamaño sean los admitidos, y qué documento queda
+// reemplazado. El anterior no se borra: deja de estar vigente (RF-DOC-07).
+func (r *Repositorio) RegistrarDocumento(ctx context.Context, actor Actor, usuarioID, postulacionID int64, n NuevoDocumento) (Documento, error) {
+	var documento Documento
+	err := r.operacion(ctx, "registrar documento", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
+			return err
+		}
+		requisito, errores := RequisitoParaDocumento(p, cfg, n.Clave, n.ObraID)
+		if err := validacion(errores); err != nil {
+			return err
+		}
+		if err := validacion(ValidarArchivo(requisito, n.NombreOriginal, n.MIME, n.Blob.Tamano)); err != nil {
+			return err
+		}
+		var vigentes []Documento
+		for _, d := range p.Documentos {
+			if d.Clave == n.Clave && d.ObraID == n.ObraID {
+				vigentes = append(vigentes, d)
+			}
+		}
+		var versiones int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM documento d JOIN requisito_documental rq ON rq.id = d.requisito_id
+			WHERE d.postulacion_id = ? AND COALESCE(d.obra_id, 0) = ? AND rq.clave = ?`,
+			p.ID, n.ObraID, n.Clave).Scan(&versiones); err != nil {
+			return err
+		}
+		anterior, errores := LugarDeNuevoDocumento(requisito, vigentes, n.ReemplazaA, versiones)
+		if err := validacion(errores); err != nil {
+			return err
+		}
+
+		archivoID, err := r.guardarArchivo(ctx, tx, n.Blob, n.MIME, n.NombreOriginal)
+		if err != nil {
+			return err
+		}
+		version, reemplazaA := 1, int64(0)
+		if anterior != nil {
+			version, reemplazaA = anterior.Version+1, anterior.ID
+			if _, err := tx.ExecContext(ctx, "UPDATE documento SET vigente = 0 WHERE id = ?", anterior.ID); err != nil {
+				return err
+			}
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO documento (postulacion_id, obra_id, requisito_id, archivo_id, version, reemplaza_a, vigente, subido_at)
+			VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+			p.ID, nuloSiCero(n.ObraID), requisito.ID, archivoID, version, nuloSiCero(reemplazaA), r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if documento, err = leerDocumento(tx.QueryRowContext(ctx, sqlDocumento+" WHERE d.id = ?", id)); err != nil {
+			return err
+		}
+		if _, err := r.tocar(ctx, tx, p.ID); err != nil {
+			return err
+		}
+		// La bitácora guarda la suma del archivo, no su nombre: el nombre que
+		// le puso el postulante puede traer datos personales.
+		return r.auditar(ctx, tx, actor, "documento.subir", "documento", id, nil, map[string]any{
+			"postulacion_id": p.ID, "obra_id": n.ObraID, "requisito": n.Clave, "version": version,
+			"sha256": n.Blob.SHA256, "tamano_bytes": n.Blob.Tamano, "reemplaza_a": reemplazaA,
+		})
+	})
+	return documento, err
+}
+
+// QuitarDocumento retira un documento de un borrador y devuelve el id de su
+// postulación. No lo borra: deja de estar vigente, y su archivo se conserva.
+func (r *Repositorio) QuitarDocumento(ctx context.Context, actor Actor, usuarioID, documentoID int64) (int64, error) {
+	var postulacionID int64
+	err := r.operacion(ctx, "quitar documento", func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `
+			SELECT d.postulacion_id FROM documento d JOIN postulacion p ON p.id = d.postulacion_id
+			WHERE d.id = ? AND d.vigente = 1 AND p.usuario_id = ?`, documentoID, usuarioID).Scan(&postulacionID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoEncontrado
+		}
+		if err != nil {
+			return err
+		}
+		if _, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE documento SET vigente = 0 WHERE id = ?", documentoID); err != nil {
+			return err
+		}
+		if _, err := r.tocar(ctx, tx, postulacionID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "documento.quitar", "documento", documentoID, nil,
+			map[string]any{"postulacion_id": postulacionID})
+	})
+	return postulacionID, err
+}
+
+// DocumentoPorID devuelve un documento, vigente o no, o ErrNoEncontrado. NO
+// comprueba quién lo pide: eso lo decide el controlador sobre su postulación.
+func (r *Repositorio) DocumentoPorID(ctx context.Context, id int64) (Documento, error) {
+	d, err := leerDocumento(r.lectura.QueryRowContext(ctx, sqlDocumento+" WHERE d.id = ?", id))
+	if err != nil && !errors.Is(err, ErrNoEncontrado) {
+		return Documento{}, fmt.Errorf("leer documento: %w", err)
+	}
+	return d, err
+}
+
+// AcusePorVersion devuelve un acuse de una postulación, o ErrNoEncontrado.
+func (r *Repositorio) AcusePorVersion(ctx context.Context, postulacionID int64, version int) (Acuse, error) {
+	acuses, err := acusesDe(ctx, r.lectura, postulacionID)
+	if err != nil {
+		return Acuse{}, err
+	}
+	for _, ac := range acuses {
+		if ac.Version == version {
+			return ac, nil
+		}
+	}
+	return Acuse{}, ErrNoEncontrado
+}
+
+// RegistrarDescarga deja constancia de que una cuenta descargó un documento o
+// un acuse (RN-27): el acervo es material inédito y bajo derechos de autor.
+// documentoID es 0 cuando lo descargado es un acuse. Queda en la tabla
+// «descarga» y en la bitácora, en la misma transacción.
+func (r *Repositorio) RegistrarDescarga(ctx context.Context, actor Actor, postulacionID, documentoID int64, archivo Archivo) error {
+	return r.operacion(ctx, "registrar descarga", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO descarga (usuario_id, documento_id, postulacion_id, ip, creado_at) VALUES (?, ?, ?, ?, ?)",
+			actor.UsuarioID, nuloSiCero(documentoID), postulacionID, nuloSiVacio(actor.IP), r.marca()); err != nil {
+			return err
+		}
+		accion, entidad, entidadID := "documento.descargar", "documento", documentoID
+		if documentoID == 0 {
+			accion, entidad, entidadID = "acuse.descargar", "postulacion", postulacionID
+		}
+		return r.auditar(ctx, tx, actor, accion, entidad, entidadID, nil,
+			map[string]any{"postulacion_id": postulacionID, "sha256": archivo.SHA256})
+	})
+}
+
+// EnviarPostulacion envía una postulación: es irreversible (§4.1). En UNA sola
+// transacción:
+//
+//  1. comprueba que sea un borrador de la cuenta, dentro de plazo;
+//  2. ejecuta la validación completa (ValidarParaEnvio) y las confirmaciones;
+//  3. asigna el folio y congela lo enviado en un snapshot;
+//  4. pide a la Vista el acuse en PDF y el correo, con la función componer;
+//  5. guarda el acuse, marca la postulación como enviada, encola el correo con
+//     el PDF adjunto y deja el asiento en la bitácora.
+//
+// Si algo falla no queda nada escrito: ni folio, ni acuse, ni correo. El
+// correo no se envía dentro de la transacción: sale después, por la bandeja.
+//
+// componer recibe el snapshot y devuelve el PDF ya guardado en el almacén. Se
+// pasa como función porque componer un PDF es trabajo de la Vista, que el
+// Modelo no conoce.
+//
+// Si a la postulación le falta algo devuelve *ErrorDeEnvio con la lista.
+func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuarioID, postulacionID int64,
+	confirmacion ConfirmacionEnvio, componer func(SnapshotEnvio) (AcuseCompuesto, error)) error {
+	return r.operacion(ctx, "enviar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
+			return err
+		}
+		titular, err := leerUsuario(tx.QueryRowContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ?", usuarioID))
+		if err != nil {
+			return err
+		}
+		ahora := r.ahora().UTC().Truncate(time.Second)
+		if bloqueadores := ValidarParaEnvio(p, cfg, titular, ahora); len(bloqueadores) > 0 {
+			return &ErrorDeEnvio{Bloqueadores: bloqueadores}
+		}
+		if err := validacion(ValidarConfirmacionDeEnvio(confirmacion)); err != nil {
+			return err
+		}
+
+		// El folio se asigna en el primer envío y ya no cambia. El consecutivo
+		// es por convocatoria; con una sola conexión de escritura no hay dos
+		// envíos que puedan leer el mismo.
+		folio := p.Folio
+		if folio == "" {
+			var asignados int
+			if err := tx.QueryRowContext(ctx,
+				"SELECT COUNT(*) FROM postulacion WHERE convocatoria_id = ? AND folio IS NOT NULL", p.ConvocatoriaID).Scan(&asignados); err != nil {
+				return err
+			}
+			folio = FolioDe(cfg.Convocatoria.Edicion.Numero, cfg.Convocatoria.Tipo, asignados+1)
+		}
+		version := p.Envios + 1
+		snapshot := SnapshotDeEnvio(p, cfg, titular, folio, version, ahora)
+		congelado, err := json.Marshal(snapshot)
+		if err != nil {
+			return fmt.Errorf("serializar snapshot: %w", err)
+		}
+		compuesto, err := componer(snapshot)
+		if err != nil {
+			return fmt.Errorf("componer acuse: %w", err)
+		}
+		nombreAcuse := fmt.Sprintf("acuse_%s_v%d.pdf", folio, version)
+		archivoID, err := r.guardarArchivo(ctx, tx, compuesto.Blob, "application/pdf", nombreAcuse)
+		if err != nil {
+			return err
+		}
+		marca := aMarca(ahora)
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO acuse (postulacion_id, version, archivo_id, snapshot, idioma, generado_at) VALUES (?, ?, ?, ?, ?, ?)",
+			p.ID, version, archivoID, string(congelado), snapshot.Idioma, marca); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE postulacion
+			SET estado = ?, folio = ?, envios = ?, enviada_at = ?, primera_enviada_at = COALESCE(primera_enviada_at, ?),
+			    bases_aceptadas_at = ?, actualizado_at = ?
+			WHERE id = ?`, string(PostulacionEnviada), folio, version, marca, marca, marca, marca, p.ID); err != nil {
+			return err
+		}
+		correo := compuesto.Correo
+		correo.PostulacionID = p.ID
+		correo.Adjuntos = []Adjunto{{ArchivoID: archivoID, Nombre: nombreAcuse}}
+		if err := r.encolarCorreo(ctx, tx, correo); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.enviar", "postulacion", p.ID,
+			map[string]any{"estado": p.Estado},
+			map[string]any{"estado": PostulacionEnviada, "folio": folio, "version": version, "acuse_sha256": compuesto.Blob.SHA256})
+	})
+}
+
+// --- Ligas de video: comprobación en red (RF-DOC-10) --------------------------
+
+// EnlacesPorVerificar devuelve ligas que toca comprobar: las que nunca se han
+// comprobado y, mientras su convocatoria está en postulación o en revisión
+// documental, las que se comprobaron antes de revalidarAntesDe.
+func (r *Repositorio) EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error) {
+	return r.enlaces(ctx, `
+		SELECT v.id, v.url FROM enlace_video v
+		JOIN postulacion p ON p.id = v.postulacion_id
+		JOIN convocatoria c ON c.id = p.convocatoria_id
+		WHERE v.verificado_at IS NULL
+		   OR (v.verificado_at < ? AND c.estado IN ('postulacion', 'revision_documental'))
+		ORDER BY v.verificado_at IS NOT NULL, v.verificado_at, v.id LIMIT ?`, aMarca(revalidarAntesDe), limite)
+}
+
+// EnlacesDePostulacion devuelve las ligas de una postulación, para
+// comprobarlas todas antes de un envío (RN-08).
+func (r *Repositorio) EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error) {
+	return r.enlaces(ctx, "SELECT id, url FROM enlace_video WHERE postulacion_id = ? ORDER BY orden", postulacionID)
+}
+
+// enlaces ejecuta una consulta que devuelve id y url de ligas de video.
+func (r *Repositorio) enlaces(ctx context.Context, consulta string, args ...any) ([]EnlacePorVerificar, error) {
+	filas, err := r.lectura.QueryContext(ctx, consulta, args...)
+	if err != nil {
+		return nil, fmt.Errorf("leer ligas de video: %w", err)
+	}
+	defer filas.Close()
+	var enlaces []EnlacePorVerificar
+	for filas.Next() {
+		var e EnlacePorVerificar
+		if err := filas.Scan(&e.ID, &e.URL); err != nil {
+			return nil, fmt.Errorf("leer ligas de video: %w", err)
+		}
+		enlaces = append(enlaces, e)
+	}
+	return enlaces, filas.Err()
+}
+
+// AnotarVerificacionDeEnlace guarda el resultado de comprobar una liga. Sólo
+// lo anota si la liga sigue siendo la misma: si el postulante la cambió
+// mientras se comprobaba, el resultado ya no le corresponde.
+func (r *Repositorio) AnotarVerificacionDeEnlace(ctx context.Context, enlace EnlacePorVerificar, resultado ResultadoEnlace) error {
+	return r.operacion(ctx, "anotar verificación de liga", func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			"UPDATE enlace_video SET estado = ?, http_status = ?, detalle = ?, verificado_at = ? WHERE id = ? AND url = ?",
+			string(resultado.Estado), nuloSiCero(int64(resultado.HTTPStatus)), resultado.Detalle, r.marca(), enlace.ID, enlace.URL)
+		return err
+	})
+}
+
+// --- Recordatorios de borrador (RF-NOT-04) ------------------------------------
+
+// recordatorioEnviado indica si a una postulación ya se le encoló un
+// recordatorio dentro de la ventana que empieza en ventana.
+func recordatorioEnviado(ctx context.Context, q consultor, postulacionID int64, ventana time.Time) (bool, error) {
+	return existe(ctx, q, `
+		SELECT COUNT(*) FROM email_outbox
+		WHERE plantilla_clave = ? AND postulacion_id = ? AND creado_at >= ?`,
+		PlantillaRecordatorio, postulacionID, aMarca(ventana))
+}
+
+// BorradoresPorRecordar devuelve los borradores a los que toca enviar, en
+// este momento, un recordatorio de que el plazo está por cerrar: los de
+// convocatorias en etapa de postulación cuya ventana de recordatorio está
+// abierta y que aún no recibieron el de esa ventana.
+func (r *Repositorio) BorradoresPorRecordar(ctx context.Context) ([]RecordatorioDeBorrador, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT `+columnasUsuario+`, p.id, p.convocatoria_id
+		FROM postulacion p
+		JOIN usuario u ON u.id = p.usuario_id
+		JOIN convocatoria c ON c.id = p.convocatoria_id
+		WHERE p.estado = 'borrador' AND c.estado = 'postulacion' AND u.activo = 1
+		ORDER BY p.id`)
+	if err != nil {
+		return nil, fmt.Errorf("leer borradores: %w", err)
+	}
+	var candidatos []RecordatorioDeBorrador
+	for filas.Next() {
+		var rec RecordatorioDeBorrador
+		var convocatoriaID int64
+		if rec.Usuario, err = leerUsuario(filas, &rec.PostulacionID, &convocatoriaID); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer borradores: %w", err)
+		}
+		rec.Convocatoria.ID = convocatoriaID
+		candidatos = append(candidatos, rec)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer borradores: %w", err)
+	}
+
+	ahora := r.ahora()
+	convocatorias := make(map[int64]Convocatoria)
+	var pendientes []RecordatorioDeBorrador
+	for _, rec := range candidatos {
+		c, leida := convocatorias[rec.Convocatoria.ID]
+		if !leida {
+			if c, err = convocatoriaPorID(ctx, r.lectura, rec.Convocatoria.ID); err != nil {
+				return nil, fmt.Errorf("leer convocatoria: %w", err)
+			}
+			convocatorias[c.ID] = c
+		}
+		etapa, tiene := c.Etapa(EtapaPostulacion)
+		if !tiene {
+			continue
+		}
+		ventana, toca := VentanaDeRecordatorio(etapa.TerminaAt, ahora)
+		if !toca {
+			continue
+		}
+		enviado, err := recordatorioEnviado(ctx, r.lectura, rec.PostulacionID, ventana)
+		if err != nil {
+			return nil, fmt.Errorf("leer recordatorios: %w", err)
+		}
+		if !enviado {
+			rec.Convocatoria, rec.TerminaAt, rec.Ventana = c, etapa.TerminaAt, ventana
+			pendientes = append(pendientes, rec)
+		}
+	}
+	return pendientes, nil
+}
+
+// EncolarRecordatorio encola el correo de un recordatorio, salvo que mientras
+// se componía la postulación se haya enviado o el recordatorio ya exista.
+// Devuelve si lo encoló.
+func (r *Repositorio) EncolarRecordatorio(ctx context.Context, rec RecordatorioDeBorrador, correo CorreoSaliente) (bool, error) {
+	encolado := false
+	err := r.operacion(ctx, "encolar recordatorio", func(tx *sql.Tx) error {
+		esBorrador, err := existe(ctx, tx, "SELECT COUNT(*) FROM postulacion WHERE id = ? AND estado = 'borrador'", rec.PostulacionID)
+		if err != nil || !esBorrador {
+			return err
+		}
+		enviado, err := recordatorioEnviado(ctx, tx, rec.PostulacionID, rec.Ventana)
+		if err != nil || enviado {
+			return err
+		}
+		correo.PlantillaClave, correo.PostulacionID = PlantillaRecordatorio, rec.PostulacionID
+		encolado = true
+		return r.encolarCorreo(ctx, tx, correo)
+	})
+	return encolado && err == nil, err
+}
+
+// --- Archivos públicos de una convocatoria (RF-CONV-02) -----------------------
+
+// columnaDeArchivo es la columna de «convocatoria» que guarda cada clase de
+// archivo. El nombre de la columna sale de esta tabla, nunca de la petición.
+var columnaDeArchivo = map[ClaseArchivoConvocatoria]string{
+	ArchivoBasesES: "bases_pdf_es_id",
+	ArchivoBasesEN: "bases_pdf_en_id",
+	ArchivoImagen:  "imagen_id",
+}
+
+// ArchivosDeConvocatoria devuelve los archivos públicos que una convocatoria
+// tiene cargados: las bases en PDF de cada idioma y la imagen de cabecera.
+func (r *Repositorio) ArchivosDeConvocatoria(ctx context.Context, convocatoriaID int64) (map[ClaseArchivoConvocatoria]Archivo, error) {
+	archivos := make(map[ClaseArchivoConvocatoria]Archivo)
+	for clase, columna := range columnaDeArchivo {
+		var a Archivo
+		err := r.lectura.QueryRowContext(ctx, `
+			SELECT a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+			FROM convocatoria c JOIN archivo a ON a.id = c.`+columna+` WHERE c.id = ?`, convocatoriaID).
+			Scan(&a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("leer archivos de la convocatoria: %w", err)
+		}
+		archivos[clase] = a
+	}
+	return archivos, nil
+}
+
+// FijarArchivoDeConvocatoria carga o sustituye un archivo público de la
+// convocatoria. Con un Blob vacío lo retira. El archivo anterior no se borra
+// del almacén: sólo deja de estar ligado.
+func (r *Repositorio) FijarArchivoDeConvocatoria(ctx context.Context, actor Actor, convocatoriaID int64,
+	clase ClaseArchivoConvocatoria, blob Blob, mime, nombreOriginal string) error {
+	return r.operacion(ctx, "fijar archivo de la convocatoria", func(tx *sql.Tx) error {
+		c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarEdicionDeConfiguracion(c.Estado)); err != nil {
+			return err
+		}
+		columna, conocida := columnaDeArchivo[clase]
+		if !conocida {
+			return validacion([]ErrorCampo{{Campo: "clase", Clave: "error.clase_de_archivo"}})
+		}
+		var archivoID int64
+		if blob.SHA256 != "" {
+			if err := validacion(ValidarArchivoDeConvocatoria(clase, nombreOriginal, mime, blob.Tamano)); err != nil {
+				return err
+			}
+			if archivoID, err = r.guardarArchivo(ctx, tx, blob, mime, nombreOriginal); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE convocatoria SET "+columna+" = ? WHERE id = ?", nuloSiCero(archivoID), c.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "convocatoria.archivo", "convocatoria", c.ID, nil,
+			map[string]any{"clase": clase, "sha256": blob.SHA256})
 	})
 }

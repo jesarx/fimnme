@@ -51,6 +51,12 @@ type vistaConvocatoria struct {
 	Etapas        []vistaEtapa
 	Bases         template.HTML
 	BasesRespaldo bool // se muestran en español porque falta la versión inglesa
+	// BasesPDF es la dirección de las bases en PDF, o "" si no se han cargado.
+	// BasesPDFRespaldo indica que el PDF está en español aunque la visita sea
+	// en inglés. Imagen es la dirección de la imagen de cabecera, o "".
+	BasesPDF         string
+	BasesPDFRespaldo bool
+	Imagen           string
 }
 
 // vistaEtapa es un renglón del calendario de la convocatoria.
@@ -182,8 +188,27 @@ func (a *App) convocatoria(w http.ResponseWriter, r *http.Request) {
 		a.errorPagina(w, r, http.StatusInternalServerError)
 		return
 	}
+	archivos, err := a.datos.ArchivosDeConvocatoria(r.Context(), c.ID)
+	if err != nil {
+		a.log.Error("no se pudieron leer los archivos de la convocatoria", "error", err)
+		a.errorPagina(w, r, http.StatusInternalServerError)
+		return
+	}
 	p := a.pagina(r, "inicio.titulo")
 	vista := aVista(c, p.Idioma, true)
+	// Las bases en PDF se ofrecen en el idioma de la visita; si no hay
+	// versión inglesa se ofrece la española, avisándolo.
+	_, hayES := archivos[models.ArchivoBasesES]
+	_, hayEN := archivos[models.ArchivoBasesEN]
+	switch {
+	case p.Idioma == models.IdiomaEN && hayEN:
+		vista.BasesPDF = vista.URL + "/bases.pdf?idioma=en"
+	case hayES:
+		vista.BasesPDF, vista.BasesPDFRespaldo = vista.URL+"/bases.pdf?idioma=es", p.Idioma == models.IdiomaEN
+	}
+	if _, hay := archivos[models.ArchivoImagen]; hay {
+		vista.Imagen = vista.URL + "/imagen"
+	}
 	p.Titulo = vista.Titulo + " · " + vista.Edicion
 	p.Datos = vista
 	a.pintar(w, r, http.StatusOK, "convocatoria.html", p)

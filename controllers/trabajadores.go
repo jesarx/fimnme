@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/jesarx/fimnme/models"
+	"github.com/jesarx/fimnme/views"
 )
 
 // Trabajadores internos de fimnme-web: tareas en segundo plano que no
@@ -162,6 +163,9 @@ func (m MailerRegistro) Enviar(_ context.Context, correo models.CorreoSaliente) 
 	atributos := []any{
 		"id", correo.ID, "para", correo.Destinatario, "asunto", correo.Asunto, "plantilla", correo.PlantillaClave,
 	}
+	for _, adjunto := range correo.Adjuntos {
+		atributos = append(atributos, "adjunto", adjunto.Nombre)
+	}
 	if m.MostrarCuerpo {
 		atributos = append(atributos, "cuerpo", correo.Texto)
 	}
@@ -267,4 +271,74 @@ func (t *TrabajadorEtapas) avisarBloqueo(id int64, destino models.EstadoConvocat
 	t.avisado[id] = t.reloj()
 	t.Log.Warn("la convocatoria debió avanzar de etapa por calendario y NO pudo: falta cumplir una regla",
 		"convocatoria", id, "a", destino, "motivo", causa.Error())
+}
+
+// --- Recordatorios de borrador sin enviar (RF-NOT-04) -------------------------
+
+// intervaloRecordatorios es cada cuánto se revisa si toca recordar algo. Los
+// recordatorios se miden en días y horas: diez minutos de retraso no importan.
+const intervaloRecordatorios = 10 * time.Minute
+
+// TrabajadorRecordatorios avisa por correo, a 7 días, 2 días y 12 horas del
+// cierre, a quien tiene una postulación en borrador: una postulación que no
+// se envía antes del cierre no entra al proceso (§4.1).
+type TrabajadorRecordatorios struct {
+	Datos  models.Persistencia
+	Vistas *views.Motor
+	Log    *slog.Logger
+	// URLBase es la dirección pública del sitio, para el enlace del correo.
+	URLBase string
+}
+
+// Ejecutar trabaja hasta que se cancele el contexto.
+func (t *TrabajadorRecordatorios) Ejecutar(ctx context.Context) {
+	t.Procesar(ctx) // al arrancar: puede haberse abierto una ventana con el servicio detenido
+	reloj := time.NewTicker(intervaloRecordatorios)
+	defer reloj.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-reloj.C:
+			t.Procesar(ctx)
+		}
+	}
+}
+
+// Procesar encola los recordatorios que tocan en este momento y devuelve
+// cuántos encoló. El correo sale después, por la bandeja de salida.
+func (t *TrabajadorRecordatorios) Procesar(ctx context.Context) int {
+	pendientes, err := t.Datos.BorradoresPorRecordar(ctx)
+	if err != nil {
+		t.Log.Error("leer borradores por recordar", "error", err)
+		return 0
+	}
+	encolados := 0
+	for _, rec := range pendientes {
+		idioma := rec.Usuario.Idioma
+		plantilla, err := t.Datos.PlantillaCorreo(ctx, models.PlantillaRecordatorio, idioma)
+		if err != nil {
+			t.Log.Error("leer plantilla de recordatorio", "error", err)
+			return encolados
+		}
+		correo := views.RenderCorreo(plantilla, rec.Usuario.Email, map[string]string{
+			"nombre":       rec.Usuario.Nombre,
+			"convocatoria": rec.Convocatoria.Titulo(idioma),
+			"edicion":      rec.Convocatoria.Edicion.Nombre(idioma),
+			"cierre":       t.Vistas.FechaHora(idioma, rec.TerminaAt),
+			"liga":         t.URLBase + "/cuenta",
+		})
+		encolado, err := t.Datos.EncolarRecordatorio(ctx, rec, correo)
+		if err != nil {
+			t.Log.Error("encolar recordatorio", "postulacion", rec.PostulacionID, "error", err)
+			continue
+		}
+		if encolado {
+			encolados++
+		}
+	}
+	if encolados > 0 {
+		t.Log.Info("recordatorios de borrador encolados", "cantidad", encolados)
+	}
+	return encolados
 }

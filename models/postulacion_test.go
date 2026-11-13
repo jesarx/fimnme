@@ -82,7 +82,7 @@ func postulacionCompleta(tipo TipoConvocatoria, sub Subcategoria) Postulacion {
 	for ruta, valor := range datos {
 		p.Campos[ruta] = valor
 	}
-	p.Documentos = []DocumentoPresente{{Clave: "fotografia"}}
+	p.Documentos = []Documento{{Clave: "fotografia"}}
 	if tipo == TipoInterpretes {
 		p.Campos["concierto.requerimientos_tecnicos"] = "Piano de cola."
 		p.Campos["concierto.entidad"] = EntidadCDMX
@@ -91,7 +91,7 @@ func postulacionCompleta(tipo TipoConvocatoria, sub Subcategoria) Postulacion {
 			"obra.titulo": "Obra", "obra.compositor": "Julián Carrillo", "obra.duracion_min": "12", "obra.estreno": "no_es_estreno",
 			"obra.semblanza_compositor": "Semblanza.", "obra.nota_obra": "Nota.", "obra.liga_media": "https://ejemplo.mx/obra",
 		}}}
-		p.Documentos = append(p.Documentos, DocumentoPresente{"partitura", 10}, DocumentoPresente{"autorizacion", 10})
+		p.Documentos = append(p.Documentos, Documento{Clave: "partitura", ObraID: 10}, Documento{Clave: "autorizacion", ObraID: 10})
 		return p
 	}
 	obra := func(id int64, dotacion string) Obra {
@@ -103,8 +103,8 @@ func postulacionCompleta(tipo TipoConvocatoria, sub Subcategoria) Postulacion {
 	// Una obra para cuarteto (partitura y particellas) y una electroacústica
 	// (partitura y audio; sin particellas).
 	p.Obras = []Obra{obra(10, "1"), obra(11, "2")}
-	p.Documentos = append(p.Documentos, DocumentoPresente{"partitura", 10}, DocumentoPresente{"particellas", 10},
-		DocumentoPresente{"partitura", 11}, DocumentoPresente{"audio", 11})
+	p.Documentos = append(p.Documentos, Documento{Clave: "partitura", ObraID: 10}, Documento{Clave: "particellas", ObraID: 10},
+		Documento{Clave: "partitura", ObraID: 11}, Documento{Clave: "audio", ObraID: 11})
 	return p
 }
 
@@ -243,7 +243,7 @@ func TestReglasDelEnvio(t *testing.T) {
 				for i := int64(20); i < 40; i++ {
 					otra := Obra{ID: i, Campos: p.Obras[0].Campos}
 					p.Obras = append(p.Obras, otra)
-					p.Documentos = append(p.Documentos, DocumentoPresente{"partitura", i}, DocumentoPresente{"autorizacion", i})
+					p.Documentos = append(p.Documentos, Documento{Clave: "partitura", ObraID: i}, Documento{Clave: "autorizacion", ObraID: i})
 				}
 			}, ""},
 		{"duración total rebasada", TipoCompositores, "",

@@ -13,7 +13,8 @@ atiende la plataforma de postulaciones del Foro Internacional de Música Nueva
 Manuel Enríquez: sirve las páginas, la API REST
 .RB ( /api/v1 )
 y ejecuta los trabajadores internos (envío del correo saliente, limpieza de
-sesiones vencidas y avance de etapa por calendario).
+sesiones vencidas, avance de etapa por calendario, comprobación de las ligas
+de video y recordatorios de borrador sin enviar).
 .PP
 Es un servicio público. Escucha por omisión en
 .B 127.0.0.1:8080
@@ -82,6 +83,16 @@ Base de datos SQLite, con sus archivos
 .I \-wal
 y
 .IR \-shm .
+.TP
+.I /var/lib/fimnme/blobs/
+Acervo de archivos: los documentos de las postulaciones y los acuses, cada
+uno en una ruta derivada del SHA-256 de su contenido. Un respaldo de la base
+sin este directorio no sirve, y a la inversa.
+.SH RED
+Para comprobar las ligas de video el servidor hace peticiones HTTPS salientes
+(puerto 443) y consultas de DNS. Sólo se conecta a direcciones públicas. Si
+no tiene salida a Internet, las ligas quedan como «por comprobar» y nada más
+deja de funcionar.
 .SH ESTADO DE SALIDA
 .TP
 .B 0

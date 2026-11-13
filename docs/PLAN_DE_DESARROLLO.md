@@ -44,12 +44,12 @@ páginas de manual.
 | 3 | **Cuentas, sesiones y control de acceso.** Registro, verificación de correo, ingreso, recuperación, activación de cuentas internas y «Mi cuenta»; Argon2id; sesiones con expiración por perfil; enlaces de un solo uso; bloqueo por intentos y límite por IP; perfiles globales y asignaciones por convocatoria; consulta de la bitácora por API; bandeja de correo saliente con interfaz `Mailer` y su trabajador. | ✅ Hecho |
 | 4 | **Configuración de ediciones y convocatorias.** API para ediciones, convocatorias con bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios, cuentas internas y asignaciones; cambio de etapa forzado y automático por calendario, con las cuotas de 3 jurados y 1+ revisores; duplicación de la configuración a otra edición. | ✅ Hecho |
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; autoguardado por campo; datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video; `ValidarParaEnvio()` con la lista de bloqueadores. La captura se acepta sólo dentro del plazo, y quien es jurado o revisor de una convocatoria no postula en ella. | ✅ Hecho |
+| 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 6 | **Documentos, envío y acuse.** Comprobación en red de las ligas de video, con defensas contra SSRF (viene del paso 5); `BlobStore` en disco por SHA-256; MIME por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (< 100 KB); recordatorios de borrador. | RF-DOC-01 a 07, RF-POST-07, RF-POST-10 a 12, §4.1, §5.10, RF-NOT-03 y 04 | Pendiente |
 | 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
 | 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
@@ -91,12 +91,64 @@ páginas de manual.
   hasta que exista el SMTP.
 - **La configuración se hace por API hasta el paso 13.** No hay pantallas de
   administración todavía: se usa `curl` o cualquier cliente HTTP (ejemplos en el README).
-- **Imagen de cabecera y PDF de las bases** (RF-CONV-02) quedaron para el paso 6, que
-  trae el almacén de archivos.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 6 — qué se entregó
+
+- **Almacén de archivos** (§7.8, RF-DOC-02). En disco, junto a la base, direccionado por
+  SHA-256: deduplicación, integridad verificable y archivos inmutables. La subida va al
+  vuelo, sin cargarse en memoria.
+- **Subida de documentos** (RF-POST-07, RF-DOC-01 y 04). Formato reconocido por la firma
+  del contenido, no por la extensión; tamaño y formatos según el requisito, que depende de
+  la dotación de la obra. Un archivo de formato equivocado se rechaza antes de tocar el
+  disco.
+- **Versiones** (RF-DOC-07). Reemplazar o quitar un documento no borra nada: el anterior
+  deja de estar vigente.
+- **Descarga** (RF-DOC-03, RN-27). Siempre por la aplicación, con permiso comprobado,
+  nombre predecible y registro de cuenta, IP y momento. Por rangos, para audio.
+- **Envío** (§4.1, RF-POST-10, RN-03 y 13). Irreversible y en una sola transacción:
+  validación completa, confirmaciones, folio (`FIM49-INT-0137`), snapshot, acuse y correo
+  encolado con el PDF adjunto.
+- **Acuse en PDF** (§5.10). Escritor propio en `internal/pdf`, sin fuentes incrustadas ni
+  imágenes; bilingüe; reproducible byte por byte. Pesa unos 3 KB.
+- **Ligas de video** (RF-DOC-10, RN-08). Comprobación en red con defensas contra SSRF;
+  en segundo plano, antes de cada envío y una vez al día. Sólo bloquea una respuesta
+  inequívoca.
+- **Recordatorios de borrador** (RF-NOT-04) a 7 días, 2 días y 12 horas del cierre.
+- **Bases en PDF e imagen de cabecera** (RF-CONV-02), públicas en la página de la
+  convocatoria.
+- **Migración `0003`**: plantillas de correo del acuse y del recordatorio.
+- **Despliegue.** Los ejemplos de Caddy y nginx admiten subidas de hasta 210 MB y las
+  pasan a la aplicación sin guardarlas antes.
+- **Pruebas.** Las reglas caso por caso; el PDF verificado en su estructura y con
+  herramientas externas (`pdfinfo`, `pdftotext`); los recorridos completos por la API; y
+  una prueba en vivo que encontró un fallo real (véase abajo).
+
+Decisiones: [ADR 0009](adr/0009-documentos-envio-y-acuse.md).
+
+**Dos fallos encontrados al probar, ya corregidos:**
+
+- Con un DNS que responde «no existe» a todo, el verificador daba por inexistente una
+  liga válida y **bloqueaba el envío**. Ahora, si el servidor no resuelve ningún dominio
+  testigo, la liga queda pendiente.
+- La consulta de recordatorios leía las columnas en otro orden y no encontraba a nadie.
+
+**Lo que este paso NO incluye:**
+
+- **Antivirus** (RF-DOC-05, prioridad S).
+- **Visor de PDF y reproductor integrados** (RF-DOC-08, prioridad S): paso 12. Exigirá
+  abrir la CSP para las rutas de archivos.
+- **Página de la postulación por folio** (`/postulaciones/{folio}`): paso 11. El correo
+  de acuse ya enlaza a ella.
+- **Reenvío tras subsanación** (acuse versión 2): paso 7. El envío ya numera las
+  versiones.
+- **Envío real del correo**, con su adjunto: paso 14.
+- **Descarga masiva en ZIP**: paso 9.
+- **Verificación periódica del acervo** (que cada archivo registrado exista y coincida)
+  y limpieza de archivos huérfanos: paso 10.
 
 ## Paso 5 — qué se entregó
 
@@ -320,3 +372,15 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     puede derivarse del número de integrantes. Confirmar si debe capturarse aparte.
 20. **Bases oficiales de las convocatorias.** El repositorio del 48º Foro no las trae;
     las de la plataforma son texto de demostración hasta que se entreguen.
+21. **El acuse imprime los países por su código** («MX») hasta que el backend tenga sus
+    nombres, y escribe sin diacrítico las letras que la fuente base no tiene («Dvořák» →
+    «Dvorák»). El texto exacto queda en el snapshot (ADR 0009, §7).
+22. **Una liga de video sólo bloquea el envío si la respuesta es inequívoca** (no existe,
+    o es privada). Lo dudoso queda «por comprobar» para el revisor. Y sólo se admiten
+    ligas en el puerto 443 (ADR 0009, §8).
+23. **Formato del folio:** `FIM49-INT-0137`, consecutivo por convocatoria, como el ejemplo
+    de la especificación.
+24. **Tope de 30 versiones por documento** y de **200 MB** por archivo (el máximo de cada
+    documento lo fija el administrador; por omisión, 100 MB para audio).
+25. **Formatos de audio:** WAV, FLAC y MP3 (RF-DOC-04). Confirmar si se necesitan otros
+    (AIFF, M4A, OGG).

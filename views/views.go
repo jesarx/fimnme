@@ -119,6 +119,12 @@ func (m *Motor) T(idioma, clave string, args ...any) string {
 	return m.textos.T(idioma, clave, args...)
 }
 
+// FechaHora formatea un instante en el idioma dado, en hora de la Ciudad de
+// México y con la zona explícita. Lo usan los trabajadores al armar correos.
+func (m *Motor) FechaHora(idioma string, momento time.Time) string {
+	return m.textos.FechaHora(idioma, momento)
+}
+
 // URLEstatico devuelve la URL de un archivo estático con la huella del
 // contenido. Al cambiar cualquier estático cambia la huella, y el navegador
 // descarga la versión nueva sin intervención.

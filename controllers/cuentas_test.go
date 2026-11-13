@@ -71,6 +71,7 @@ type entornoPrueba struct {
 	repo     *models.Repositorio
 	app      http.Handler
 	reloj    *relojDePrueba
+	red      *redDePrueba // la «Internet» que ve el verificador de ligas
 	clientes int
 }
 
@@ -83,11 +84,17 @@ func nuevoEntorno(t *testing.T) *entornoPrueba {
 	if err != nil {
 		t.Fatal(err)
 	}
+	red := &redDePrueba{estados: map[string]int{}}
+	almacen, err := models.AbrirAlmacenEnDisco(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	app := Nueva(Config{
-		Vistas: vistas, Datos: repo, Entorno: EntornoDesarrollo, URLBase: urlBasePrueba, Ahora: reloj.Ahora,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Vistas: vistas, Datos: repo, Entorno: EntornoDesarrollo, URLBase: urlBasePrueba, Ahora: reloj.Ahora, Almacen: almacen,
+		Enlaces: &VerificadorDeEnlaces{Cliente: &http.Client{Transport: red}},
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj}
+	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red}
 }
 
 // cliente imita a un navegador: recuerda sus cookies y tiene su propia IP.

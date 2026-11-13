@@ -19,7 +19,9 @@
 package models
 
 import (
+	"fmt"
 	"net/mail"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -1358,7 +1360,7 @@ func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usua
 
 	// 5. Documentos obligatorios.
 	tiene := func(clave string, obraID int64) bool {
-		return slices.ContainsFunc(p.Documentos, func(d DocumentoPresente) bool { return d.Clave == clave && d.ObraID == obraID })
+		return slices.ContainsFunc(p.Documentos, func(d Documento) bool { return d.Clave == clave && d.ObraID == obraID })
 	}
 	exigir := func(dotacionID, obraID int64, ambito AmbitoRequisito) {
 		for _, requisito := range RequisitosAplicables(cfg.Requisitos, dotacionID) {
@@ -1381,4 +1383,378 @@ func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usua
 		agregar(SeccionEnvio, "cuenta.email", 0, "bloqueo.correo_sin_verificar")
 	}
 	return bloqueadores
+}
+
+// --- Documentos y archivos (§5.4) ---------------------------------------------
+
+const (
+	// TamanoCabeceraMIME son los primeros bytes de un archivo que bastan para
+	// reconocer su formato por la firma.
+	TamanoCabeceraMIME = 512
+	// MaxVersionesDeDocumento acota cuántas veces puede reemplazarse un mismo
+	// documento. Como nada se borra, sin tope una cuenta podría llenar el
+	// disco subiendo una y otra vez el mismo requisito.
+	MaxVersionesDeDocumento = 30
+	// Topes de los archivos públicos de una convocatoria (RF-CONV-02).
+	TamanoMaxBasesPDF = 20 << 20 // 20 MiB
+	TamanoMaxImagen   = 5 << 20  // 5 MiB
+)
+
+// extensionesDeMIME son las extensiones con que puede llegar cada formato
+// admitido. La primera es la que se usa al nombrar una descarga.
+var extensionesDeMIME = map[string][]string{
+	"application/pdf": {".pdf"},
+	"image/jpeg":      {".jpg", ".jpeg"},
+	"image/png":       {".png"},
+	"audio/wav":       {".wav"},
+	"audio/flac":      {".flac"},
+	"audio/mpeg":      {".mp3"},
+}
+
+// DetectarMIME reconoce el formato de un archivo por su firma: los primeros
+// bytes de su contenido (RF-DOC-01). No mira el nombre ni lo que el navegador
+// diga: una extensión se cambia en un segundo. Devuelve "" si el contenido no
+// es de ninguno de los formatos de MimesAdmitidos.
+func DetectarMIME(cabecera []byte) string {
+	empieza := func(firma string) bool { return strings.HasPrefix(string(cabecera), firma) }
+	switch {
+	case empieza("%PDF-"):
+		return "application/pdf"
+	case empieza("\xFF\xD8\xFF"):
+		return "image/jpeg"
+	case empieza("\x89PNG\r\n\x1a\n"):
+		return "image/png"
+	case empieza("RIFF") && len(cabecera) >= 12 && string(cabecera[8:12]) == "WAVE":
+		return "audio/wav"
+	case empieza("fLaC"):
+		return "audio/flac"
+	case empieza("ID3"):
+		return "audio/mpeg" // MP3 con etiqueta ID3v2 al inicio
+	}
+	// MP3 sin etiqueta: empieza por la cabecera de un cuadro MPEG. Son 11 bits
+	// de sincronía a 1; la versión, la capa y la tasa de bits no pueden tener
+	// sus valores reservados.
+	if len(cabecera) >= 3 && cabecera[0] == 0xFF && cabecera[1]&0xE0 == 0xE0 &&
+		cabecera[1]&0x18 != 0x08 && cabecera[1]&0x06 != 0 && cabecera[2]&0xF0 != 0xF0 {
+		return "audio/mpeg"
+	}
+	return ""
+}
+
+// ExtensionDeMIME devuelve la extensión canónica de un formato admitido.
+func ExtensionDeMIME(mime string) string {
+	if extensiones := extensionesDeMIME[mime]; len(extensiones) > 0 {
+		return extensiones[0]
+	}
+	return ""
+}
+
+// extensionDe devuelve la extensión de un nombre de archivo, en minúsculas.
+func extensionDe(nombre string) string {
+	if i := strings.LastIndexByte(nombre, '.'); i >= 0 {
+		return strings.ToLower(nombre[i:])
+	}
+	return ""
+}
+
+// validarFormato comprueba un archivo contra los formatos y el tamaño que se
+// admiten para él: que su contenido sea de un formato permitido, que la
+// extensión de su nombre corresponda a ese contenido y que no pese de más.
+func validarFormato(mimesPermitidos []string, tamanoMax int64, nombre, mime string, tamano int64) []ErrorCampo {
+	fallo := func(clave string) []ErrorCampo { return []ErrorCampo{{Campo: "archivo", Clave: clave}} }
+	switch {
+	case tamano == 0:
+		return fallo("error.archivo_vacio")
+	case tamano > tamanoMax:
+		return fallo("error.archivo_grande")
+	case mime == "":
+		return fallo("error.formato_no_reconocido")
+	case !slices.Contains(mimesPermitidos, mime):
+		return fallo("error.formato_no_admitido")
+	case !slices.Contains(extensionesDeMIME[mime], extensionDe(nombre)):
+		// Un PDF llamado «foto.jpg»: se rechaza para que el nombre no engañe
+		// a quien lo descargue.
+		return fallo("error.extension_no_coincide")
+	}
+	return nil
+}
+
+// ValidarArchivo comprueba un archivo recibido contra su requisito documental
+// (RF-DOC-01 y 04). mime es el detectado por DetectarMIME.
+func ValidarArchivo(rq RequisitoDocumental, nombre, mime string, tamano int64) []ErrorCampo {
+	return validarFormato(rq.MimesPermitidos, rq.TamanoMaxBytes, nombre, mime, tamano)
+}
+
+// RequisitoParaDocumento resuelve qué requisito cumple un documento que se
+// quiere subir, a partir de su clave y de la obra a la que pertenece.
+//
+// La regla efectiva depende de la dotación de la obra (RN-07): un mismo
+// «audio» puede ser opcional para un cuarteto y obligatorio para una obra
+// electroacústica, con formatos y tamaños distintos.
+func RequisitoParaDocumento(p Postulacion, cfg ConfiguracionConvocatoria, clave string, obraID int64) (RequisitoDocumental, []ErrorCampo) {
+	ambito, dotacionID := AmbitoPostulacion, int64(0)
+	if obraID != 0 {
+		posicion := slices.IndexFunc(p.Obras, func(o Obra) bool { return o.ID == obraID })
+		if posicion < 0 {
+			return RequisitoDocumental{}, []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+		}
+		ambito = AmbitoObra
+		// Sin dotación elegida valen las reglas generales (ParseInt da 0).
+		dotacionID, _ = strconv.ParseInt(p.Obras[posicion].Campos["obra.dotacion_id"], 10, 64)
+	}
+	for _, rq := range RequisitosAplicables(cfg.Requisitos, dotacionID) {
+		if rq.Clave == clave && rq.Ambito == ambito {
+			return rq, nil
+		}
+	}
+	return RequisitoDocumental{}, []ErrorCampo{{Campo: "clave", Clave: "error.requisito_inexistente"}}
+}
+
+// LugarDeNuevoDocumento decide qué hace una subida con los documentos que ya
+// hay para el mismo requisito: devuelve el que queda reemplazado, o nil si el
+// nuevo se añade.
+//
+//   - Si se indica reemplazaA, sustituye a ese documento.
+//   - Si el requisito admite un solo archivo y ya hay uno, lo sustituye: es lo
+//     que espera quien vuelve a subir su partitura.
+//   - Si admite varios y ya están todos, se rechaza: hay que decir cuál se
+//     reemplaza.
+//
+// versiones es cuántos documentos, vigentes o no, se han subido ya para ese
+// requisito.
+func LugarDeNuevoDocumento(rq RequisitoDocumental, vigentes []Documento, reemplazaA int64, versiones int) (*Documento, []ErrorCampo) {
+	if versiones >= MaxVersionesDeDocumento {
+		return nil, []ErrorCampo{{Campo: "archivo", Clave: "error.demasiadas_versiones"}}
+	}
+	if reemplazaA != 0 {
+		posicion := slices.IndexFunc(vigentes, func(d Documento) bool { return d.ID == reemplazaA })
+		if posicion < 0 {
+			return nil, []ErrorCampo{{Campo: "reemplaza", Clave: "error.documento_no_vigente"}}
+		}
+		return &vigentes[posicion], nil
+	}
+	if len(vigentes) < max(rq.MaxArchivos, 1) {
+		return nil, nil
+	}
+	if rq.MaxArchivos <= 1 {
+		return &vigentes[0], nil
+	}
+	return nil, []ErrorCampo{{Campo: "archivo", Clave: "error.demasiados_archivos"}}
+}
+
+// NombreDeDescarga arma el nombre con que se descarga un documento. Es
+// predecible —folio, requisito, obra y versión— y no usa el nombre que le
+// puso quien lo subió, que puede traer datos personales o caracteres
+// problemáticos. identificador es el folio, o «borrador-N» si aún no hay.
+func NombreDeDescarga(identificador string, d Documento, ordenDeObra int) string {
+	nombre := identificador + "_" + d.Clave
+	if ordenDeObra > 0 {
+		nombre += "_obra" + strconv.Itoa(ordenDeObra)
+	}
+	return nombre + "_v" + strconv.Itoa(d.Version) + ExtensionDeMIME(d.Archivo.MIME)
+}
+
+// ValidarArchivoDeConvocatoria comprueba un archivo público de la
+// convocatoria: las bases en PDF, una por idioma, o la imagen de cabecera
+// (RF-CONV-02).
+func ValidarArchivoDeConvocatoria(clase ClaseArchivoConvocatoria, nombre, mime string, tamano int64) []ErrorCampo {
+	switch clase {
+	case ArchivoBasesES, ArchivoBasesEN:
+		return validarFormato([]string{"application/pdf"}, TamanoMaxBasesPDF, nombre, mime, tamano)
+	case ArchivoImagen:
+		return validarFormato([]string{"image/jpeg", "image/png"}, TamanoMaxImagen, nombre, mime, tamano)
+	}
+	return []ErrorCampo{{Campo: "clase", Clave: "error.clase_de_archivo"}}
+}
+
+// --- Envío (§4.1) -------------------------------------------------------------
+
+// ValidarConfirmacionDeEnvio exige las dos declaraciones del envío
+// (RF-POST-10): que se entiende que es irreversible y que se aceptan las bases.
+func ValidarConfirmacionDeEnvio(c ConfirmacionEnvio) []ErrorCampo {
+	var errores []ErrorCampo
+	if !c.Confirmo {
+		errores = append(errores, ErrorCampo{Campo: "confirmo", Clave: "error.confirmar_envio"})
+	}
+	if !c.AceptoBases {
+		errores = append(errores, ErrorCampo{Campo: "acepto_bases", Clave: "error.aceptar_bases"})
+	}
+	return errores
+}
+
+// FolioDe arma el folio de una postulación: FIM49-INT-0137. Lleva el número de
+// la edición, la convocatoria y un consecutivo por convocatoria. Se asigna en
+// el primer envío y no cambia nunca (RN-13): es lo que se cita en un acta.
+func FolioDe(numeroDeEdicion int, tipo TipoConvocatoria, consecutivo int) string {
+	sigla := "INT"
+	if tipo == TipoCompositores {
+		sigla = "COM"
+	}
+	return fmt.Sprintf("FIM%d-%s-%04d", numeroDeEdicion, sigla, consecutivo)
+}
+
+// SnapshotDeEnvio congela la postulación tal como se envía (§4.1). Recoge
+// sólo lo que el formulario de la postulación define y los documentos
+// vigentes; los campos añadidos por extensión dinámica no entran (§7.6).
+func SnapshotDeEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usuario, folio string, version int, enviadaAt time.Time) SnapshotEnvio {
+	c := cfg.Convocatoria
+	formulario := FormularioDe(c.Tipo, p.Subcategoria)
+	// definidos copia sólo los campos del formulario que tienen valor.
+	definidos := func(definiciones []DefinicionCampo, valores map[string]string) map[string]string {
+		copia := make(map[string]string)
+		for _, def := range definiciones {
+			if valor := strings.TrimSpace(valores[def.Ruta]); valor != "" {
+				copia[def.Ruta] = valor
+			}
+		}
+		return copia
+	}
+	s := SnapshotEnvio{
+		Folio: folio, Version: version, EnviadaAt: enviadaAt.UTC().Format(formatoTiempo), Idioma: titular.Idioma,
+		Edicion:      SnapshotEdicion{Numero: c.Edicion.Numero, Anio: c.Edicion.Anio, NombreES: c.Edicion.NombreES, NombreEN: c.Edicion.NombreEN},
+		Convocatoria: SnapshotConvocatoria{ID: c.ID, Tipo: string(c.Tipo), TituloES: c.TituloES, TituloEN: c.TituloEN},
+		Subcategoria: string(p.Subcategoria),
+		Titular:      SnapshotTitular{Nombre: titular.Nombre, Apellidos: titular.Apellidos, Email: titular.Email},
+		Campos:       definidos(formulario.Campos, p.Campos),
+		Obras:        []SnapshotObra{},
+		Documentos:   []SnapshotDocumento{},
+	}
+	if s.Idioma != IdiomaEN {
+		s.Idioma = IdiomaES
+	}
+	for _, i := range p.Integrantes {
+		s.Integrantes = append(s.Integrantes, SnapshotIntegrante{Nombre: i.Nombre, Instrumento: i.Instrumento})
+	}
+	for _, v := range p.Videos {
+		s.Videos = append(s.Videos, SnapshotVideo{URL: v.URL, Estado: string(v.Estado), Plataforma: v.Plataforma})
+	}
+	for _, o := range p.Obras {
+		obra := SnapshotObra{ID: o.ID, Orden: o.Orden, Campos: definidos(formulario.CamposObra, o.Campos)}
+		dotacionID, _ := strconv.ParseInt(o.Campos["obra.dotacion_id"], 10, 64)
+		for _, d := range cfg.Dotaciones {
+			if d.ID == dotacionID && dotacionID != 0 {
+				obra.DotacionES, obra.DotacionEN = d.NombreES, d.NombreEN
+			}
+		}
+		s.Obras = append(s.Obras, obra)
+	}
+	etiquetas := make(map[string]RequisitoDocumental)
+	for _, rq := range cfg.Requisitos {
+		if _, visto := etiquetas[rq.Clave]; !visto || rq.DotacionID == 0 {
+			etiquetas[rq.Clave] = rq
+		}
+	}
+	for _, d := range p.Documentos {
+		rq := etiquetas[d.Clave]
+		s.Documentos = append(s.Documentos, SnapshotDocumento{
+			Clave: d.Clave, EtiquetaES: rq.EtiquetaES, EtiquetaEN: rq.EtiquetaEN, ObraID: d.ObraID, Version: d.Version,
+			SHA256: d.Archivo.SHA256, TamanoBytes: d.Archivo.TamanoBytes, MIME: d.Archivo.MIME,
+		})
+	}
+	return s
+}
+
+// --- Recordatorios de borrador (RF-NOT-04) ------------------------------------
+
+// plazosDeRecordatorio son los momentos, antes del cierre, en que se recuerda
+// a quien tiene un borrador sin enviar: 7 días, 2 días y 12 horas.
+var plazosDeRecordatorio = []time.Duration{7 * 24 * time.Hour, 48 * time.Hour, 12 * time.Hour}
+
+// VentanaDeRecordatorio indica si en este momento toca recordar un borrador
+// y, de ser así, desde cuándo corre el recordatorio vigente. Cada recordatorio
+// vale desde su plazo hasta el siguiente: si ya se envió un correo dentro de
+// esa ventana, no se repite. Un recordatorio cuya ventana pasó con el servicio
+// detenido no se envía tarde.
+func VentanaDeRecordatorio(termina, ahora time.Time) (inicio time.Time, toca bool) {
+	if !ahora.Before(termina) {
+		return time.Time{}, false // el plazo ya cerró: no hay nada que recordar
+	}
+	for i := len(plazosDeRecordatorio) - 1; i >= 0; i-- {
+		if inicio = termina.Add(-plazosDeRecordatorio[i]); !ahora.Before(inicio) {
+			return inicio, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// --- Comprobación de ligas en red (RF-DOC-10) ---------------------------------
+
+// redesNoPublicas son rangos que nunca deben visitarse al comprobar una liga
+// y que netip no clasifica por sí mismo: direcciones compartidas de operador,
+// de documentación, de pruebas y reservadas.
+var redesNoPublicas = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"), netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("198.18.0.0/15"), netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("2001:db8::/32"),
+}
+
+// DireccionPublica indica si una dirección IP es de Internet abierto. La
+// comprobación de ligas hace que el servidor visite direcciones escritas por
+// cualquiera; sin este filtro, una «liga de video» como https://127.0.0.1/ o
+// https://10.0.0.5/ serviría para sondear la red interna del servidor (SSRF).
+func DireccionPublica(ip netip.Addr) bool {
+	ip = ip.Unmap() // una IPv4 escrita como IPv6 (::ffff:10.0.0.1) es la misma IPv4
+	if !ip.IsValid() || ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
+		return false
+	}
+	for _, red := range redesNoPublicas {
+		if red.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+// ConsultaOEmbed devuelve la dirección con que se pregunta a la plataforma de
+// una liga si el recurso existe y es público, o "" si la plataforma no ofrece
+// esa consulta. oEmbed distingue lo que una petición simple no puede: un video
+// privado de YouTube responde 200 con una página de error.
+func ConsultaOEmbed(liga string) string {
+	consulta := url.QueryEscape(liga)
+	switch PlataformaDeVideo(liga) {
+	case "youtube":
+		return "https://www.youtube.com/oembed?format=json&url=" + consulta
+	case "vimeo":
+		return "https://vimeo.com/api/oembed.json?url=" + consulta
+	case "soundcloud":
+		return "https://soundcloud.com/oembed?format=json&url=" + consulta
+	}
+	return ""
+}
+
+// Detalles del resultado de comprobar una liga. Son códigos, no textos: la
+// vista los traduce («enlace.detalle.<código>»).
+const (
+	DetalleEnlaceOK             = "ok"
+	DetalleEnlaceNoEncontrado   = "no_encontrado"
+	DetalleEnlaceRequiereAcceso = "requiere_acceso"
+	DetalleEnlaceDominio        = "dominio_inexistente"
+	DetalleEnlaceDireccion      = "direccion_no_permitida"
+	DetalleEnlaceNoComprobable  = "no_comprobable"
+)
+
+// ClasificarEnlace convierte la respuesta HTTP de una comprobación en el
+// estado de la liga. porOEmbed indica que se preguntó a la plataforma y no al
+// recurso; pideIngreso, que la respuesta fue una redirección a una pantalla de
+// inicio de sesión.
+//
+// Sólo se da por mala una liga cuando la respuesta es inequívoca (no existe,
+// o exige acceso). Todo lo dudoso —un 403 a un programa, un error del
+// servidor— queda «pendiente»: la comprobación automática es un semáforo para
+// el revisor, no un veredicto, y un falso negativo no debe impedir un envío.
+func ClasificarEnlace(porOEmbed bool, estadoHTTP int, pideIngreso bool) ResultadoEnlace {
+	r := ResultadoEnlace{Estado: EnlacePendiente, HTTPStatus: estadoHTTP, Detalle: DetalleEnlaceNoComprobable}
+	switch {
+	case pideIngreso:
+		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
+	case estadoHTTP >= 200 && estadoHTTP < 300:
+		r.Estado, r.Detalle = EnlaceOK, DetalleEnlaceOK
+	case estadoHTTP == 404 || estadoHTTP == 410, porOEmbed && estadoHTTP == 400:
+		r.Estado, r.Detalle = EnlaceInaccesible, DetalleEnlaceNoEncontrado
+	case estadoHTTP == 401, porOEmbed && estadoHTTP == 403:
+		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
+	}
+	return r
 }

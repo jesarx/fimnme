@@ -38,11 +38,12 @@ import (
 
 // etiquetas devuelve la función que traduce la ruta de un campo o de una
 // sección a su etiqueta, en el idioma de la petición. Las rutas de campo
-// viven bajo «campo.» y las de sección ya vienen completas («seccion.datos»).
+// viven bajo «campo.»; las de sección («seccion.datos») y las del estado de
+// una liga («enlace.estado.ok») ya vienen completas.
 func (a *App) etiquetas(r *http.Request) func(string) string {
 	idioma := idiomaDe(r)
 	return func(ruta string) string {
-		if strings.HasPrefix(ruta, "seccion.") {
+		if strings.HasPrefix(ruta, "seccion.") || strings.HasPrefix(ruta, "enlace.") {
 			return a.vistas.T(idioma, ruta)
 		}
 		return a.vistas.T(idioma, "campo."+ruta)

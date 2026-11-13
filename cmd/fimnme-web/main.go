@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -161,8 +162,19 @@ func main() {
 			"consecuencia", "sólo servirán desde esta misma máquina")
 	}
 
+	// Almacén de archivos: los documentos y los acuses viven en disco, junto
+	// a la base, direccionados por su SHA-256.
+	almacen, err := models.AbrirAlmacenEnDisco(filepath.Join(dirDatos, "blobs"))
+	if err != nil {
+		log.Error("no se pudo abrir el almacén de archivos", "error", err)
+		repositorio.Cerrar()
+		os.Exit(1)
+	}
+	verificador := controllers.NuevoVerificadorDeEnlaces()
+
 	app := controllers.Nueva(controllers.Config{
 		Vistas: vistas, Datos: repositorio, Entorno: modo, Log: log, URLBase: urlBase,
+		Almacen: almacen, Enlaces: verificador,
 	})
 
 	// Transporte de correo. Aún no existe el SMTP propio (paso 14 del plan):
@@ -178,7 +190,8 @@ func main() {
 		Addr:    net.JoinHostPort(ip, puerto),
 		Handler: app.Manejador(),
 		// Plazos que impiden que conexiones lentas o abandonadas retengan
-		// recursos. Se revisarán al implementar la subida de archivos grandes.
+		// recursos. La subida de archivos, que puede tardar mucho más, amplía
+		// los suyos petición por petición (controllers/documentos.go).
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -194,15 +207,11 @@ func main() {
 	// Trabajadores internos: se detienen con la misma señal que el servidor.
 	var trabajadores sync.WaitGroup
 	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
-	trabajadores.Add(2)
-	go func() {
-		defer trabajadores.Done()
-		trabajador.Ejecutar(ctx)
-	}()
-	go func() {
-		defer trabajadores.Done()
-		etapas.Ejecutar(ctx)
-	}()
+	enlaces := &controllers.TrabajadorEnlaces{Datos: repositorio, Verificador: verificador, Log: log}
+	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
+	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar} {
+		trabajadores.Go(func() { ejecutar(ctx) })
+	}
 
 	errServidor := make(chan error, 1)
 	go func() {

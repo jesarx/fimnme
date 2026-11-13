@@ -50,6 +50,11 @@ type Config struct {
 	// configuración y NUNCA de la cabecera Host de la petición, que el
 	// visitante controla.
 	URLBase string
+	// Almacen guarda el contenido de los documentos y de los acuses.
+	Almacen models.BlobStore
+	// Enlaces comprueba en red las ligas de video antes de un envío. Con nil
+	// no se comprueban: quedan «pendientes» para el revisor.
+	Enlaces *VerificadorDeEnlaces
 	// Ahora es el reloj; nil usa el del sistema. Las pruebas lo sustituyen.
 	Ahora func() time.Time
 }
@@ -62,6 +67,8 @@ type App struct {
 	entorno  string
 	log      *slog.Logger
 	urlBase  string
+	almacen  models.BlobStore
+	enlaces  *VerificadorDeEnlaces
 	ahora    func() time.Time
 	limiteIP *limitador // intentos por IP sobre los formularios de cuenta
 }
@@ -78,6 +85,8 @@ func Nueva(c Config) *App {
 		entorno:  c.Entorno,
 		log:      c.Log,
 		urlBase:  strings.TrimRight(c.URLBase, "/"),
+		almacen:  c.Almacen,
+		enlaces:  c.Enlaces,
 		ahora:    ahora,
 		limiteIP: nuevoLimitador(intentosPorMinuto, ahora),
 	}
@@ -95,6 +104,8 @@ func (a *App) Manejador() http.Handler {
 	// Páginas públicas.
 	mux.HandleFunc("GET /{$}", a.inicio)
 	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}", a.convocatoria)
+	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}/bases.pdf", a.basesPDF)
+	mux.HandleFunc("GET /convocatorias/{edicion}/{tipo}/imagen", a.imagenDeConvocatoria)
 	mux.HandleFunc("GET /aviso-de-privacidad", a.avisoPrivacidad)
 
 	// Cuenta sin sesión: registro, ingreso y enlaces de un solo uso.
@@ -203,6 +214,17 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"PUT", "/api/v1/postulaciones/{id}/obras/orden", a.conSesion(a.apiOrdenarObras)},
 		{"PATCH", "/api/v1/obras/{id}", a.conSesion(a.apiGuardarObra)},
 		{"DELETE", "/api/v1/obras/{id}", a.conSesion(a.apiBorrarObra)},
+
+		// Documentos, envío y acuse.
+		{"POST", "/api/v1/postulaciones/{id}/documentos", a.conSesion(a.apiSubirDocumento)},
+		{"DELETE", "/api/v1/documentos/{id}", a.conSesion(a.apiQuitarDocumento)},
+		{"GET", "/api/v1/documentos/{id}/archivo", a.conSesion(a.apiDescargarDocumento)},
+		{"POST", "/api/v1/postulaciones/{id}/envio", a.conSesion(a.apiEnviarPostulacion)},
+		{"GET", "/api/v1/postulaciones/{id}/acuses/{version}", a.conSesion(a.apiDescargarAcuse)},
+
+		// Archivos públicos de una convocatoria: bases en PDF e imagen.
+		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
+		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},
 	}
 }
 

@@ -111,6 +111,30 @@ type Persistencia interface {
 	DefinirIntegrantes(ctx context.Context, usuarioID, postulacionID int64, integrantes []Integrante) error
 	DefinirVideos(ctx context.Context, usuarioID, postulacionID int64, ligas []string) error
 	CambiarSubcategoria(ctx context.Context, actor Actor, usuarioID, postulacionID int64, sub Subcategoria) error
+
+	// Documentos, envío y acuses. El contenido de los archivos vive en el
+	// BlobStore; aquí sólo se guardan sus metadatos.
+	RegistrarDocumento(ctx context.Context, actor Actor, usuarioID, postulacionID int64, n NuevoDocumento) (Documento, error)
+	QuitarDocumento(ctx context.Context, actor Actor, usuarioID, documentoID int64) (int64, error)
+	DocumentoPorID(ctx context.Context, id int64) (Documento, error)
+	AcusePorVersion(ctx context.Context, postulacionID int64, version int) (Acuse, error)
+	RegistrarDescarga(ctx context.Context, actor Actor, postulacionID, documentoID int64, archivo Archivo) error
+	EnviarPostulacion(ctx context.Context, actor Actor, usuarioID, postulacionID int64,
+		confirmacion ConfirmacionEnvio, componer func(SnapshotEnvio) (AcuseCompuesto, error)) error
+
+	// Comprobación en red de las ligas de video.
+	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)
+	EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error)
+	AnotarVerificacionDeEnlace(ctx context.Context, enlace EnlacePorVerificar, resultado ResultadoEnlace) error
+
+	// Recordatorios de borrador sin enviar.
+	BorradoresPorRecordar(ctx context.Context) ([]RecordatorioDeBorrador, error)
+	EncolarRecordatorio(ctx context.Context, rec RecordatorioDeBorrador, correo CorreoSaliente) (bool, error)
+
+	// Archivos públicos de una convocatoria: bases en PDF e imagen de cabecera.
+	ArchivosDeConvocatoria(ctx context.Context, convocatoriaID int64) (map[ClaseArchivoConvocatoria]Archivo, error)
+	FijarArchivoDeConvocatoria(ctx context.Context, actor Actor, convocatoriaID int64,
+		clase ClaseArchivoConvocatoria, blob Blob, mime, nombreOriginal string) error
 }
 
 // Comprobación en tiempo de compilación: si a *Repositorio le falta un método

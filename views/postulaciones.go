@@ -19,6 +19,8 @@
 package views
 
 import (
+	"strconv"
+
 	"github.com/jesarx/fimnme/models"
 )
 
@@ -114,7 +116,12 @@ func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria,
 	}
 	videos := make([]map[string]string, 0, len(p.Videos))
 	for _, v := range p.Videos {
-		videos = append(videos, map[string]string{"url": v.URL, "estado": string(v.Estado), "plataforma": v.Plataforma})
+		video := map[string]string{"url": v.URL, "estado": string(v.Estado), "plataforma": v.Plataforma,
+			"estado_texto": etiqueta("enlace.estado." + string(v.Estado))}
+		if v.Detalle != "" {
+			video["detalle"] = etiqueta("enlace.detalle." + v.Detalle)
+		}
+		videos = append(videos, video)
 	}
 	obras := make([]map[string]any, 0, len(p.Obras))
 	for _, o := range p.Obras {
@@ -127,6 +134,41 @@ func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria,
 			dotaciones = append(dotaciones, map[string]any{"id": d.ID, "nombre_es": d.NombreES, "nombre_en": d.NombreEN,
 				"descripcion_es": d.DescripcionES, "descripcion_en": d.DescripcionEN})
 		}
+	}
+
+	// Documentos: qué se pide (para la postulación y para cada obra, según su
+	// dotación) y qué se ha entregado.
+	identificador := p.Folio
+	if identificador == "" {
+		identificador = "borrador-" + strconv.FormatInt(p.ID, 10)
+	}
+	ordenDeObra := make(map[int64]int)
+	requisitos := requisitosJSON(cfg.Requisitos, 0, models.AmbitoPostulacion, nil)
+	for _, o := range p.Obras {
+		ordenDeObra[o.ID] = o.Orden
+		dotacionID, _ := strconv.ParseInt(o.Campos["obra.dotacion_id"], 10, 64)
+		obraID := o.ID
+		requisitos = append(requisitos, requisitosJSON(cfg.Requisitos, dotacionID, models.AmbitoObra, &obraID)...)
+	}
+	documentos := make([]map[string]any, 0, len(p.Documentos))
+	for _, d := range p.Documentos {
+		var obraID any
+		if d.ObraID != 0 {
+			obraID = d.ObraID
+		}
+		documentos = append(documentos, map[string]any{
+			"id": d.ID, "clave": d.Clave, "obra_id": obraID, "version": d.Version, "dictamen": d.Dictamen,
+			"nombre": models.NombreDeDescarga(identificador, d, ordenDeObra[d.ObraID]),
+			"mime":   d.Archivo.MIME, "tamano_bytes": d.Archivo.TamanoBytes, "sha256": d.Archivo.SHA256,
+			"subido_at": marcaJSON(d.SubidoAt),
+		})
+	}
+	acuses := make([]map[string]any, 0, len(p.Acuses))
+	for _, ac := range p.Acuses {
+		acuses = append(acuses, map[string]any{
+			"version": ac.Version, "idioma": ac.Idioma, "generado_at": marcaJSON(ac.GeneradoAt),
+			"tamano_bytes": ac.Archivo.TamanoBytes, "sha256": ac.Archivo.SHA256,
+		})
 	}
 
 	if bloqueadores == nil {
@@ -157,10 +199,33 @@ func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria,
 		"convocatoria": convocatoriaDePostulacion(cfg.Convocatoria),
 		"campos":       valores(formulario.Campos, p.Campos),
 		"integrantes":  integrantes, "videos": videos, "obras": obras,
+		"requisitos": requisitos, "documentos": documentos, "acuses": acuses,
 		"dotaciones": dotaciones,
 		"definicion": DefinicionJSON(formulario, etiqueta),
 		"secciones":  secciones, "bloqueadores": bloqueadores, "lista_para_enviar": len(bloqueadores) == 0,
 	}
+}
+
+// requisitosJSON describe los documentos que se piden en un ámbito: a la
+// postulación (obraID nil) o a una obra, según la dotación de ésta. Trae los
+// dos idiomas de cada etiqueta, como el resto del contenido editorial.
+func requisitosJSON(todos []models.RequisitoDocumental, dotacionID int64, ambito models.AmbitoRequisito, obraID *int64) []map[string]any {
+	lista := []map[string]any{}
+	for _, rq := range models.RequisitosAplicables(todos, dotacionID) {
+		if rq.Ambito != ambito {
+			continue
+		}
+		mimes := rq.MimesPermitidos
+		if mimes == nil {
+			mimes = []string{}
+		}
+		lista = append(lista, map[string]any{
+			"clave": rq.Clave, "obra_id": obraID, "etiqueta_es": rq.EtiquetaES, "etiqueta_en": rq.EtiquetaEN,
+			"ayuda_es": rq.AyudaES, "ayuda_en": rq.AyudaEN, "obligatorio": rq.Obligatorio,
+			"mimes_permitidos": mimes, "tamano_max_bytes": rq.TamanoMaxBytes, "max_archivos": rq.MaxArchivos,
+		})
+	}
+	return lista
 }
 
 // PostulacionesJSON es el historial de postulaciones de una cuenta.

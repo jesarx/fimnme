@@ -19,11 +19,15 @@
 package views
 
 import (
+	"bytes"
+	"compress/zlib"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -311,5 +315,126 @@ func TestCSV(t *testing.T) {
 	if w.Header().Get("Content-Type") != "text/csv; charset=utf-8" ||
 		!strings.Contains(w.Header().Get("Content-Disposition"), `filename="reporte.csv"`) {
 		t.Errorf("cabeceras incorrectas: %v", w.Header())
+	}
+}
+
+// snapshotDePrueba es un envío de Compositores con dos obras y sus documentos.
+func snapshotDePrueba(idioma string) models.SnapshotEnvio {
+	obra := func(id int64, orden int, dotacion string) models.SnapshotObra {
+		return models.SnapshotObra{ID: id, Orden: orden, DotacionES: dotacion, DotacionEN: "String quartet", Campos: map[string]string{
+			"obra.titulo": "Estudio n.º " + strconv.Itoa(orden), "obra.duracion_min": "9", "obra.estreno": "estreno_mundial",
+			"obra.nota_obra": strings.Repeat("Nota de la obra. ", 40),
+		}}
+	}
+	return models.SnapshotEnvio{
+		Folio: "FIM49-COM-0007", Version: 1, EnviadaAt: "2027-01-30T05:30:00Z", Idioma: idioma,
+		Edicion:      models.SnapshotEdicion{Numero: 49, Anio: 2027, NombreES: "Edición 49 · 2027", NombreEN: "49th Edition · 2027"},
+		Convocatoria: models.SnapshotConvocatoria{ID: 2, Tipo: "compositores", TituloES: "Convocatoria de Compositores", TituloEN: "Call for Composers"},
+		Titular:      models.SnapshotTitular{Nombre: "Eva", Apellidos: "Paz", Email: "eva@ejemplo.mx"},
+		Campos: map[string]string{
+			"datos.nombre_completo": "Eva Paz Dvořák", "datos.genero": "mujer", "datos.pais_residencia": "MX",
+			"datos.entidad_residencia": "JAL", "datos.semblanza": strings.Repeat("Semblanza de la compositora. ", 30),
+		},
+		Obras: []models.SnapshotObra{obra(10, 1, "Cuarteto de cuerdas"), obra(11, 2, "Medios electrónicos fijos")},
+		Documentos: []models.SnapshotDocumento{
+			{Clave: "fotografia", EtiquetaES: "Fotografía", EtiquetaEN: "Photograph", Version: 1, SHA256: strings.Repeat("ab", 32), TamanoBytes: 812 << 10, MIME: "image/jpeg"},
+			{Clave: "partitura", EtiquetaES: "Partitura", EtiquetaEN: "Score", ObraID: 11, Version: 3, SHA256: strings.Repeat("cd", 32), TamanoBytes: 4500000, MIME: "application/pdf"},
+		},
+	}
+}
+
+// textoDelPDF descomprime las páginas de un PDF del paquete internal/pdf.
+func textoDelPDF(t *testing.T, archivo []byte) string {
+	t.Helper()
+	var texto strings.Builder
+	for _, flujo := range regexp.MustCompile(`(?s)stream\n(.*?)\nendstream`).FindAllSubmatch(archivo, -1) {
+		lector, err := zlib.NewReader(bytes.NewReader(flujo[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		contenido, err := io.ReadAll(lector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		texto.Write(contenido)
+	}
+	return texto.String()
+}
+
+// El acuse lleva todo lo que pide RF-PDF-01, en el idioma del postulante, y
+// se compone sólo del snapshot: siempre sale igual.
+func TestAcusePDF(t *testing.T) {
+	m, err := Nuevo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acuse, err := m.AcusePDF(snapshotDePrueba("es"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(acuse, []byte("%PDF-1.4")) {
+		t.Fatal("el acuse no es un PDF")
+	}
+	// RF-PDF-02: objetivo, menos de 100 KB. Un acuse típico pesa unos pocos KB.
+	if len(acuse) > 20<<10 {
+		t.Errorf("el acuse pesa %d bytes", len(acuse))
+	}
+	otro, _ := m.AcusePDF(snapshotDePrueba("es"))
+	if !bytes.Equal(acuse, otro) {
+		t.Error("el mismo snapshot debe producir el mismo acuse, byte por byte")
+	}
+	texto := textoDelPDF(t, acuse)
+	for _, fragmento := range []string{
+		"(Acuse de recibo) Tj", "(FIM49-COM-0007) Tj", "(Edici\xF3n 49 \xB7 2027) Tj", "(Convocatoria de Compositores) Tj",
+		// La hora de envío, en la Ciudad de México (UTC−6) y en UTC.
+		"29 de enero de 2027, 23:30 h", "2027-01-30 05:30 UTC",
+		"(Eva Paz \xB7 eva@ejemplo.mx) Tj",
+		"(Eva Paz Dvor\xE1k) Tj", "(Mujer) Tj", "(Jalisco) Tj", // opción y entidad, por su nombre
+		"(Obra 1) Tj", "(Obra 2) Tj", "(Estudio n.\xBA 2) Tj", "(Estreno mundial) Tj", "(Medios electr\xF3nicos fijos) Tj",
+		"(Fotograf\xEDa) Tj", "(Versi\xF3n 1 \xB7 812 KB \xB7 SHA-256 abababababab\x85) Tj",
+		"(Partitura \xB7 obra 2) Tj", "(Versi\xF3n 3 \xB7 4.3 MB \xB7 SHA-256 cdcdcdcdcdcd\x85) Tj",
+		"No implica que los documentos hayan sido validados",
+		"(FIM49-COM-0007 \xB7 Acuse de recibo, versi\xF3n 1) Tj", "(P\xE1gina 1 de ",
+	} {
+		if !strings.Contains(texto, fragmento) {
+			t.Errorf("falta en el acuse: %q", fragmento)
+		}
+	}
+	// De la suma sólo van los primeros 12 caracteres; nunca la clave de una
+	// opción ni la de una traducción sin resolver.
+	for _, prohibido := range []string{strings.Repeat("ab", 32), "estreno_mundial", "(mujer)", "acuse.", "campo.", "opcion."} {
+		if strings.Contains(texto, prohibido) {
+			t.Errorf("no debe aparecer en el acuse: %q", prohibido)
+		}
+	}
+
+	// En inglés.
+	ingles, err := m.AcusePDF(snapshotDePrueba("en"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	texto = textoDelPDF(t, ingles)
+	for _, fragmento := range []string{"(Acknowledgement of receipt) Tj", "(Call for Composers) Tj", "(49th Edition \xB7 2027) Tj",
+		"(Woman) Tj", "(World premiere) Tj", "(Score \xB7 work 2) Tj", "(String quartet) Tj", "(Page 1 of ", "January 29, 2027"} {
+		if !strings.Contains(texto, fragmento) {
+			t.Errorf("falta en el acuse en inglés: %q", fragmento)
+		}
+	}
+
+	// Un programa de cuarenta obras sigue muy por debajo del objetivo.
+	grande := snapshotDePrueba("es")
+	for i := 3; i <= 40; i++ {
+		obra := grande.Obras[0]
+		obra.ID, obra.Orden = int64(100+i), i
+		grande.Obras = append(grande.Obras, obra)
+	}
+	if acuse, err := m.AcusePDF(grande); err != nil || len(acuse) > 100<<10 {
+		t.Errorf("acuse de 40 obras: %d bytes (%v)", len(acuse), err)
+	}
+	// Un snapshot con la fecha dañada se rechaza en vez de inventar una.
+	roto := snapshotDePrueba("es")
+	roto.EnviadaAt = "ayer"
+	if _, err := m.AcusePDF(roto); err == nil {
+		t.Error("un snapshot con fecha inválida debe dar error")
 	}
 }
