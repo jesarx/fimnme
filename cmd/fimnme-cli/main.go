@@ -193,5 +193,12 @@ func migrar(ctx context.Context, repositorio *models.Repositorio) error {
 	if len(aplicadas) == 0 {
 		fmt.Println("El esquema ya está al día; no había migraciones pendientes.")
 	}
+	// El índice de búsqueda se deriva de las postulaciones: se rehace en
+	// cada migración, por si esta versión indexa algo que la anterior no.
+	indexadas, err := repositorio.ReconstruirIndiceDeBusqueda(ctx)
+	if err != nil {
+		return fmt.Errorf("reconstruir el índice de búsqueda: %w", err)
+	}
+	fmt.Printf("Índice de búsqueda reconstruido: %d postulaciones.\n", indexadas)
 	return nil
 }

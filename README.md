@@ -19,8 +19,14 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 8 de 14: evaluación por jurado.** Hoy el sistema tiene:
+**Paso 9a de 14: archivo, búsqueda y descargas masivas.** Hoy el sistema tiene:
 
+- **Archivo histórico por API**: un solo listado para todas las ediciones, con **búsqueda
+  de texto completo** (sin acentos, por inicio de palabra y por fragmento), filtros
+  combinables en la URL, orden, paginación, **CSV** del resultado, vistas guardadas y
+  **enlace permanente por folio**. Lo que cada perfil ve no caduca.
+- **Descarga masiva en ZIP**, armada en segundo plano: por los mismos filtros, eligiendo
+  qué tipos de documento, con carpetas por folio y `manifiesto.csv`. Queda registrada.
 - **Evaluación por API** (para el jurado): lista de trabajo con su avance, calificación
   por criterios en borrador o enviada, y congelación al cierre. **Un jurado nunca ve lo de
   otro**: el aislamiento es estructural y lo vigila una prueba que barre todos los
@@ -332,6 +338,58 @@ curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: applicati
 Decisiones de este módulo, y cómo se garantiza el aislamiento entre jurados:
 [ADR 0011](docs/adr/0011-evaluacion-por-jurado.md).
 
+### API del archivo, búsqueda y descargas masivas
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/archivo` | Supervisión; revisores y jurados (sólo lo suyo) | Listado de postulaciones de todas las ediciones. Con `formato=csv`, el resultado completo |
+| `GET /api/v1/folios/{folio}` | Quien pueda ver la postulación | La postulación de un folio: el enlace permanente |
+| `GET` · `POST /api/v1/vistas` | Cualquier cuenta | Vistas guardadas: `nombre` y `ruta` (del propio sitio) |
+| `DELETE /api/v1/vistas/{id}` | La cuenta que la guardó | Borra una vista |
+| `POST /api/v1/exportaciones` | Supervisión y revisores; el postulante, sólo su postulación | Pide un ZIP de documentos. Responde `202`: se arma en segundo plano |
+| `GET /api/v1/exportaciones/{id}` | Quien la pidió | Estado: `encolado`, `procesando`, `listo` o `error` |
+| `GET /api/v1/exportaciones/{id}/archivo` | Quien la pidió | Baja el ZIP. Vale 7 días; cada descarga queda registrada |
+
+Parámetros del listado, todos opcionales y combinables:
+
+| Parámetro | Filtra por |
+|---|---|
+| `q` | Texto: folio, nombres, nombre artístico, ensamble, integrantes, títulos de obra, compositores y correos |
+| `edicion`, `convocatoria`, `tipo`, `subcategoria`, `estado` | Número de edición, id de convocatoria, `interpretes` / `compositores`, `solista` / `ensamble`, estado |
+| `dotacion`, `estreno` | Alguna de sus obras tiene esa dotación (id) o ese tipo de estreno |
+| `entidad_residencia`, `entidad_concierto`, `nacionalidad`, `pais`, `genero` | Datos generales y propuesta de concierto |
+| `enviada_desde`, `enviada_hasta` | Fecha de envío (`AAAA-MM-DD`, hora de México, o instante ISO-8601) |
+| `con_subsanaciones`, `documentos_pendientes`, `ligas_con_problema` | `si` o `no` |
+| `dictamen` | Resultado del proceso. Sólo surte efecto para la supervisión |
+| `ids` | Selección a mano: `ids=3,8,21` |
+| `orden` | `folio`, `nombre`, `enviada`, `estado`, `obras` o `duracion`; con `-` delante, descendente |
+| `pagina`, `tamano` | Página (desde 1) y tamaño (50 por omisión, 200 como máximo) |
+
+La descarga masiva toma **esos mismos parámetros**, más `tipos` (claves de documento
+separadas por coma) y `postulacion` (una sola, por id). El ZIP trae los documentos vigentes
+de lo que el listado mostraría:
+
+```
+FIM49-COM-0007_Maria_Nunez/fotografia.jpg
+FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/partitura.pdf
+FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/particellas.pdf
+manifiesto.csv
+```
+
+```bash
+curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/archivo?q=nunez&tipo=compositores&orden=-enviada'
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST 'http://127.0.0.1:8080/api/v1/exportaciones?convocatoria=2&tipos=partitura,particellas'
+```
+
+```bash
+curl -b cookies.txt -o documentos.zip http://127.0.0.1:8080/api/v1/exportaciones/1/archivo
+```
+
+Decisiones de este módulo: [ADR 0012](docs/adr/0012-archivo-busqueda-y-descargas-masivas.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -375,6 +433,7 @@ controllers/        CONTROLADOR
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados
+  archivo.go          archivo histórico, vistas guardadas y descargas masivas
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
@@ -388,6 +447,7 @@ views/              VISTA (todo incrustado con //go:embed)
   acuse.go            acuse de recibo en PDF, compuesto desde el snapshot
   revision.go         respuestas JSON de la revisión y la subsanación
   evaluacion.go       respuestas JSON del jurado y de la matriz
+  archivo.go          listado del archivo, su CSV y el manifiesto de los ZIP
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos
@@ -620,6 +680,9 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 `/var/lib/fimnme` contiene **la base** (`fimnme.db` y sus archivos `-wal` y `-shm`) y **el
 acervo de archivos** (`blobs/`): las partituras, el audio, las fotografías y los acuses.
 Una cosa sin la otra no sirve: se respaldan siempre juntas.
+
+El directorio `exportaciones/` guarda los ZIP de las descargas masivas durante siete días.
+**No hace falta respaldarlo**: son copias de lo que ya está en `blobs/`.
 
 Los respaldos automatizados y el servidor espejo llegan en los pasos 10 y 14. Mientras
 tanto, para copiar los datos **sin riesgo de corrupción** detenga el servicio y copie el

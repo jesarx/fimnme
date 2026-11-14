@@ -408,5 +408,11 @@
   "error.criterio_inexistente": "Ese criterio no existe en esta convocatoria.",
   "error.puntaje_fuera_de_escala": "El puntaje está fuera de la escala del criterio.",
   "error.puntaje_requerido": "Falta el puntaje de este criterio.",
-  "error.excusa_vigente": "Te excusaste de evaluar esta unidad. Retira la excusa antes de calificarla."
+  "error.excusa_vigente": "Te excusaste de evaluar esta unidad. Retira la excusa antes de calificarla.",
+  "error.filtro_invalido": "El valor de este filtro no es válido.",
+  "error.nombre_de_vista": "La vista necesita un nombre de hasta 100 caracteres.",
+  "error.ruta_de_vista": "La vista debe apuntar a una dirección de este sitio.",
+  "error.demasiadas_vistas": "Ya tienes el máximo de vistas guardadas.",
+  "api.exportacion_no_lista": "La descarga aún no está lista.",
+  "api.exportacion_vencida": "El enlace de esta descarga ya venció. Vuelve a pedirla."
 }

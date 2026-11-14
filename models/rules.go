@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -2371,4 +2372,207 @@ func PuntajeComparable(total, juradosQueEvaluaron int) float64 {
 		return 0
 	}
 	return math.Round(float64(total)*float64(CuotaJurados)/float64(juradosQueEvaluaron)*100) / 100
+}
+
+// --- Archivo histórico, búsqueda y descargas (§5.12) --------------------------
+
+const (
+	// TamanoDePaginaPorOmision y TamanoDePaginaMax acotan la paginación del
+	// listado del archivo (RF-ARCH-16).
+	TamanoDePaginaPorOmision = 50
+	TamanoDePaginaMax        = 200
+	// VigenciaDeExportacion es cuánto vive el enlace de una descarga masiva
+	// ya armada (RF-ARCH-35).
+	VigenciaDeExportacion = 7 * 24 * time.Hour
+	// MaxVistasGuardadas acota las vistas guardadas por cuenta.
+	MaxVistasGuardadas = 50
+	// MaxSeleccion acota cuántas postulaciones pueden marcarse a mano.
+	MaxSeleccion = 500
+)
+
+// OrdenesDeListado son las columnas por las que puede ordenarse el listado
+// (RF-ARCH-15). El puntaje no está aquí: cruza a los jurados y sólo existe en
+// la matriz de resultados, que es de supervisión.
+var OrdenesDeListado = []string{"folio", "nombre", "enviada", "estado", "obras", "duracion"}
+
+// AlcanceDe calcula qué puede ver una sesión en el archivo. El postulante no
+// lo consulta: tiene su propia lista.
+func AlcanceDe(s *Sesion) AlcanceDeConsulta {
+	var alcance AlcanceDeConsulta
+	if s == nil {
+		return alcance
+	}
+	alcance.Todo = PuedeSupervisar(s)
+	for _, asignacion := range s.Asignaciones {
+		switch asignacion.Perfil {
+		case PerfilRevisorDocumental:
+			alcance.ComoRevisor = append(alcance.ComoRevisor, asignacion.ConvocatoriaID)
+		case PerfilJurado:
+			alcance.ComoJurado = append(alcance.ComoJurado, asignacion.ConvocatoriaID)
+		}
+	}
+	return alcance
+}
+
+// PuedeDescargarEnMasa indica si la sesión puede pedir un ZIP de documentos
+// de varias postulaciones: administrador, observador y revisores (§2.2). El
+// jurado no; el postulante sólo baja lo suyo.
+func PuedeDescargarEnMasa(s *Sesion) bool {
+	alcance := AlcanceDe(s)
+	return alcance.Todo || len(alcance.ComoRevisor) > 0
+}
+
+// ValidarFiltroDeListado comprueba los valores del listado que no son texto
+// libre, y fija los que faltan: orden por folio y página de 50.
+func ValidarFiltroDeListado(f *FiltroDeListado) []ErrorCampo {
+	var errores []ErrorCampo
+	invalido := func(campo string) {
+		errores = append(errores, ErrorCampo{Campo: campo, Clave: "error.filtro_invalido"})
+	}
+	if f.Orden == "" {
+		f.Orden = "folio"
+	}
+	if !slices.Contains(OrdenesDeListado, f.Orden) {
+		invalido("orden")
+	}
+	if f.Pagina < 0 {
+		invalido("pagina")
+	}
+	if f.Pagina > 0 && f.Tamano == 0 {
+		f.Tamano = TamanoDePaginaPorOmision
+	}
+	if f.Tamano < 0 || f.Tamano > TamanoDePaginaMax {
+		invalido("tamano")
+	}
+	for campo, valor := range map[string]string{"con_subsanaciones": f.ConSubsanaciones, "documentos_pendientes": f.DocumentosPendientes, "ligas_con_problema": f.LigasConProblema} {
+		if valor != "" && valor != "si" && valor != "no" {
+			invalido(campo)
+		}
+	}
+	if f.Tipo != "" && !f.Tipo.Valido() {
+		invalido("tipo")
+	}
+	if !f.EnviadaDesde.IsZero() && !f.EnviadaHasta.IsZero() && f.EnviadaHasta.Before(f.EnviadaDesde) {
+		invalido("enviada_hasta")
+	}
+	if len(f.IDs) > MaxSeleccion {
+		invalido("ids")
+	}
+	return errores
+}
+
+// TextoDeBusqueda reúne lo que se indexa de una postulación para el buscador
+// global (RF-ARCH-10): folio, nombres, nombre artístico, ensamble y sus
+// integrantes, títulos de obra, compositores y correos.
+func TextoDeBusqueda(p Postulacion, titular Usuario) string {
+	partes := []string{p.Folio, titular.Nombre, titular.Apellidos, titular.Email}
+	for _, ruta := range []string{"datos.nombre_completo", "datos.nombre_artistico", "datos.nombre_ensamble", "datos.representante", "datos.email_contacto"} {
+		partes = append(partes, p.Campos[ruta])
+	}
+	for _, integrante := range p.Integrantes {
+		partes = append(partes, integrante.Nombre)
+	}
+	for _, obra := range p.Obras {
+		partes = append(partes, obra.Campos["obra.titulo"], obra.Campos["obra.compositor"])
+	}
+	return strings.Join(slices.DeleteFunc(partes, func(parte string) bool { return strings.TrimSpace(parte) == "" }), " ")
+}
+
+// palabrasDeBusqueda parte lo que escribió quien busca en palabras: sólo
+// letras y dígitos. Todo lo demás —comillas, asteriscos, paréntesis— se
+// descarta, de modo que nada de lo escrito se interpreta como sintaxis del
+// buscador.
+func palabrasDeBusqueda(texto string) []string {
+	return strings.FieldsFunc(strings.ToLower(texto), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// ConsultasDeBusqueda convierte lo que se escribió en las dos consultas del
+// buscador (RF-ARCH-11):
+//
+//   - porPalabras: todas las palabras, cada una como inicio de palabra, sin
+//     distinguir acentos ni mayúsculas («nunez carr» encuentra «Núñez Carrillo»).
+//   - porSubcadena: todas las palabras como fragmento en cualquier lugar, para
+//     el nombre mal recordado («arteto» encuentra «Cuarteto»). Los fragmentos
+//     de menos de tres letras no pueden buscarse así y se omiten.
+//
+// Si no queda nada que buscar devuelve cadenas vacías.
+func ConsultasDeBusqueda(texto string) (porPalabras, porSubcadena string) {
+	var prefijos, fragmentos []string
+	for _, palabra := range palabrasDeBusqueda(texto) {
+		prefijos = append(prefijos, `"`+palabra+`"*`)
+		if utf8.RuneCountInString(palabra) >= 3 {
+			fragmentos = append(fragmentos, `"`+palabra+`"`)
+		}
+	}
+	return strings.Join(prefijos, " "), strings.Join(fragmentos, " ")
+}
+
+// sinAcentos son las letras con diacrítico habituales en nombres y títulos,
+// con la letra básica que les corresponde en un nombre de archivo.
+var sinAcentos = strings.NewReplacer(
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n", "ç", "c",
+	"Á", "A", "É", "E", "Í", "I", "Ó", "O", "Ú", "U", "Ü", "U", "Ñ", "N", "Ç", "C",
+	"à", "a", "è", "e", "ì", "i", "ò", "o", "ù", "u", "â", "a", "ê", "e", "î", "i", "ô", "o", "û", "u",
+	"ä", "a", "ë", "e", "ï", "i", "ö", "o", "ã", "a", "õ", "o", "å", "a", "ø", "o", "ß", "ss",
+)
+
+// NombreParaArchivo normaliza un texto para usarlo como nombre de archivo o
+// de carpeta dentro de un ZIP (RF-ARCH-33): sin acentos, sin espacios y sin
+// ningún carácter que Windows, macOS o Linux rechacen. Lo que no es letra,
+// dígito, guion o punto se vuelve guion bajo. Se acota a 60 caracteres.
+func NombreParaArchivo(texto string) string {
+	var limpio strings.Builder
+	for _, r := range sinAcentos.Replace(strings.TrimSpace(texto)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			limpio.WriteRune(r)
+		default:
+			limpio.WriteByte('_')
+		}
+	}
+	nombre := strings.Trim(regexp.MustCompile(`_+`).ReplaceAllString(limpio.String(), "_"), "_")
+	if len(nombre) > 60 {
+		nombre = strings.TrimRight(nombre[:60], "_")
+	}
+	if nombre == "" {
+		return "sin_nombre"
+	}
+	return nombre
+}
+
+// RutaEnZIP da el lugar de un documento dentro de una descarga masiva:
+//
+//	FIM49-COM-0007_Maria_Nunez/fotografia.jpg
+//	FIM49-COM-0007_Maria_Nunez/obra-02_Rapsodia/partitura.pdf
+//
+// Una carpeta por postulación y, dentro, una por obra: un ZIP con trescientos
+// archivos llamados «partitura.pdf» sería inservible. Si un requisito admite
+// varios archivos, del segundo en adelante llevan su número.
+func RutaEnZIP(d DocumentoEnZIP, repetido int) string {
+	ruta := NombreParaArchivo(d.Folio+"_"+d.Nombre) + "/"
+	if d.Documento.ObraID != 0 {
+		ruta += fmt.Sprintf("obra-%02d_%s/", d.OrdenDeObra, NombreParaArchivo(d.Obra))
+	}
+	nombre := NombreParaArchivo(d.Documento.Clave)
+	if repetido > 1 {
+		nombre += fmt.Sprintf("-%d", repetido)
+	}
+	return ruta + nombre + ExtensionDeMIME(d.Documento.Archivo.MIME)
+}
+
+// ValidarVistaGuardada valida una vista guardada: un nombre, y una ruta del
+// propio sitio (nunca una dirección externa a la que alguien pudiera ser
+// llevado al abrirla).
+func ValidarVistaGuardada(nombre, ruta string, existentes int) []ErrorCampo {
+	var errores []ErrorCampo
+	if largo := utf8.RuneCountInString(strings.TrimSpace(nombre)); largo == 0 || largo > 100 {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.nombre_de_vista"})
+	}
+	if !strings.HasPrefix(ruta, "/") || strings.HasPrefix(ruta, "//") || strings.ContainsAny(ruta, "\\\r\n") || len(ruta) > 2000 {
+		errores = append(errores, ErrorCampo{Campo: "ruta", Clave: "error.ruta_de_vista"})
+	}
+	if existentes >= MaxVistasGuardadas {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.demasiadas_vistas"})
+	}
+	return errores
 }

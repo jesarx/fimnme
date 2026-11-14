@@ -15,6 +15,286 @@
     }
   ],
   "paths": {
+    "/api/v1/archivo": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Listado del archivo, con búsqueda y filtros",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "Página del listado; con formato=csv, el resultado completo en CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listado"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Abarca todas las ediciones, vivas y archivadas. Lo que cada cuenta ve no caduca: revisores y jurados sólo encuentran las convocatorias en que participaron, y el jurado sólo las postulaciones que pasaron a evaluación.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "orden",
+            "in": "query",
+            "required": false,
+            "description": "folio, nombre, enviada, estado, obras o duracion; con un guion delante, descendente",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "json (por omisión) o csv",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página, desde 1",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tamano",
+            "in": "query",
+            "required": false,
+            "description": "Elementos por página (1 a 200; 50 por omisión)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/asignaciones/{id}": {
       "delete": {
         "tags": [
@@ -3068,6 +3348,497 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones": {
+      "post": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Pide una descarga masiva de documentos en ZIP",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "postulante (sólo su postulación)"
+        ],
+        "responses": {
+          "202": {
+            "description": "Tarea encolada; el ZIP se arma en segundo plano",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Toma los mismos filtros que el listado: el ZIP trae los documentos vigentes de las postulaciones que ese listado mostraría, en carpetas por folio, con manifiesto.csv. El jurado no descarga en masa.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tipos",
+            "in": "query",
+            "required": false,
+            "description": "Claves de documento separadas por coma (p. ej. partitura,particellas); sin él, todos",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postulacion",
+            "in": "query",
+            "required": false,
+            "description": "Una sola postulación, por id",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones/{id}": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Estado de una descarga masiva",
+        "x-perfiles": [
+          "quien la pidió"
+        ],
+        "responses": {
+          "200": {
+            "description": "Tarea",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones/{id}/archivo": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Baja el ZIP de una descarga masiva",
+        "x-perfiles": [
+          "quien la pidió"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo ZIP",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La descarga aún no está lista",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "El enlace de la descarga ya venció",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Disponible durante siete días. Cada descarga queda registrada con cuenta, IP y momento.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/folios/{folio}": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "La postulación de un folio (enlace permanente)",
+        "x-perfiles": [
+          "quien pueda ver la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "folio",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "P. ej. FIM49-INT-0137"
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -6151,6 +6922,203 @@
           }
         ]
       }
+    },
+    "/api/v1/vistas": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Vistas guardadas de la cuenta",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Guarda una combinación de filtros con nombre",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas de la cuenta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre": {
+                    "type": "string",
+                    "description": "Hasta 100 caracteres; único por cuenta"
+                  },
+                  "ruta": {
+                    "type": "string",
+                    "description": "Ruta local con sus parámetros, p. ej. /archivo?estado=validada"
+                  }
+                },
+                "required": [
+                  "nombre",
+                  "ruta"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/vistas/{id}": {
+      "delete": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Borra una vista guardada",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas de la cuenta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -7965,6 +8933,153 @@
                 }
               }
             }
+          }
+        }
+      },
+      "Listado": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "folio": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null en un borrador"
+                },
+                "estado": {
+                  "type": "string"
+                },
+                "subcategoria": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "edicion": {
+                  "type": "integer"
+                },
+                "convocatoria_id": {
+                  "type": "integer"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "convocatoria": {
+                  "type": "string"
+                },
+                "enviada_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "obras": {
+                  "type": "integer"
+                },
+                "duracion_min": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Coincidencias en total, no sólo las de esta página"
+          },
+          "pagina": {
+            "type": "integer"
+          },
+          "tamano": {
+            "type": "integer"
+          },
+          "orden": {
+            "type": "string"
+          }
+        }
+      },
+      "Vistas": {
+        "type": "object",
+        "properties": {
+          "vistas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "ruta": {
+                  "type": "string"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Exportacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "encolado",
+              "procesando",
+              "listo",
+              "error"
+            ]
+          },
+          "progreso": {
+            "type": "integer"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archivos": {
+            "type": "integer",
+            "description": "Documentos incluidos"
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Tamaño del ZIP"
+          },
+          "creado_at": {
+            "type": "string"
+          },
+          "terminado_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expira_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hasta cuándo puede bajarse"
           }
         }
       }

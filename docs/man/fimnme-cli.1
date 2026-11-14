@@ -31,7 +31,9 @@ Inicializa la base de datos: la crea y aplica el esquema.
 .B migrate
 Aplica, en orden, las migraciones pendientes del esquema. Cada migración se
 aplica completa o no se aplica. Una migración ya aplicada nunca se edita: si
-su contenido cambió, la orden se niega a continuar.
+su contenido cambió, la orden se niega a continuar. Al terminar reconstruye el
+índice de búsqueda del archivo, que se deriva de las postulaciones; puede
+ejecutarse cuantas veces haga falta.
 .TP
 .B crear\-usuario \fIOPCIONES\fR
 Crea una cuenta interna con un perfil global y muestra su enlace de

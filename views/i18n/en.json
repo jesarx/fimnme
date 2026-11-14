@@ -408,5 +408,11 @@
   "error.criterio_inexistente": "That criterion does not exist in this call.",
   "error.puntaje_fuera_de_escala": "The score is outside the scale of the criterion.",
   "error.puntaje_requerido": "The score for this criterion is missing.",
-  "error.excusa_vigente": "You recused yourself from this unit. Withdraw the recusal before scoring it."
+  "error.excusa_vigente": "You recused yourself from this unit. Withdraw the recusal before scoring it.",
+  "error.filtro_invalido": "The value of this filter is not valid.",
+  "error.nombre_de_vista": "The view needs a name of up to 100 characters.",
+  "error.ruta_de_vista": "The view must point to an address on this site.",
+  "error.demasiadas_vistas": "You already have the maximum number of saved views.",
+  "api.exportacion_no_lista": "The download is not ready yet.",
+  "api.exportacion_vencida": "The link for this download has expired. Request it again."
 }

@@ -142,6 +142,20 @@ type Persistencia interface {
 	Supervision() SupervisionRepo
 	RegistrarDictamenFinal(ctx context.Context, actor Actor, postulacionID int64, dictamen string) error
 
+	// Archivo histórico, búsqueda y descargas masivas.
+	ListarPostulaciones(ctx context.Context, alcance AlcanceDeConsulta, f FiltroDeListado) ([]RenglonDeListado, int, error)
+	PostulacionPorFolio(ctx context.Context, folio string) (int64, error)
+	VistasGuardadas(ctx context.Context, usuarioID int64) ([]VistaGuardada, error)
+	GuardarVista(ctx context.Context, usuarioID int64, nombre, ruta string) (int64, error)
+	BorrarVista(ctx context.Context, usuarioID, vistaID int64) error
+	DocumentosParaZIP(ctx context.Context, parametros ParametrosDeZIP) ([]DocumentoEnZIP, error)
+	EncolarExportacion(ctx context.Context, actor Actor, parametros ParametrosDeZIP) (int64, error)
+	ExportacionPorID(ctx context.Context, id int64) (TareaDeExportacion, error)
+	TomarExportacion(ctx context.Context) (TareaDeExportacion, bool, error)
+	ReencolarExportacionesInterrumpidas(ctx context.Context) (int, error)
+	TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string) error
+	RegistrarDescargaDeExportacion(ctx context.Context, actor Actor, tarea TareaDeExportacion) error
+
 	// Comprobación en red de las ligas de video.
 	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)
 	EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error)

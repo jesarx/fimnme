@@ -1127,3 +1127,135 @@ type MatrizDeResultados struct {
 	Criterios []CriterioEvaluacion
 	Filas     []FilaDeResultado // de mayor a menor puntaje comparable
 }
+
+// ---------------------------------------------------------------------------
+// Archivo histórico, búsqueda y descargas (§5.12)
+// ---------------------------------------------------------------------------
+
+// AlcanceDeConsulta dice qué postulaciones puede ver una sesión en el
+// listado del archivo. Las restricciones de perfil NO caducan (RN-24 y 25):
+// un jurado o un revisor ven sólo las convocatorias en que participan, este
+// año o dentro de diez.
+type AlcanceDeConsulta struct {
+	// Todo: administrador y observador ven todas, también los borradores.
+	Todo bool
+	// ComoRevisor son las convocatorias donde la sesión es revisora: ve las
+	// postulaciones enviadas.
+	ComoRevisor []int64
+	// ComoJurado son las convocatorias donde es jurado: ve las que pasaron a
+	// evaluación.
+	ComoJurado []int64
+}
+
+// Vacio indica que la sesión no puede consultar el archivo.
+func (a AlcanceDeConsulta) Vacio() bool {
+	return !a.Todo && len(a.ComoRevisor) == 0 && len(a.ComoJurado) == 0
+}
+
+// FiltroDeListado son los filtros combinables del listado del archivo
+// (RF-ARCH-13). Vienen de la URL, de modo que una vista filtrada puede
+// guardarse y compartirse (RF-ARCH-14). Un campo vacío no filtra.
+type FiltroDeListado struct {
+	Texto             string // búsqueda de texto completo
+	Edicion           int    // número de edición
+	ConvocatoriaID    int64
+	Tipo              TipoConvocatoria
+	Subcategoria      Subcategoria
+	Estado            EstadoDePostulacion
+	Dictamen          string // dictamen final; sólo filtra a la supervisión
+	DotacionID        int64  // alguna obra con esa dotación
+	EntidadResidencia string
+	EntidadConcierto  string
+	Nacionalidad      string
+	Pais              string
+	Genero            string
+	Estreno           string // alguna obra con ese tipo de estreno
+	EnviadaDesde      time.Time
+	EnviadaHasta      time.Time
+	// Los tres siguientes valen "si", "no" o vacío.
+	ConSubsanaciones     string
+	DocumentosPendientes string // algún documento vigente sin dictaminar
+	LigasConProblema     string // alguna liga de video inaccesible o no pública
+	// IDs limita el listado a una selección de postulaciones.
+	IDs []int64
+
+	Orden       string // folio, nombre, enviada, estado, obras o duracion
+	Descendente bool
+	Pagina      int // desde 1; 0 = sin paginar (para exportar)
+	Tamano      int
+}
+
+// RenglonDeListado es una postulación en el listado del archivo.
+type RenglonDeListado struct {
+	ID             int64
+	Folio          string
+	Estado         EstadoDePostulacion
+	Subcategoria   Subcategoria
+	Nombre         string
+	Edicion        int
+	ConvocatoriaID int64
+	Tipo           TipoConvocatoria
+	Convocatoria   string // título en español
+	EnviadaAt      time.Time
+	Obras          int
+	DuracionMin    int // suma de las duraciones de sus obras
+}
+
+// VistaGuardada es una combinación de filtros que una cuenta guardó con
+// nombre para reutilizarla (RF-ARCH-18). Guarda la ruta con sus parámetros.
+type VistaGuardada struct {
+	ID       int64
+	Nombre   string
+	Ruta     string
+	CreadoAt time.Time
+}
+
+// Estados de una tarea de exportación.
+const (
+	ExportacionEncolada   = "encolado"
+	ExportacionProcesando = "procesando"
+	ExportacionLista      = "listo"
+	ExportacionConError   = "error"
+)
+
+// ParametrosDeZIP es lo que se pide en una descarga masiva (RF-ARCH-31 y 32):
+// de qué postulaciones —el filtro— y qué tipos de documento. Se guarda como
+// JSON en la tarea, junto con el alcance de quien la pidió: el trabajador que
+// arma el ZIP aplica los permisos de esa persona, no los suyos.
+type ParametrosDeZIP struct {
+	Filtro  FiltroDeListado   `json:"filtro"`
+	Claves  []string          `json:"claves"` // requisitos a incluir; vacío = todos
+	Alcance AlcanceDeConsulta `json:"alcance"`
+	// SoloDe limita el ZIP a las postulaciones de esta cuenta: es la
+	// descarga de «lo propio» de un postulante.
+	SoloDe int64 `json:"solo_de,omitempty"`
+	// Archivos y Bytes los anota el trabajador al terminar.
+	Archivos int   `json:"archivos,omitempty"`
+	Bytes    int64 `json:"bytes,omitempty"`
+}
+
+// TareaDeExportacion es una descarga masiva que se arma en segundo plano
+// (RF-ARCH-35).
+type TareaDeExportacion struct {
+	ID            int64
+	SolicitadoPor int64
+	Parametros    ParametrosDeZIP
+	Estado        string
+	Progreso      int // 0 a 100
+	MensajeError  string
+	Archivos      int   // documentos incluidos
+	Bytes         int64 // tamaño del ZIP
+	ExpiraAt      time.Time
+	CreadoAt      time.Time
+	TerminadoAt   time.Time
+}
+
+// DocumentoEnZIP es un documento que entra a una descarga masiva, con lo
+// necesario para nombrarlo y para el manifiesto (RF-ARCH-33 y 34).
+type DocumentoEnZIP struct {
+	Documento   Documento
+	Folio       string
+	Nombre      string // postulante o ensamble
+	OrdenDeObra int
+	Obra        string // título
+}

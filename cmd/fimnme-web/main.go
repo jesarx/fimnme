@@ -174,7 +174,7 @@ func main() {
 
 	app := controllers.Nueva(controllers.Config{
 		Vistas: vistas, Datos: repositorio, Entorno: modo, Log: log, URLBase: urlBase,
-		Almacen: almacen, Enlaces: verificador,
+		Almacen: almacen, Enlaces: verificador, Exportaciones: filepath.Join(dirDatos, "exportaciones"),
 	})
 
 	// Transporte de correo. Aún no existe el SMTP propio (paso 14 del plan):
@@ -209,7 +209,9 @@ func main() {
 	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
 	enlaces := &controllers.TrabajadorEnlaces{Datos: repositorio, Verificador: verificador, Log: log}
 	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
-	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar} {
+	exportaciones := &controllers.TrabajadorExportaciones{Datos: repositorio, Almacen: almacen, Log: log,
+		Directorio: filepath.Join(dirDatos, "exportaciones")}
+	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar, exportaciones.Ejecutar} {
 		trabajadores.Go(func() { ejecutar(ctx) })
 	}
 

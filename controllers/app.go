@@ -52,6 +52,8 @@ type Config struct {
 	URLBase string
 	// Almacen guarda el contenido de los documentos y de los acuses.
 	Almacen models.BlobStore
+	// Exportaciones es el directorio donde se arman las descargas masivas.
+	Exportaciones string
 	// Enlaces comprueba en red las ligas de video antes de un envío. Con nil
 	// no se comprueban: quedan «pendientes» para el revisor.
 	Enlaces *VerificadorDeEnlaces
@@ -62,15 +64,17 @@ type Config struct {
 // App reúne las dependencias de los controladores. Se construye una vez al
 // arrancar y después sólo se lee, por lo que es segura entre peticiones.
 type App struct {
-	vistas   *views.Motor
-	datos    models.Persistencia
-	entorno  string
-	log      *slog.Logger
-	urlBase  string
-	almacen  models.BlobStore
-	enlaces  *VerificadorDeEnlaces
-	ahora    func() time.Time
-	limiteIP *limitador // intentos por IP sobre los formularios de cuenta
+	vistas  *views.Motor
+	datos   models.Persistencia
+	entorno string
+	log     *slog.Logger
+	urlBase string
+	almacen models.BlobStore
+	// exportaciones es el directorio de las descargas masivas ya armadas.
+	exportaciones string
+	enlaces       *VerificadorDeEnlaces
+	ahora         func() time.Time
+	limiteIP      *limitador // intentos por IP sobre los formularios de cuenta
 }
 
 // Nueva construye la aplicación con sus dependencias explícitas.
@@ -80,15 +84,16 @@ func Nueva(c Config) *App {
 		ahora = time.Now
 	}
 	return &App{
-		vistas:   c.Vistas,
-		datos:    c.Datos,
-		entorno:  c.Entorno,
-		log:      c.Log,
-		urlBase:  strings.TrimRight(c.URLBase, "/"),
-		almacen:  c.Almacen,
-		enlaces:  c.Enlaces,
-		ahora:    ahora,
-		limiteIP: nuevoLimitador(intentosPorMinuto, ahora),
+		vistas:        c.Vistas,
+		datos:         c.Datos,
+		entorno:       c.Entorno,
+		log:           c.Log,
+		urlBase:       strings.TrimRight(c.URLBase, "/"),
+		almacen:       c.Almacen,
+		exportaciones: c.Exportaciones,
+		enlaces:       c.Enlaces,
+		ahora:         ahora,
+		limiteIP:      nuevoLimitador(intentosPorMinuto, ahora),
 	}
 }
 
@@ -242,6 +247,17 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"DELETE", "/api/v1/postulaciones/{id}/excusa", a.conSesion(a.apiRetirarExcusa)},
 		{"GET", "/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)},
 		{"PUT", "/api/v1/postulaciones/{id}/dictamen-final", a.administra(a.apiDictamenFinal)},
+
+		// Archivo histórico: listado con búsqueda y filtros, enlaces por
+		// folio, vistas guardadas y descargas masivas.
+		{"GET", "/api/v1/archivo", a.conSesion(a.apiArchivo)},
+		{"GET", "/api/v1/folios/{folio}", a.conSesion(a.apiPostulacionPorFolio)},
+		{"GET", "/api/v1/vistas", a.conSesion(a.apiVistas)},
+		{"POST", "/api/v1/vistas", a.conSesion(a.apiGuardarVista)},
+		{"DELETE", "/api/v1/vistas/{id}", a.conSesion(a.apiBorrarVista)},
+		{"POST", "/api/v1/exportaciones", a.conSesion(a.apiPedirExportacion)},
+		{"GET", "/api/v1/exportaciones/{id}", a.conSesion(a.apiExportacion)},
+		{"GET", "/api/v1/exportaciones/{id}/archivo", a.conSesion(a.apiDescargarExportacion)},
 
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},

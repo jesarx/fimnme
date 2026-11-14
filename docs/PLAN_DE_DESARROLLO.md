@@ -47,12 +47,13 @@ páginas de manual.
 | 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
 | 7 | **Revisión documental y subsanación.** Bandeja con filtros y tablero; toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos, documentos y listas; solicitud de subsanación con su correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | ✅ Hecho |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador, envío y congelación al cierre; avance propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **aislamiento entre jurados probado** con un barrido de todos los endpoints. | ✅ Hecho |
+| 9a | **Archivo, búsqueda y descargas masivas.** Un solo listado para todas las ediciones, con visibilidad que no caduca; búsqueda FTS5 tolerante a acentos y por fragmento; filtros combinables en la URL, orden y paginación; CSV del resultado; vistas guardadas; enlace permanente por folio; ZIP en segundo plano con selección de tipos, nomenclatura predecible y `manifiesto.csv`, registrado y con vigencia de 7 días. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
+| 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con plantillas guardadas; reporte de resultados; expediente PDF (individual y por convocatoria) recortado según el perfil de quien lo pide; datos de tableros. | §5.7, §5.13, RN-26 | Pendiente |
 | 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
 
 ### Frontal
@@ -95,6 +96,42 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 9a — qué se entregó
+
+El paso 9 se partió en dos: **9a** (esto) y **9b** (reportes, expediente PDF y tableros).
+
+**Decisiones:** [ADR 0012](adr/0012-archivo-busqueda-y-descargas-masivas.md).
+
+- **Un solo listado**, `GET /api/v1/archivo`, para todas las ediciones, vivas y archivadas.
+  Lo que cada cuenta ve lo decide `models.AlcanceDe` y no caduca: supervisión, todo;
+  revisor, lo enviado en su convocatoria; jurado, sólo lo que pasó a evaluación.
+- **Búsqueda de texto completo** (FTS5) sobre folio, nombres, nombre artístico, ensamble,
+  integrantes, títulos de obra, compositores y correos. Sin distinguir acentos ni
+  mayúsculas, por inicio de palabra y, si no hay resultados, por fragmento. El índice se
+  actualiza en la misma transacción que la postulación.
+- **Filtros combinables en la URL**: edición, convocatoria, tipo, subcategoría, estado,
+  dotación, entidad de residencia y del concierto, nacionalidad, país, género, estreno,
+  fechas de envío, con subsanaciones, documentos pendientes, ligas con problema y
+  selección por ids. **Orden** por seis columnas y **paginación** con el total.
+- **CSV del resultado** (`formato=csv`) y **vistas guardadas** por cuenta.
+- **Enlace permanente por folio**: `GET /api/v1/folios/{folio}`.
+- **Descarga masiva en ZIP**, en segundo plano: mismos filtros que el listado, selección
+  de tipos de documento, carpetas por folio y por obra, `manifiesto.csv` con SHA-256,
+  vigencia de siete días, sólo para quien la pidió, y registrada. El jurado no descarga
+  en masa; el postulante, sólo su postulación.
+- `fimnme-cli migrate` reconstruye el índice de búsqueda.
+
+**Verificado.** `make verificar`; pruebas de extremo a extremo de búsqueda, filtros,
+alcance por perfil, vistas y ZIP (contenido byte por byte, manifiesto, permisos,
+vencimiento y tarea interrumpida); una mutación que relaja el alcance del jurado hace
+fallar las pruebas. En vivo, con los binarios: migración de una base del paso 8, listado,
+CSV, ZIP y descarga por rangos.
+
+**Sin verificar aquí.** Un ZIP de varios gigas detrás de nginx o Caddy reales (los
+tiempos de espera de los ejemplos de `deploy/` ya contemplan descargas largas).
+
+**No se hizo** (prioridad C): volúmenes de ZIP y XLSX.
 
 ## Paso 8 — qué se entregó
 
@@ -483,3 +520,14 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     por la suma, para que una excusa no perjudique. Con tres jurados es la suma.
 36. **Al cerrar la evaluación, lo que siga en revisión queda fuera.** El sistema no lo
     impide; la configuración muestra cuántas postulaciones quedan por dictaminar.
+37. **Una descarga masiva vive 7 días** y sólo puede bajarla quien la pidió. La
+    especificación pide un «enlace temporal» sin fijar el plazo (ADR 0012, §5).
+38. **El jurado no descarga en masa**: baja los documentos uno por uno. El postulante
+    puede pedir el ZIP de su propia postulación.
+39. **Administrador y observador encuentran también los borradores** en el archivo; los
+    revisores, no.
+40. **La tolerancia a erratas del buscador es por fragmento** («arril» encuentra
+    «Carrillo»), no por parecido («Carillo» no la encuentra). Lo segundo exigiría una
+    extensión de SQLite, es decir, una dependencia (ADR 0012, §3).
+41. **El buscador incluye los correos** de la cuenta y de contacto. Como la evaluación no
+    es a ciegas, el jurado también puede buscar por ellos.
