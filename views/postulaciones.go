@@ -107,7 +107,7 @@ func convocatoriaDePostulacion(c models.Convocatoria) map[string]any {
 // PostulacionJSON describe una postulación con todo lo capturado, la
 // definición de su formulario y lo que le falta para poder enviarse.
 func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria, editable bool,
-	bloqueadores []BloqueadorDeEnvio, etiqueta func(ruta string) string) any {
+	bloqueadores []BloqueadorDeEnvio, etiqueta func(ruta string) string) map[string]any {
 	formulario := models.FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
 
 	integrantes := make([]map[string]string, 0, len(p.Integrantes))

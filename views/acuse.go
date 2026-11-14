@@ -80,6 +80,30 @@ func (m *Motor) AcusePDF(s models.SnapshotEnvio) ([]byte, error) {
 	d.Campo(t("acuse.version"), strconv.Itoa(s.Version))
 	d.Campo(t("acuse.cuenta"), strings.TrimSpace(s.Titular.Nombre+" "+s.Titular.Apellidos)+" · "+s.Titular.Email)
 
+	// 2 a 4. Datos generales, propuesta de concierto, obras y documentos.
+	m.escribirPostulacion(d, s, nil)
+
+	// 5. Leyenda.
+	d.Espacio(10)
+	d.Parrafo(t("acuse.leyenda"), pdf.TintaSuave)
+	return d.Bytes()
+}
+
+// escribirPostulacion escribe el contenido de una postulación tal como la
+// describe un snapshot: datos generales y propuesta de concierto en el orden
+// del formulario, integrantes, ligas de video, obras y documentos. Lo
+// comparten el acuse y el expediente, para que digan lo mismo de la misma
+// manera. notaDeDocumento, si no es nil, añade un renglón a cada documento
+// (el expediente pone ahí el dictamen del revisor).
+func (m *Motor) escribirPostulacion(d *pdf.Documento, s models.SnapshotEnvio, notaDeDocumento func(models.SnapshotDocumento) string) {
+	idioma := s.Idioma
+	t := func(clave string, args ...any) string { return m.textos.T(idioma, clave, args...) }
+	bilingue := func(es, en string) string {
+		if idioma == models.IdiomaEN && en != "" {
+			return en
+		}
+		return es
+	}
 	// 2. Datos generales y propuesta de concierto, en el orden del formulario.
 	formulario := models.FormularioDe(models.TipoConvocatoria(s.Convocatoria.Tipo), models.Subcategoria(s.Subcategoria))
 	valor := func(def models.DefinicionCampo, crudo string) string {
@@ -150,13 +174,14 @@ func (m *Motor) AcusePDF(s models.SnapshotEnvio) ([]byte, error) {
 		if len(suma) > longitudSuma {
 			suma = suma[:longitudSuma]
 		}
-		d.Campo(etiqueta, t("acuse.documento", documento.Version, tamanoLegible(documento.TamanoBytes), suma))
+		descripcion := t("acuse.documento", documento.Version, tamanoLegible(documento.TamanoBytes), suma)
+		if notaDeDocumento != nil {
+			if nota := notaDeDocumento(documento); nota != "" {
+				descripcion += "\n" + nota
+			}
+		}
+		d.Campo(etiqueta, descripcion)
 	}
-
-	// 5. Leyenda.
-	d.Espacio(10)
-	d.Parrafo(t("acuse.leyenda"), pdf.TintaSuave)
-	return d.Bytes()
 }
 
 // tamanoLegible escribe un tamaño en bytes como «812 KB» o «4.3 MB».

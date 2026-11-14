@@ -106,6 +106,8 @@ func (a *App) falloDatos(w http.ResponseWriter, r *http.Request, err error) bool
 		return false
 	case errors.Is(err, models.ErrNoEncontrado):
 		a.errorAPI(w, r, http.StatusNotFound, "no_encontrado")
+	case errors.Is(err, errSinSupervision):
+		a.errorAPI(w, r, http.StatusForbidden, "sin_permiso")
 	case errors.Is(err, models.ErrDuplicado), errors.Is(err, models.ErrEmailEnUso):
 		a.errorAPI(w, r, http.StatusConflict, "duplicado")
 	case errors.As(err, &regla):

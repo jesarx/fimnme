@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jesarx/fimnme/models"
 	"github.com/jesarx/fimnme/views"
@@ -100,9 +101,40 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 	if a.falloDatos(w, r, err) {
 		return
 	}
-	bloqueadores := models.ValidarParaEnvio(p, cfg, titular.Usuario, a.ahora())
-	editable := sesion.Usuario.ID == p.UsuarioID && len(models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, a.ahora())) == 0
-	a.responder(w, estado, views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r)))
+	ahora := a.ahora()
+	bloqueadores := models.ValidarParaEnvio(p, cfg, titular.Usuario, ahora)
+	// editable: el titular puede modificar algo ahora mismo. En un borrador,
+	// todo; durante una subsanación, sólo lo que lista «subsanacion».
+	esTitular := sesion.Usuario.ID == p.UsuarioID
+	editable := esTitular && len(models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, ahora)) == 0
+	cuerpo := views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r))
+	nombrar := a.nombreDeElemento(idiomaDe(r), cfg)
+	cuerpo["subsanacion"] = views.SubsanacionPendienteJSON(p, ahora, nombrar)
+
+	// Lo que dejó la revisión sólo lo ven quienes revisan o supervisan. A los
+	// demás —el titular— ni siquiera se les muestra que fue descartada.
+	if !models.PuedeVerRevision(sesion, p.ConvocatoriaID) {
+		cuerpo["estado"] = string(models.EstadoParaTitular(p.Estado))
+	} else {
+		revision, err := a.datos.RevisionDe(r.Context(), p.ID)
+		if a.falloDatos(w, r, err) {
+			return
+		}
+		cambios, err := a.datos.DiferenciasDelUltimoEnvio(r.Context(), p.ID)
+		if a.falloDatos(w, r, err) {
+			return
+		}
+		cuerpo["revision"] = views.RevisionJSON(p, titular.Usuario, revision, cambios, ahora, nombrar)
+	}
+	// El resultado final sólo lo ve la supervisión: ni el postulante ni el
+	// jurado ni el revisor (el resultado se comunica fuera del sistema).
+	if models.PuedeSupervisar(sesion) {
+		cuerpo["dictamen_final"] = p.DictamenFinal
+	}
+	if !p.AnonimizadaAt.IsZero() {
+		cuerpo["anonimizada_at"] = p.AnonimizadaAt.UTC().Format(time.RFC3339)
+	}
+	a.responder(w, estado, cuerpo)
 }
 
 // GET /api/v1/catalogos   — catálogos fijos del formulario (público)
@@ -115,6 +147,10 @@ func (a *App) apiMisPostulaciones(w http.ResponseWriter, r *http.Request) {
 	resumenes, err := a.datos.PostulacionesDeUsuario(r.Context(), sesionDe(r).Usuario.ID)
 	if a.falloDatos(w, r, err) {
 		return
+	}
+	// Es la lista del propio postulante: el descarte no se le muestra.
+	for i := range resumenes {
+		resumenes[i].Estado = models.EstadoParaTitular(resumenes[i].Estado)
 	}
 	a.responder(w, http.StatusOK, views.PostulacionesJSON(resumenes))
 }

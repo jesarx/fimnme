@@ -334,6 +334,15 @@ const (
 	PlantillaRecordatorio = "recordatorio_borrador"
 )
 
+// Claves de las plantillas de correo de la revisión documental.
+const (
+	PlantillaSubsanacion      = "subsanacion"       // al postulante: qué corregir y hasta cuándo
+	PlantillaAcuseSubsanacion = "acuse_subsanacion" // al postulante: acuse del reenvío
+	PlantillaAvisoSubsanada   = "aviso_subsanada"   // a los revisores: una postulación volvió
+	PlantillaExportacionLista = "exportacion_lista" // a quien pidió una descarga o un expediente: ya puede bajarlo
+	PlantillaAlertaDisco      = "alerta_disco"      // a los administradores: queda poco espacio en disco
+)
+
 // PlantillaCorreo es la versión activa de una plantilla editable (RF-NOT).
 type PlantillaCorreo struct {
 	Clave    string
@@ -496,6 +505,10 @@ type ConfiguracionConvocatoria struct {
 	Requisitos   []RequisitoDocumental
 	Criterios    []CriterioEvaluacion
 	Asignaciones []AsignacionDetalle
+	// SinDictaminar cuenta las postulaciones enviadas que la revisión
+	// documental aún no valida ni descarta. Mientras quede alguna, la
+	// convocatoria no pasa a evaluación.
+	SinDictaminar int
 }
 
 // Activos cuenta las asignaciones activas de un perfil.
@@ -597,6 +610,9 @@ type Archivo struct {
 	Clave       string // clave de almacenamiento, para BlobStore.Abrir
 	MIME        string // detectado por la firma del archivo, no por su extensión
 	TamanoBytes int64
+	// PurgadoAt indica que el contenido se borró del disco al anonimizar una
+	// postulación (ARCO). La fila queda como constancia de que existió.
+	PurgadoAt time.Time
 }
 
 // Documento es un archivo entregado para cumplir un requisito documental.
@@ -743,6 +759,9 @@ type SnapshotDocumento struct {
 type AcuseCompuesto struct {
 	Blob   Blob
 	Correo CorreoSaliente
+	// Avisos son correos para otras personas que salen con el envío: en un
+	// reenvío tras subsanación, el aviso a los revisores (RF-REV-07).
+	Avisos []CorreoSaliente
 }
 
 // Adjunto es un archivo del almacén que acompaña a un correo.
@@ -810,6 +829,193 @@ type Postulacion struct {
 	Obras       []Obra
 	Documentos  []Documento // sólo los vigentes
 	Acuses      []Acuse     // uno por envío
+
+	// AnonimizadaAt indica que sus datos personales se borraron por una
+	// solicitud ARCO; cero si no. Una postulación anonimizada conserva obra,
+	// dictamen y estadísticas (RN-28).
+	AnonimizadaAt time.Time
+
+	// DictamenFinal es el resultado del proceso: seleccionada,
+	// no_seleccionada o lista_espera; vacío mientras no se registra. Lo
+	// registra el administrador y no se muestra al postulante.
+	DictamenFinal string
+
+	// Revisión documental.
+	EnviadaAt      time.Time     // último envío; cero si es borrador
+	MotivoDescarte string        // sólo si fue descartada
+	Subsanaciones  []Subsanacion // de la más antigua a la más reciente
+}
+
+// SubsanacionAbierta devuelve la subsanación que el postulante puede atender
+// en este momento: la que no ha reenviado, el revisor no ha cerrado y cuyo
+// plazo no ha vencido. Devuelve nil si no hay ninguna.
+func (p Postulacion) SubsanacionAbierta(ahora time.Time) *Subsanacion {
+	if p.Estado != PostulacionEnSubsanacion {
+		return nil
+	}
+	for i := len(p.Subsanaciones) - 1; i >= 0; i-- {
+		if s := &p.Subsanaciones[i]; s.Pendiente() {
+			if ahora.After(s.FechaLimite) {
+				return nil
+			}
+			return s
+		}
+	}
+	return nil
+}
+
+// SubsanacionVencida indica si la postulación espera una subsanación cuyo
+// plazo ya pasó sin respuesta. No se descarta sola: queda para atención del
+// revisor (RF-REV-09).
+func (p Postulacion) SubsanacionVencida(ahora time.Time) bool {
+	return p.Estado == PostulacionEnSubsanacion && p.SubsanacionAbierta(ahora) == nil
+}
+
+// ClaseProblema distingue lo que el revisor puede señalar (§4.2).
+type ClaseProblema string
+
+const (
+	ProblemaDocumento ClaseProblema = "documento" // un documento inválido o faltante
+	ProblemaCampo     ClaseProblema = "campo"     // un dato erróneo
+)
+
+// Campos «de estructura»: no son un dato sino una lista entera de la
+// postulación. Señalarlos desbloquea la lista: añadir o quitar integrantes,
+// ligas de video u obras (RN-12c).
+const (
+	CampoIntegrantes = "integrantes"
+	CampoVideos      = "videos"
+	CampoObras       = "obras"
+)
+
+// ProblemaSubsanacion es un elemento que el revisor señaló y que, por eso,
+// el postulante puede corregir. Es la ÚNICA vía por la que algo se desbloquea
+// durante una subsanación (RN-12b).
+type ProblemaSubsanacion struct {
+	ID          int64
+	Clase       ClaseProblema
+	Campo       string // ruta canónica del campo, o la clave del requisito si es un documento
+	ObraID      int64  // 0 si el elemento es de la postulación
+	DocumentoID int64  // documento señalado; 0 si falta o si es un campo
+	Problema    string // motivo, obligatorio
+	ResueltoAt  time.Time
+}
+
+// SolicitudDesbloqueo es la petición de un postulante para corregir algo que
+// el revisor no señaló (RN-12d). Si se concede, se convierte en un problema
+// más de la subsanación.
+type SolicitudDesbloqueo struct {
+	ID              int64
+	Clase           ClaseProblema
+	Campo           string
+	ObraID          int64
+	Justificacion   string
+	Resuelta        bool
+	Concedida       bool
+	MotivoRespuesta string
+	CreadoAt        time.Time
+	ResueltaAt      time.Time
+}
+
+// Subsanacion es una solicitud del revisor para que el postulante corrija
+// elementos concretos de una postulación ya enviada, con un plazo.
+type Subsanacion struct {
+	ID            int64
+	PostulacionID int64
+	RevisorID     int64
+	Mensaje       string // el texto que se envió al postulante
+	FechaLimite   time.Time
+	EnviadaAt     time.Time
+	AtendidaAt    time.Time // cuando el postulante reenvió
+	CerradaAt     time.Time // cuando el revisor la dio por terminada
+	Problemas     []ProblemaSubsanacion
+	Solicitudes   []SolicitudDesbloqueo
+}
+
+// Pendiente indica que la subsanación sigue esperando al postulante: ni la
+// atendió ni el revisor la cerró. Puede estar vencida.
+func (s Subsanacion) Pendiente() bool {
+	return s.AtendidaAt.IsZero() && s.CerradaAt.IsZero()
+}
+
+// NuevaSubsanacion es lo que el revisor pide al solicitar una subsanación.
+type NuevaSubsanacion struct {
+	Problemas   []ProblemaSubsanacion // campos y documentos faltantes; los inválidos se añaden solos
+	FechaLimite time.Time
+	Nota        string // texto libre del revisor para el correo (RF-REV-06)
+}
+
+// DictamenDocumento es el dictamen de un revisor sobre un documento.
+type DictamenDocumento struct {
+	DocumentoID int64
+	Dictamen    string // pendiente, valido o invalido
+	Motivo      string // obligatorio si es inválido (RN-11)
+	RevisorID   int64
+	CreadoAt    time.Time
+}
+
+// ObservacionRevision es una nota del revisor sobre la postulación o sobre
+// una de sus obras (RF-REV-04). Es interna: el postulante no la ve.
+type ObservacionRevision struct {
+	ID        int64
+	ObraID    int64 // 0 si es de la postulación
+	RevisorID int64
+	Revisor   string // nombre de quien la escribió
+	Texto     string
+	CreadoAt  time.Time
+}
+
+// TomaRevision indica que un revisor marcó la postulación como «en revisión
+// por mí». Es informativa: no impide que otro revisor intervenga (RN-14b).
+type TomaRevision struct {
+	RevisorID int64
+	Revisor   string
+	TomadaAt  time.Time
+}
+
+// Revision reúne lo que la revisión documental ha dejado sobre una
+// postulación. Sólo lo ven quienes revisan o supervisan.
+type Revision struct {
+	Dictamenes    []DictamenDocumento // el vigente de cada documento
+	Observaciones []ObservacionRevision
+	Toma          *TomaRevision // nil si está libre
+}
+
+// PostulacionEnBandeja es un renglón de la bandeja del revisor (RF-REV-01).
+type PostulacionEnBandeja struct {
+	ID                  int64
+	Folio               string
+	Estado              EstadoDePostulacion
+	Subcategoria        Subcategoria
+	Nombre              string // nombre completo del solista o compositor, o nombre del ensamble
+	EnviadaAt           time.Time
+	Envios              int
+	Toma                *TomaRevision
+	Observaciones       int
+	DocumentosInvalidos int
+	// FechaLimite es el plazo de la subsanación pendiente; cero si no hay.
+	FechaLimite time.Time
+	// Subsanada indica que el postulante ya reenvió y falta que el revisor
+	// vuelva a mirarla (RF-REV-07).
+	Subsanada bool
+}
+
+// FiltroBandeja son los filtros de la bandeja del revisor.
+type FiltroBandeja struct {
+	Estado       EstadoDePostulacion
+	Subcategoria Subcategoria
+	Toma         string // "libre", "mia" u "otra"; vacío = todas
+	Texto        string // folio o nombre
+}
+
+// CambioDeEnvio es una diferencia entre dos envíos de la misma postulación:
+// lo que el postulante cambió al subsanar (RF-REV-07).
+type CambioDeEnvio struct {
+	Clase   ClaseProblema
+	Campo   string // ruta del campo o clave del requisito
+	ObraID  int64
+	Antes   string // valor anterior, o inicio de la suma del archivo anterior
+	Despues string
 }
 
 // ResumenPostulacion es una postulación en un listado, con lo esencial de su
@@ -838,4 +1044,549 @@ type Bloqueador struct {
 	ObraID    int64                // obra a la que se refiere; 0 si es de la postulación
 	Clave     string               // clave de traducción del motivo
 	Requisito *RequisitoDocumental // el documento que falta, si el bloqueador es de un documento
+}
+
+// ---------------------------------------------------------------------------
+// Evaluación por jurado (§5.6)
+// ---------------------------------------------------------------------------
+
+// Dictámenes finales de una postulación.
+const (
+	DictamenSeleccionada   = "seleccionada"
+	DictamenNoSeleccionada = "no_seleccionada"
+	DictamenListaDeEspera  = "lista_espera"
+)
+
+// UnidadDeEvaluacion es lo que un jurado califica (RN-16). La unidad es
+// asimétrica entre convocatorias: en Intérpretes es la postulación completa
+// (ObraID 0); en Compositores, cada obra por separado.
+type UnidadDeEvaluacion struct {
+	PostulacionID int64
+	ObraID        int64 // 0 en Intérpretes
+	Folio         string
+	Nombre        string // solista, ensamble o compositor
+	Obra          string // título de la obra; vacío en Intérpretes
+	OrdenDeObra   int
+}
+
+// Evaluacion es la calificación de UN jurado a una unidad. Puntajes va por
+// clave de criterio («realizacion», «artistico»).
+type Evaluacion struct {
+	ID            int64
+	PostulacionID int64
+	ObraID        int64
+	Puntajes      map[string]int
+	Observaciones string
+	Enviada       bool
+	EnviadaAt     time.Time
+	ActualizadoAt time.Time
+	// Excusado: el jurado declaró un conflicto de interés y no califica esta
+	// unidad (RF-EVA-12). No lleva puntajes y no cuenta en el resultado.
+	Excusado     bool
+	MotivoExcusa string
+}
+
+// UnidadPropia es una unidad en la lista de trabajo de un jurado, con el
+// estado de SU evaluación. No lleva nada de los demás jurados.
+type UnidadPropia struct {
+	UnidadDeEvaluacion
+	Iniciada bool // el jurado ya guardó algo
+	Enviada  bool
+	Excusada bool // el jurado se excusó de calificarla
+}
+
+// EntradaEvaluacion es lo que un jurado guarda: puntajes por clave de
+// criterio, observaciones opcionales y si con esto la da por enviada.
+type EntradaEvaluacion struct {
+	ObraID        int64
+	Puntajes      map[string]int
+	Observaciones string
+	Enviar        bool
+}
+
+// JuradoEnMatriz identifica a un jurado en la matriz de resultados.
+type JuradoEnMatriz struct {
+	ID     int64
+	Nombre string
+}
+
+// FilaDeResultado es una unidad en la matriz de resultados: lo que calificó
+// cada jurado y la suma de los tres.
+type FilaDeResultado struct {
+	Unidad        UnidadDeEvaluacion
+	Estado        EstadoDePostulacion
+	DictamenFinal string
+	// PorJurado trae las evaluaciones ENVIADAS, por id de jurado. Una
+	// evaluación en borrador no aparece: aún no es una calificación.
+	PorJurado map[int64]Evaluacion
+	// Excusas trae el motivo de cada jurado que se excusó, por id de jurado.
+	Excusas             map[int64]string
+	JuradosQueEvaluaron int
+	Total               int     // suma de los puntajes enviados
+	Promedio            float64 // promedio de los puntajes, en la escala del criterio
+	// Comparable es la suma llevada a tres jurados (PuntajeComparable): es
+	// por lo que se ordena, para que una excusa no perjudique a nadie.
+	Comparable float64
+}
+
+// MatrizDeResultados es la vista de supervisión de la evaluación (RF-EVA-08):
+// puntaje por jurado y criterio, suma, promedio y orden por puntaje
+// comparable. Sólo la ven el administrador y el observador; un jurado, NUNCA.
+type MatrizDeResultados struct {
+	Jurados   []JuradoEnMatriz
+	Criterios []CriterioEvaluacion
+	Filas     []FilaDeResultado // de mayor a menor puntaje comparable
+}
+
+// ---------------------------------------------------------------------------
+// Archivo histórico, búsqueda y descargas (§5.12)
+// ---------------------------------------------------------------------------
+
+// AlcanceDeConsulta dice qué postulaciones puede ver una sesión en el
+// listado del archivo. Las restricciones de perfil NO caducan (RN-24 y 25):
+// un jurado o un revisor ven sólo las convocatorias en que participan, este
+// año o dentro de diez.
+type AlcanceDeConsulta struct {
+	// Todo: administrador y observador ven todas, también los borradores.
+	Todo bool
+	// ComoRevisor son las convocatorias donde la sesión es revisora: ve las
+	// postulaciones enviadas.
+	ComoRevisor []int64
+	// ComoJurado son las convocatorias donde es jurado: ve las que pasaron a
+	// evaluación.
+	ComoJurado []int64
+}
+
+// Vacio indica que la sesión no puede consultar el archivo.
+func (a AlcanceDeConsulta) Vacio() bool {
+	return !a.Todo && len(a.ComoRevisor) == 0 && len(a.ComoJurado) == 0
+}
+
+// FiltroDeListado son los filtros combinables del listado del archivo
+// (RF-ARCH-13). Vienen de la URL, de modo que una vista filtrada puede
+// guardarse y compartirse (RF-ARCH-14). Un campo vacío no filtra.
+type FiltroDeListado struct {
+	Texto             string // búsqueda de texto completo
+	Edicion           int    // número de edición
+	ConvocatoriaID    int64
+	Tipo              TipoConvocatoria
+	Subcategoria      Subcategoria
+	Estado            EstadoDePostulacion
+	Dictamen          string // dictamen final; sólo filtra a la supervisión
+	DotacionID        int64  // alguna obra con esa dotación
+	EntidadResidencia string
+	EntidadConcierto  string
+	Nacionalidad      string
+	Pais              string
+	Genero            string
+	Estreno           string // alguna obra con ese tipo de estreno
+	EnviadaDesde      time.Time
+	EnviadaHasta      time.Time
+	// Los tres siguientes valen "si", "no" o vacío.
+	ConSubsanaciones     string
+	DocumentosPendientes string // algún documento vigente sin dictaminar
+	LigasConProblema     string // alguna liga de video inaccesible o no pública
+	// IDs limita el listado a una selección de postulaciones.
+	IDs []int64
+
+	Orden       string // folio, nombre, enviada, estado, obras o duracion
+	Descendente bool
+	Pagina      int // desde 1; 0 = sin paginar (para exportar)
+	Tamano      int
+}
+
+// RenglonDeListado es una postulación en el listado del archivo.
+type RenglonDeListado struct {
+	ID             int64
+	Folio          string
+	Estado         EstadoDePostulacion
+	Subcategoria   Subcategoria
+	Nombre         string
+	Edicion        int
+	ConvocatoriaID int64
+	Tipo           TipoConvocatoria
+	Convocatoria   string // título en español
+	EnviadaAt      time.Time
+	Obras          int
+	DuracionMin    int // suma de las duraciones de sus obras
+}
+
+// VistaGuardada es una combinación de filtros que una cuenta guardó con
+// nombre para reutilizarla (RF-ARCH-18). Guarda la ruta con sus parámetros.
+type VistaGuardada struct {
+	ID       int64
+	Nombre   string
+	Ruta     string
+	CreadoAt time.Time
+}
+
+// Estados de una tarea de exportación.
+const (
+	ExportacionEncolada   = "encolado"
+	ExportacionProcesando = "procesando"
+	ExportacionLista      = "listo"
+	ExportacionConError   = "error"
+)
+
+// Tipos de tarea que se arman en segundo plano.
+const (
+	TareaZIP        = "zip_documentos" // descarga masiva de documentos
+	TareaExpediente = "expediente_pdf" // expediente de varias postulaciones en un PDF
+)
+
+// ParametrosDeExportacion es lo que se pide en una tarea en segundo plano: una
+// descarga masiva en ZIP (RF-ARCH-31 y 32) o un expediente por convocatoria
+// (RF-ARCH-42). Dice de qué postulaciones —el filtro— y con qué opciones. Se
+// guarda como JSON en la tarea.
+type ParametrosDeExportacion struct {
+	Filtro FiltroDeListado `json:"filtro"`
+	// Claves son los requisitos a incluir en un ZIP; vacío = todos.
+	Claves []string `json:"claves"`
+	// Alcance es el de quien pidió el ZIP: el trabajador aplica los permisos
+	// de esa persona, no los suyos. El expediente no lo usa: su contenido se
+	// decide con los permisos que la persona tenga AL GENERARLO (RN-26).
+	Alcance AlcanceDeConsulta `json:"alcance"`
+	// SoloDe limita el ZIP a las postulaciones de esta cuenta: es la
+	// descarga de «lo propio» de un postulante.
+	SoloDe int64 `json:"solo_de,omitempty"`
+	// Opciones del expediente (RF-ARCH-43, 44 y 46).
+	Idioma             string `json:"idioma,omitempty"`
+	SinFotografia      bool   `json:"sin_fotografia,omitempty"`
+	HojaDeCalificacion bool   `json:"hoja_de_calificacion,omitempty"`
+	// Archivos y Bytes los anota el trabajador al terminar.
+	Archivos int   `json:"archivos,omitempty"`
+	Bytes    int64 `json:"bytes,omitempty"`
+}
+
+// TareaDeExportacion es un archivo que se arma en segundo plano: una descarga
+// masiva (RF-ARCH-35) o un expediente por convocatoria (RF-ARCH-45).
+type TareaDeExportacion struct {
+	ID            int64
+	Tipo          string // TareaZIP o TareaExpediente
+	SolicitadoPor int64
+	Parametros    ParametrosDeExportacion
+	Estado        string
+	Progreso      int // 0 a 100
+	MensajeError  string
+	Archivos      int   // documentos del ZIP, o postulaciones del expediente
+	Bytes         int64 // tamaño del archivo
+	ExpiraAt      time.Time
+	CreadoAt      time.Time
+	TerminadoAt   time.Time
+}
+
+// DocumentoEnZIP es un documento que entra a una descarga masiva, con lo
+// necesario para nombrarlo y para el manifiesto (RF-ARCH-33 y 34).
+type DocumentoEnZIP struct {
+	Documento   Documento
+	Folio       string
+	Nombre      string // postulante o ensamble
+	OrdenDeObra int
+	Obra        string // título
+}
+
+// ---------------------------------------------------------------------------
+// Expediente en PDF (§5.12.4)
+// ---------------------------------------------------------------------------
+
+// RecorteDeExpediente dice qué partes reservadas de un expediente puede ver
+// quien lo pide (RF-ARCH-41, RN-26). Se calcula al generarlo: el PDF sale del
+// sistema y después ya no hay forma de controlarlo.
+type RecorteDeExpediente struct {
+	// Revision: observaciones, dictámenes de documentos, subsanaciones y
+	// motivo de descarte. Revisores y supervisión.
+	Revision bool
+	// EvaluacionPropia: quien lo pide es jurado de la convocatoria y ve SU
+	// evaluación. Nunca la de otro, ni la suma.
+	EvaluacionPropia bool
+	// Supervision: las evaluaciones de todos los jurados, la suma y el
+	// resultado del proceso. Administrador y observador.
+	Supervision bool
+}
+
+// Expediente es todo lo que el expediente en PDF de una postulación muestra a
+// quien lo pidió. Lo que esa persona no puede ver no está: RecortarExpediente
+// lo quita antes de que llegue a la vista.
+type Expediente struct {
+	Postulacion   Postulacion
+	Configuracion ConfiguracionConvocatoria
+	Titular       Usuario
+	Recorte       RecorteDeExpediente
+	Revision      Revision          // sólo con Recorte.Revision
+	Propias       []Evaluacion      // sólo con Recorte.EvaluacionPropia: una por unidad
+	Jurados       []JuradoEnMatriz  // sólo con Recorte.Supervision
+	Resultados    []FilaDeResultado // sólo con Recorte.Supervision: una por unidad
+}
+
+// ---------------------------------------------------------------------------
+// Reportes (§5.7)
+// ---------------------------------------------------------------------------
+
+// Granularidad de un reporte (RF-REP-03).
+const (
+	GranularidadPostulacion = "postulacion" // una fila por postulación
+	GranularidadObra        = "obra"        // una fila por obra, con los datos de la postulación repetidos
+)
+
+// Nivel de un campo del catálogo de reportes: a qué se refiere su valor.
+const (
+	NivelPostulacion = "postulacion"
+	NivelObra        = "obra"
+	// NivelEvaluacion: la unidad que califica el jurado, que es la
+	// postulación en Intérpretes y la obra en Compositores.
+	NivelEvaluacion = "evaluacion"
+)
+
+// Presentaciones de un campo de reporte que no vienen del formulario: le
+// dicen a la vista cómo escribir el valor.
+const (
+	CampoEstado       TipoCampo = "estado"       // estado de la postulación
+	CampoResultado    TipoCampo = "resultado"    // dictamen final
+	CampoRevision     TipoCampo = "revision"     // resultado de la revisión documental
+	CampoSubcategoria TipoCampo = "subcategoria" //
+	CampoMarca        TipoCampo = "marca"        // instante, en hora de la Ciudad de México
+)
+
+// CampoDeReporte es un campo del catálogo del generador de reportes (§9).
+type CampoDeReporte struct {
+	Clave string // «folio», «datos.genero», «obra.titulo», «eval.j1.realizacion»
+	Nivel string
+	Tipo  TipoCampo // cómo presentar el valor
+	// Jurado y Criterio sólo van en los puntajes por jurado: el número de
+	// jurado (desde 1) y el criterio que califica.
+	Jurado   int
+	Criterio *CriterioEvaluacion
+}
+
+// DefinicionDeReporte es lo que se pide al generador (RF-REP-01).
+type DefinicionDeReporte struct {
+	Campos       []string
+	Granularidad string
+	Separador    string // «coma» o «punto_y_coma»
+	// PuntajeMin y PuntajeMax acotan por puntaje comparable; nil = sin cota.
+	PuntajeMin, PuntajeMax *float64
+	// PorPuntaje ordena por puntaje en vez de por el orden del filtro.
+	PorPuntaje bool
+	Filtro     FiltroDeListado
+}
+
+// FilaDeReporte es lo que se sabe de un renglón del reporte: de ahí sale el
+// valor de cada campo.
+type FilaDeReporte struct {
+	Postulacion   Postulacion
+	Titular       Usuario
+	Obra          *Obra // nil en un reporte por postulación
+	Observaciones []ObservacionRevision
+	Resultado     *FilaDeResultado // nil si la unidad no llegó a evaluación
+	Lugar         int              // lugar en la matriz; 0 si no tiene
+	Jurados       []JuradoEnMatriz
+	Dotaciones    []Dotacion
+	// Cierre es el fin de la etapa de postulación: a esa fecha se calcula la
+	// edad.
+	Cierre time.Time
+}
+
+// PlantillaDeReporte es una definición de reporte guardada con nombre para
+// reutilizarla en ediciones posteriores (RF-REP-04). Consulta son los
+// parámetros del reporte, sin la convocatoria.
+type PlantillaDeReporte struct {
+	ID        int64
+	Nombre    string
+	Tipo      TipoConvocatoria
+	Consulta  string
+	CreadoPor int64
+	CreadoAt  time.Time
+}
+
+// ---------------------------------------------------------------------------
+// Tableros y estadísticas (§5.13)
+// ---------------------------------------------------------------------------
+
+// Cifra es un número de un tablero con la clave de lo que cuenta: un estado,
+// una entidad, un día.
+type Cifra struct {
+	Clave    string
+	Nombre   string // sólo cuando la clave es un id (dotaciones)
+	Cantidad int
+}
+
+// TableroDeConvocatoria es el estado de una convocatoria en curso
+// (RF-DASH-01).
+type TableroDeConvocatoria struct {
+	PorEstado []Cifra // postulaciones por estado, borradores incluidos
+	// PrimerosEnvios es el instante del primer envío de cada postulación,
+	// en orden: de ahí sale el ritmo de envíos por día.
+	PrimerosEnvios []time.Time
+	// DocumentosPendientes: documentos vigentes sin dictaminar, y en cuántas
+	// postulaciones están.
+	DocumentosPendientes       int
+	PostulacionesConPendientes int
+	// Subsanaciones que siguen esperando al postulante.
+	SubsanacionesAbiertas  int // dentro de plazo
+	SubsanacionesPorVencer int // de las abiertas, las que vencen en menos de DiasPorVencer
+	SubsanacionesVencidas  int
+}
+
+// AvanceDeJurado es cuánto lleva un jurado de su lista (RF-DASH-02). No
+// lleva ningún puntaje.
+type AvanceDeJurado struct {
+	JuradoID  int64
+	Nombre    string
+	Enviadas  int
+	Excusadas int
+	Total     int // unidades por evaluar en la convocatoria
+}
+
+// EstadisticasDeEdicion son las distribuciones descriptivas de las
+// postulaciones enviadas de una edición (RF-DASH-03).
+type EstadisticasDeEdicion struct {
+	Postulaciones    int
+	Obras            int
+	PorConvocatoria  []Cifra // clave: tipo de convocatoria
+	PorEntidad       []Cifra
+	PorPais          []Cifra
+	PorNacionalidad  []Cifra
+	PorGenero        []Cifra
+	PorEdad          []Cifra // clave: rango de edad
+	PorDotacion      []Cifra // clave: id de la dotación; cuenta obras
+	PorEstreno       []Cifra // cuenta obras
+	DuracionMediaMin float64 // de las obras
+}
+
+// ---------------------------------------------------------------------------
+// Interoperabilidad con el portal público (§5.16)
+// ---------------------------------------------------------------------------
+
+// Lo que sale hacia el portal público es EXACTAMENTE lo que estos tipos
+// pueden contener (RF-PUB-02, RN-34). Son la lista blanca hecha estructura:
+// no tienen dónde llevar un correo, un teléfono, una fecha de nacimiento, un
+// documento, un dictamen ni una calificación. Añadir un campo aquí es ampliar
+// lo que se publica, y debe pensarse como tal.
+
+// InteropPortal es la exportación completa.
+type InteropPortal struct {
+	GeneradoAt string           `json:"generado_at"` // UTC, ISO-8601
+	Ediciones  []InteropEdicion `json:"ediciones"`
+}
+
+// InteropEdicion es una edición del Foro con sus convocatorias públicas.
+type InteropEdicion struct {
+	Numero        int                   `json:"numero"`
+	Anio          int                   `json:"anio"`
+	NombreES      string                `json:"nombre_es"`
+	NombreEN      string                `json:"nombre_en"`
+	Convocatorias []InteropConvocatoria `json:"convocatorias"`
+}
+
+// InteropConvocatoria son las bases, el calendario y el catálogo de
+// dotaciones de una convocatoria, y su nómina de seleccionados si ya se
+// publicó.
+type InteropConvocatoria struct {
+	Tipo       string            `json:"tipo"`
+	Estado     string            `json:"estado"`
+	TituloES   string            `json:"titulo_es"`
+	TituloEN   string            `json:"titulo_en"`
+	BasesMDES  string            `json:"bases_md_es"`
+	BasesMDEN  string            `json:"bases_md_en"`
+	Etapas     []InteropEtapa    `json:"etapas"`
+	Dotaciones []InteropDotacion `json:"dotaciones"`
+	// Nomina es la última nómina de seleccionados que el administrador
+	// publicó; nil si no ha publicado ninguna o si la retiró. NUNCA se
+	// calcula al exportar: sale tal como se publicó (RF-PUB-04).
+	Nomina *InteropNomina `json:"nomina"`
+}
+
+// InteropEtapa es una etapa del calendario.
+type InteropEtapa struct {
+	Clave     string `json:"clave"`
+	IniciaAt  string `json:"inicia_at"`
+	TerminaAt string `json:"termina_at"`
+}
+
+// InteropDotacion es una dotación del catálogo de la convocatoria.
+type InteropDotacion struct {
+	NombreES      string `json:"nombre_es"`
+	NombreEN      string `json:"nombre_en"`
+	DescripcionES string `json:"descripcion_es"`
+	DescripcionEN string `json:"descripcion_en"`
+}
+
+// InteropNomina es la nómina de seleccionados de una convocatoria, tal como
+// se publicó.
+type InteropNomina struct {
+	PublicadaAt   string                `json:"publicada_at"`
+	Seleccionados []InteropSeleccionado `json:"seleccionados"`
+}
+
+// InteropSeleccionado es una postulación seleccionada: el nombre con que se
+// anuncia, su semblanza y los títulos de sus obras. Nada más.
+type InteropSeleccionado struct {
+	Nombre       string        `json:"nombre"` // nombre artístico; si no tiene, el nombre completo o el del ensamble
+	Subcategoria string        `json:"subcategoria,omitempty"`
+	Semblanza    string        `json:"semblanza"`
+	Obras        []InteropObra `json:"obras"`
+}
+
+// InteropObra es el título de una obra seleccionada.
+type InteropObra struct {
+	Titulo string `json:"titulo"`
+}
+
+// PublicacionInterop es una publicación de la nómina hacia el portal, tal
+// como queda registrada (RF-PUB-05).
+type PublicacionInterop struct {
+	ID            int64
+	Alcance       string
+	SHA256        string
+	AutorizadoPor string // nombre de quien la autorizó
+	CreadoAt      time.Time
+	// Seleccionados es cuántos lleva; 0 si fue una retirada.
+	Seleccionados int
+}
+
+// ---------------------------------------------------------------------------
+// Anonimización ARCO (RF-ARCH-07, RN-28)
+// ---------------------------------------------------------------------------
+
+// TextoAnonimizado sustituye a los datos personales que no pueden quedar
+// vacíos (el nombre) en una postulación anonimizada.
+const TextoAnonimizado = "[anonimizado]"
+
+// SolicitudDeAnonimizacion es lo que el administrador confirma para
+// anonimizar una postulación. La confirmación es doble: marcar que confirma
+// Y volver a escribir el folio.
+type SolicitudDeAnonimizacion struct {
+	Folio      string // el folio, escrito de nuevo por quien confirma
+	Fundamento string // referencia de la solicitud ARCO; no debe llevar datos personales
+	Confirmo   bool
+	// ConCuenta anonimiza además la cuenta del titular, si no tiene otras
+	// postulaciones sin anonimizar.
+	ConCuenta bool
+}
+
+// ResultadoDeAnonimizacion dice qué se hizo. Los archivos por purgar ya están
+// marcados en la base; falta borrarlos del disco, que es lo que hace quien
+// llamó, una vez confirmada la transacción.
+type ResultadoDeAnonimizacion struct {
+	PostulacionID       int64
+	Folio               string
+	ArchivosPorPurgar   []Archivo
+	ArchivosConservados int // partituras, particellas y audio: la obra se conserva
+	CuentaAnonimizada   bool
+}
+
+// InstantaneaDeEspejo es el registro de una instantánea del espejo
+// (RF-OPS-06).
+type InstantaneaDeEspejo struct {
+	ID                int64
+	Ruta              string
+	SHA256            string
+	HMACSHA256        string
+	TamanoBytes       int64
+	ArchivosOK        int
+	ArchivosFaltantes int
+	Destino           string
+	Correcta          bool
+	Detalle           string
+	CreadoAt          time.Time
 }

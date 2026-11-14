@@ -14,7 +14,9 @@ Manuel Enríquez: sirve las páginas, la API REST
 .RB ( /api/v1 )
 y ejecuta los trabajadores internos (envío del correo saliente, limpieza de
 sesiones vencidas, avance de etapa por calendario, comprobación de las ligas
-de video y recordatorios de borrador sin enviar).
+de video, recordatorios de borrador sin enviar, armado de las descargas
+masivas en ZIP y de los expedientes por convocatoria en PDF, y vigilancia del
+espacio en disco).
 .PP
 Es un servicio público. Escucha por omisión en
 .B 127.0.0.1:8080
@@ -63,6 +65,12 @@ de los correos. Obligatoria en producción.
 Máximo de correos que se envían por minuto. Por omisión 30.
 .RB ( FIMNME_CORREO_POR_MINUTO )
 .TP
+.BR \-\-disco\-min\-gb " \fIN\fR"
+Espacio libre mínimo del disco de datos, en GB. Por debajo, el servidor lo
+registra como error y avisa por correo a los administradores una vez al día.
+Con 0 no se vigila. Por omisión 10.
+.RB ( FIMNME_DISCO_MIN_GB )
+.TP
 .B \-\-version
 Muestra la versión y la licencia, y termina.
 .TP
@@ -88,6 +96,12 @@ y
 Acervo de archivos: los documentos de las postulaciones y los acuses, cada
 uno en una ruta derivada del SHA-256 de su contenido. Un respaldo de la base
 sin este directorio no sirve, y a la inversa.
+.TP
+.I /var/lib/fimnme/exportaciones/
+Descargas masivas en ZIP y expedientes en PDF ya armados. Cada uno se borra a
+los siete días. No
+hace falta respaldarlo: son copias de lo que está en
+.IR blobs/ .
 .SH RED
 Para comprobar las ligas de video el servidor hace peticiones HTTPS salientes
 (puerto 443) y consultas de DNS. Sólo se conecta a direcciones públicas. Si

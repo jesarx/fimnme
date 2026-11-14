@@ -52,6 +52,8 @@ type Config struct {
 	URLBase string
 	// Almacen guarda el contenido de los documentos y de los acuses.
 	Almacen models.BlobStore
+	// Exportaciones es el directorio donde se arman las descargas masivas.
+	Exportaciones string
 	// Enlaces comprueba en red las ligas de video antes de un envío. Con nil
 	// no se comprueban: quedan «pendientes» para el revisor.
 	Enlaces *VerificadorDeEnlaces
@@ -62,15 +64,17 @@ type Config struct {
 // App reúne las dependencias de los controladores. Se construye una vez al
 // arrancar y después sólo se lee, por lo que es segura entre peticiones.
 type App struct {
-	vistas   *views.Motor
-	datos    models.Persistencia
-	entorno  string
-	log      *slog.Logger
-	urlBase  string
-	almacen  models.BlobStore
-	enlaces  *VerificadorDeEnlaces
-	ahora    func() time.Time
-	limiteIP *limitador // intentos por IP sobre los formularios de cuenta
+	vistas  *views.Motor
+	datos   models.Persistencia
+	entorno string
+	log     *slog.Logger
+	urlBase string
+	almacen models.BlobStore
+	// exportaciones es el directorio de las descargas masivas ya armadas.
+	exportaciones string
+	enlaces       *VerificadorDeEnlaces
+	ahora         func() time.Time
+	limiteIP      *limitador // intentos por IP sobre los formularios de cuenta
 }
 
 // Nueva construye la aplicación con sus dependencias explícitas.
@@ -80,15 +84,16 @@ func Nueva(c Config) *App {
 		ahora = time.Now
 	}
 	return &App{
-		vistas:   c.Vistas,
-		datos:    c.Datos,
-		entorno:  c.Entorno,
-		log:      c.Log,
-		urlBase:  strings.TrimRight(c.URLBase, "/"),
-		almacen:  c.Almacen,
-		enlaces:  c.Enlaces,
-		ahora:    ahora,
-		limiteIP: nuevoLimitador(intentosPorMinuto, ahora),
+		vistas:        c.Vistas,
+		datos:         c.Datos,
+		entorno:       c.Entorno,
+		log:           c.Log,
+		urlBase:       strings.TrimRight(c.URLBase, "/"),
+		almacen:       c.Almacen,
+		exportaciones: c.Exportaciones,
+		enlaces:       c.Enlaces,
+		ahora:         ahora,
+		limiteIP:      nuevoLimitador(intentosPorMinuto, ahora),
 	}
 }
 
@@ -221,6 +226,61 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/documentos/{id}/archivo", a.conSesion(a.apiDescargarDocumento)},
 		{"POST", "/api/v1/postulaciones/{id}/envio", a.conSesion(a.apiEnviarPostulacion)},
 		{"GET", "/api/v1/postulaciones/{id}/acuses/{version}", a.conSesion(a.apiDescargarAcuse)},
+
+		// Revisión documental y subsanación.
+		{"GET", "/api/v1/convocatorias/{id}/revision", a.conSesion(a.apiBandejaDeRevision)},
+		{"POST", "/api/v1/postulaciones/{id}/toma", a.conSesion(a.apiTomarPostulacion(true))},
+		{"DELETE", "/api/v1/postulaciones/{id}/toma", a.conSesion(a.apiTomarPostulacion(false))},
+		{"PUT", "/api/v1/documentos/{id}/dictamen", a.conSesion(a.apiDictaminarDocumento)},
+		{"POST", "/api/v1/postulaciones/{id}/observaciones", a.conSesion(a.apiObservarPostulacion)},
+		{"POST", "/api/v1/postulaciones/{id}/subsanaciones", a.conSesion(a.apiSolicitarSubsanacion)},
+		{"POST", "/api/v1/postulaciones/{id}/desbloqueos", a.conSesion(a.apiSolicitarDesbloqueo)},
+		{"PUT", "/api/v1/postulaciones/{id}/desbloqueos/{solicitud}", a.conSesion(a.apiResolverDesbloqueo)},
+		{"POST", "/api/v1/postulaciones/{id}/dictamen", a.conSesion(a.apiDictaminarPostulacion)},
+
+		// Evaluación por jurado. Las cinco primeras son del jurado, sobre lo
+		// suyo; la matriz de resultados es sólo de supervisión.
+		{"GET", "/api/v1/convocatorias/{id}/evaluacion", a.conSesion(a.apiListaDeJurado)},
+		{"GET", "/api/v1/postulaciones/{id}/evaluacion", a.conSesion(a.apiEvaluacionPropia)},
+		{"PUT", "/api/v1/postulaciones/{id}/evaluacion", a.conSesion(a.apiGuardarEvaluacion)},
+		{"PUT", "/api/v1/postulaciones/{id}/excusa", a.conSesion(a.apiExcusarse)},
+		{"DELETE", "/api/v1/postulaciones/{id}/excusa", a.conSesion(a.apiRetirarExcusa)},
+		{"GET", "/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)},
+		{"PUT", "/api/v1/postulaciones/{id}/dictamen-final", a.administra(a.apiDictamenFinal)},
+
+		// Archivo histórico: listado con búsqueda y filtros, enlaces por
+		// folio, vistas guardadas y descargas masivas.
+		{"GET", "/api/v1/archivo", a.conSesion(a.apiArchivo)},
+		{"GET", "/api/v1/folios/{folio}", a.conSesion(a.apiPostulacionPorFolio)},
+		{"GET", "/api/v1/vistas", a.conSesion(a.apiVistas)},
+		{"POST", "/api/v1/vistas", a.conSesion(a.apiGuardarVista)},
+		{"DELETE", "/api/v1/vistas/{id}", a.conSesion(a.apiBorrarVista)},
+		{"POST", "/api/v1/exportaciones", a.conSesion(a.apiPedirExportacion)},
+		{"GET", "/api/v1/exportaciones/{id}", a.conSesion(a.apiExportacion)},
+		{"GET", "/api/v1/exportaciones/{id}/archivo", a.conSesion(a.apiDescargarExportacion)},
+
+		// Expediente en PDF: de una postulación, al momento; de una
+		// convocatoria, en segundo plano (se baja por /exportaciones).
+		{"GET", "/api/v1/postulaciones/{id}/expediente", a.conSesion(a.apiExpediente)},
+		{"POST", "/api/v1/expedientes", a.conSesion(a.apiPedirExpediente)},
+
+		// Reportes, plantillas de reporte y tableros: sólo supervisión.
+		{"GET", "/api/v1/convocatorias/{id}/reporte/campos", a.supervisa(a.apiCamposDeReporte)},
+		{"GET", "/api/v1/convocatorias/{id}/reporte", a.supervisa(a.apiReporte)},
+		{"GET", "/api/v1/reportes/plantillas", a.supervisa(a.apiPlantillasDeReporte)},
+		{"POST", "/api/v1/reportes/plantillas", a.supervisa(a.apiGuardarPlantillaDeReporte)},
+		{"DELETE", "/api/v1/reportes/plantillas/{id}", a.supervisa(a.apiBorrarPlantillaDeReporte)},
+		{"GET", "/api/v1/convocatorias/{id}/tablero", a.supervisa(a.apiTablero)},
+		{"GET", "/api/v1/ediciones/{id}/estadisticas", a.supervisa(a.apiEstadisticas)},
+
+		// Portal público: exportación sanitizada (pública) y publicación
+		// explícita de la nómina de seleccionados (administrador).
+		{"GET", "/api/v1/interop/convocatoria.json", a.apiInterop},
+		{"GET", "/api/v1/convocatorias/{id}/publicacion", a.administra(a.apiPublicacion)},
+		{"POST", "/api/v1/convocatorias/{id}/publicacion", a.administra(a.apiPublicarNomina)},
+
+		// Anonimización ARCO: la única operación destructiva.
+		{"POST", "/api/v1/postulaciones/{id}/anonimizacion", a.administra(a.apiAnonimizar)},
 
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},

@@ -11,8 +11,10 @@ fimnme-cli \- mantenimiento de la plataforma de postulaciones FIMNME
 .SH DESCRIPCIÓN
 .B fimnme-cli
 concentra todo lo que no es atender peticiones HTTP: inicializar la base de
-datos, aplicar las migraciones del esquema y dar de alta las cuentas
-internas. Comparte el modelo con
+datos, aplicar las migraciones del esquema, dar de alta las cuentas internas,
+verificar el acervo de archivos, producir y comprobar las instantáneas del
+servidor espejo, exportar para el portal público y anonimizar postulaciones.
+Comparte el modelo con
 .BR fimnme-web (1)
 y no duplica ninguna regla de negocio.
 .PP
@@ -31,7 +33,9 @@ Inicializa la base de datos: la crea y aplica el esquema.
 .B migrate
 Aplica, en orden, las migraciones pendientes del esquema. Cada migración se
 aplica completa o no se aplica. Una migración ya aplicada nunca se edita: si
-su contenido cambió, la orden se niega a continuar.
+su contenido cambió, la orden se niega a continuar. Al terminar reconstruye el
+índice de búsqueda del archivo, que se deriva de las postulaciones; puede
+ejecutarse cuantas veces haga falta.
 .TP
 .B crear\-usuario \fIOPCIONES\fR
 Crea una cuenta interna con un perfil global y muestra su enlace de
@@ -60,6 +64,79 @@ Dirección pública del sitio, para armar el enlace.
 .RB ( FIMNME_URL_BASE )
 .RE
 .TP
+.B verify \fR[\fB\-\-rapido\fR] [\fB\-\-purgar\fR]
+Comprueba que cada archivo que la base registra exista en el acervo y
+coincida con su SHA-256, y busca lo que hay en disco sin registro. Termina
+con estado 1 si falta o se alteró algún archivo; los archivos sin registro se
+reportan pero no son un error. Muestra además el espacio libre en disco. El
+resultado queda en la bitácora.
+.RS
+.TP
+.B \-\-rapido
+Sólo compara existencia y tamaño, sin leer cada archivo. Para la comprobación
+diaria; la completa, para la semanal.
+.TP
+.B \-\-purgar
+Termina de borrar del disco los archivos purgados por una anonimización que
+sigan presentes.
+.RE
+.TP
+.B mirror nueva\-clave \-\-clave \fIARCHIVO\fR
+Genera la clave con que se firman las instantáneas y la guarda en un archivo
+que sólo su dueño puede leer. No sobrescribe una clave existente.
+.TP
+.B mirror snapshot \-\-destino \fIDIR\fR \-\-clave \fIARCHIVO\fR \fR[\fB\-\-conservar\-dias\fR \fIN\fR]
+Toma una instantánea para el servidor espejo: copia la base en caliente
+.RI ( "VACUUM INTO" ),
+sin detener el servicio, a
+.IR DIR /instantaneas;
+replica el acervo por contenido en
+.IR DIR /blobs
+y retira de él los archivos purgados por anonimización; escribe un manifiesto
+firmado con HMAC-SHA256; lo registra en la base; y borra las instantáneas de
+más de
+.I N
+días (90 por omisión; 0 las conserva todas), nunca la más reciente.
+.TP
+.B mirror verify \-\-destino \fIDIR\fR \-\-clave \fIARCHIVO\fR \fR[\fB\-\-instantanea\fR \fINOMBRE\fR] [\fB\-\-rapido\fR]
+Comprueba una instantánea (por omisión, la más reciente): la firma del
+manifiesto, que la base sea la descrita, su integridad interna y que cada
+archivo que registra esté en el acervo del espejo. No abre la base en
+producción ni necesita
+.BR \-\-datos :
+puede ejecutarse en el servidor espejo.
+.TP
+.B mirror list
+Muestra las últimas instantáneas registradas.
+.TP
+.B export\-json \fR[\fB\-\-edicion\fR \fIN\fR] [\fB\-\-salida\fR \fIARCHIVO\fR]
+Genera la exportación sanitizada para el portal público: bases, calendario y
+catálogo de dotaciones de las convocatorias públicas y, de cada una, la
+última nómina de seleccionados que un administrador publicó. No publica
+nada: la nómina se publica desde la API. Sin
+.B \-\-salida
+escribe en la salida estándar.
+.TP
+.B arco anonimizar \fIFOLIO\fR \-\-fundamento \fITEXTO\fR \fR[\fB\-\-con\-cuenta\fR]
+Borra los datos personales de una postulación ante una solicitud ARCO,
+conservando la obra, el dictamen, las evaluaciones y los datos estadísticos.
+Es la única operación destructiva y no se puede deshacer. Muestra lo que va a
+borrar y pide dos confirmaciones: volver a escribir el folio y después la
+palabra
+.BR ANONIMIZAR .
+Sólo procede si la convocatoria está cerrada o archivada, o si la postulación
+fue descartada.
+.RS
+.TP
+.BR \-\-fundamento " \fITEXTO\fR"
+Referencia de la solicitud (de 10 a 500 caracteres). Queda en la bitácora: no
+escriba aquí datos de la persona.
+.TP
+.B \-\-con\-cuenta
+Anonimiza y desactiva además la cuenta del titular, si no tiene otras
+postulaciones sin anonimizar.
+.RE
+.TP
 .B sembrar\-demo
 Carga una edición de demostración en una base sin ediciones. Sólo para
 entornos de desarrollo.
@@ -75,6 +152,22 @@ Directorio de datos: la base SQLite y el acervo de archivos. Por omisión
 .TP
 .BR \-h ", " \-\-help
 Muestra la ayuda y termina.
+.SH ENTORNO
+.TP
+.B FIMNME_DATOS
+Directorio de datos, si no se da
+.BR \-\-datos .
+.TP
+.B FIMNME_ESPEJO
+Directorio del espejo, si no se da
+.BR \-\-destino .
+.TP
+.B FIMNME_CLAVE_ESPEJO
+Ruta del
+.I archivo
+de la clave de firma, si no se da
+.BR \-\-clave .
+La clave misma nunca se pasa por el entorno ni por la línea de órdenes.
 .SH NOTAS
 En el servidor la herramienta debe ejecutarse como el usuario dueño de los
 datos, no como root:

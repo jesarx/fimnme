@@ -27,10 +27,14 @@
 //	fimnme-cli migrate        aplica las migraciones pendientes del esquema
 //	fimnme-cli crear-usuario  crea una cuenta interna y da su enlace de activación
 //	fimnme-cli sembrar-demo   carga una edición de demostración (sólo desarrollo)
+//	fimnme-cli verify         compara el acervo de archivos con la base
+//	fimnme-cli mirror         instantáneas firmadas para el servidor espejo
+//	fimnme-cli export-json    exportación sanitizada para el portal público
+//	fimnme-cli arco           anonimización ante una solicitud ARCO
 //	fimnme-cli version        muestra la versión
 //
-// Las demás (TUI, importación asistida, exportaciones, espejo, ARCO…) llegan
-// en el paso 10 del plan.
+// Las demás (TUI, importación asistida, extensión de campos) llegan en el
+// paso 10b del plan.
 package main
 
 import (
@@ -38,6 +42,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/user"
@@ -48,6 +53,13 @@ import (
 
 // version se fija al compilar con -ldflags "-X main.version=…" (ver Makefile).
 var version = "desarrollo"
+
+// salida y entrada son por donde las órdenes escriben sus resultados y leen
+// las confirmaciones. Las pruebas los sustituyen.
+var (
+	salida  io.Writer = os.Stdout
+	entrada io.Reader = os.Stdin
+)
 
 // Códigos de salida: 0 correcto, 1 falló la operación, 2 uso incorrecto.
 const (
@@ -92,6 +104,18 @@ Sin ORDEN, y si el directorio de datos aún no tiene base, la inicializa.
                  Perfiles: admin_sistema, coordinacion_nacional.
   sembrar-demo   Carga una edición de demostración en una base sin ediciones.
                  Sólo para entornos de desarrollo.
+  verify         Comprueba que cada archivo registrado exista en disco y
+                 coincida con su SHA-256. Opciones: --rapido, --purgar.
+  mirror ORDEN   Servidor espejo. Órdenes:
+                   nueva-clave --clave ARCHIVO
+                   snapshot --destino DIR --clave ARCHIVO [--conservar-dias N]
+                   verify   --destino DIR --clave ARCHIVO [--instantanea NOMBRE]
+                   list
+  export-json    Exportación sanitizada para el portal público.
+                 Opciones: --edicion N, --salida ARCHIVO.
+  arco anonimizar FOLIO --fundamento TEXTO [--con-cuenta]
+                 Borra los datos personales de una postulación (solicitud
+                 ARCO). Pide confirmación doble. No se puede deshacer.
   version        Muestra la versión.
 
 Opciones:
@@ -156,6 +180,18 @@ func main() {
 		err = conRepositorio(*dirDatos, crearUsuario(banderas.Args()[1:]))
 	case "sembrar-demo":
 		err = conRepositorio(*dirDatos, sembrarDemo)
+	case "verify":
+		err = conRepositorio(*dirDatos, verificar(*dirDatos, banderas.Args()[1:]))
+	case "export-json":
+		err = conRepositorio(*dirDatos, exportarJSON(*dirDatos, banderas.Args()[1:]))
+	case "mirror":
+		err = ordenDeEspejo(*dirDatos, banderas.Args()[1:])
+	case "arco":
+		if banderas.NArg() < 2 || banderas.Arg(1) != "anonimizar" {
+			fmt.Fprint(os.Stderr, "Uso: fimnme-cli arco anonimizar FOLIO --fundamento TEXTO [--con-cuenta]\n")
+			os.Exit(salidaUso)
+		}
+		err = conRepositorio(*dirDatos, anonimizar(*dirDatos, banderas.Args()[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "Orden desconocida: %s\n\n", orden)
 		ayuda(banderas)
@@ -165,6 +201,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(salidaError)
 	}
+}
+
+// ordenDeEspejo reparte las órdenes de «mirror». Sólo dos abren la base:
+// generar la clave y verificar una instantánea no la necesitan, y la segunda
+// debe poder ejecutarse en el servidor espejo, donde no hay base en uso.
+func ordenDeEspejo(dirDatos string, args []string) error {
+	if len(args) == 0 {
+		return errors.New("falta la orden: mirror nueva-clave | snapshot | verify | list")
+	}
+	switch args[0] {
+	case "nueva-clave":
+		return nuevaClave(args[1:])
+	case "verify":
+		return verificarInstantanea(args[1:])
+	case "snapshot":
+		return conRepositorio(dirDatos, tomarInstantanea(dirDatos, args[1:]))
+	case "list":
+		return conRepositorio(dirDatos, listarInstantaneas)
+	}
+	return fmt.Errorf("orden de espejo desconocida: %s (use nueva-clave, snapshot, verify o list)", args[0])
 }
 
 // conRepositorio abre la base, ejecuta la orden y cierra la base.
@@ -193,5 +249,12 @@ func migrar(ctx context.Context, repositorio *models.Repositorio) error {
 	if len(aplicadas) == 0 {
 		fmt.Println("El esquema ya está al día; no había migraciones pendientes.")
 	}
+	// El índice de búsqueda se deriva de las postulaciones: se rehace en
+	// cada migración, por si esta versión indexa algo que la anterior no.
+	indexadas, err := repositorio.ReconstruirIndiceDeBusqueda(ctx)
+	if err != nil {
+		return fmt.Errorf("reconstruir el índice de búsqueda: %w", err)
+	}
+	fmt.Printf("Índice de búsqueda reconstruido: %d postulaciones.\n", indexadas)
 	return nil
 }

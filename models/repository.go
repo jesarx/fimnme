@@ -19,6 +19,7 @@
 package models
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -27,7 +28,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -843,7 +846,12 @@ func configuracion(ctx context.Context, q consultor, convocatoriaID int64) (Conf
 	if cfg.Criterios, err = leerCriterios(ctx, q, convocatoriaID); err != nil {
 		return cfg, err
 	}
-	cfg.Asignaciones, err = leerAsignaciones(ctx, q, convocatoriaID)
+	if cfg.Asignaciones, err = leerAsignaciones(ctx, q, convocatoriaID); err != nil {
+		return cfg, err
+	}
+	err = q.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM postulacion
+		WHERE convocatoria_id = ? AND estado IN ('enviada', 'en_revision', 'en_subsanacion')`, convocatoriaID).Scan(&cfg.SinDictaminar)
 	return cfg, err
 }
 
@@ -1079,6 +1087,22 @@ func (r *Repositorio) CambiarEstadoConvocatoria(ctx context.Context, actor Actor
 		if _, err := tx.ExecContext(ctx, "UPDATE convocatoria SET estado = ?, actualizado_at = ? WHERE id = ?",
 			string(destino), r.marca(), convocatoriaID); err != nil {
 			return err
+		}
+		// Al empezar la evaluación, las postulaciones validadas quedan a la
+		// vista del jurado (RN-20); si la etapa se retrocede, vuelven a la
+		// revisión. Las descartadas nunca llegan al jurado.
+		paso := [2]EstadoDePostulacion{}
+		switch {
+		case destino == EstadoEvaluacion && anterior == EstadoRevisionDocumental:
+			paso = [2]EstadoDePostulacion{PostulacionValidada, PostulacionEnEvaluacion}
+		case destino == EstadoRevisionDocumental && anterior == EstadoEvaluacion:
+			paso = [2]EstadoDePostulacion{PostulacionEnEvaluacion, PostulacionValidada}
+		}
+		if paso[0] != "" {
+			if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE convocatoria_id = ? AND estado = ?",
+				string(paso[1]), convocatoriaID, string(paso[0])); err != nil {
+				return err
+			}
 		}
 		despues := map[string]any{"estado": destino, "automatico": automatico}
 		if motivo != "" {
@@ -1841,43 +1865,68 @@ func (r *Repositorio) SesionPorID(ctx context.Context, idResumen string) (*Sesio
 		return nil, err
 	}
 
+	return s, r.cargarPermisos(ctx, s)
+}
+
+// cargarPermisos pone en la sesión los perfiles globales de su cuenta y sus
+// asignaciones activas.
+func (r *Repositorio) cargarPermisos(ctx context.Context, s *Sesion) error {
 	filas, err := r.lectura.QueryContext(ctx,
-		"SELECT perfil FROM usuario_perfil WHERE usuario_id = ? ORDER BY perfil", usuario.ID)
+		"SELECT perfil FROM usuario_perfil WHERE usuario_id = ? ORDER BY perfil", s.Usuario.ID)
 	if err != nil {
-		return nil, fmt.Errorf("leer perfiles: %w", err)
+		return fmt.Errorf("leer perfiles: %w", err)
 	}
 	for filas.Next() {
 		var perfil string
 		if err := filas.Scan(&perfil); err != nil {
 			filas.Close()
-			return nil, fmt.Errorf("leer perfiles: %w", err)
+			return fmt.Errorf("leer perfiles: %w", err)
 		}
 		s.Perfiles = append(s.Perfiles, Perfil(perfil))
 	}
 	filas.Close()
 	if err := filas.Err(); err != nil {
-		return nil, fmt.Errorf("leer perfiles: %w", err)
+		return fmt.Errorf("leer perfiles: %w", err)
 	}
 
 	// Sólo las asignaciones ACTIVAS dan acceso: retirar a un jurado surte
 	// efecto en su siguiente petición, sin esperar a que cierre sesión.
 	filas, err = r.lectura.QueryContext(ctx,
 		"SELECT convocatoria_id, perfil FROM asignacion WHERE usuario_id = ? AND activo = 1 ORDER BY convocatoria_id, perfil",
-		usuario.ID)
+		s.Usuario.ID)
 	if err != nil {
-		return nil, fmt.Errorf("leer asignaciones: %w", err)
+		return fmt.Errorf("leer asignaciones: %w", err)
 	}
 	defer filas.Close()
 	for filas.Next() {
 		var a Asignacion
 		var perfil string
 		if err := filas.Scan(&a.ConvocatoriaID, &perfil); err != nil {
-			return nil, fmt.Errorf("leer asignaciones: %w", err)
+			return fmt.Errorf("leer asignaciones: %w", err)
 		}
 		a.Perfil = Perfil(perfil)
 		s.Asignaciones = append(s.Asignaciones, a)
 	}
-	return s, filas.Err()
+	return filas.Err()
+}
+
+// SesionDeUsuario devuelve los permisos que una cuenta tiene AHORA —sus
+// perfiles y asignaciones activas—, sin que haya una sesión de navegador de
+// por medio. La usa el trabajador que genera expedientes en segundo plano: el
+// contenido se decide con los permisos vigentes al generarlo (RN-26), no con
+// los que la persona tenía al pedirlo. Una cuenta desactivada responde
+// ErrNoEncontrado.
+func (r *Repositorio) SesionDeUsuario(ctx context.Context, usuarioID int64) (*Sesion, error) {
+	usuario, err := leerUsuario(r.lectura.QueryRowContext(ctx,
+		"SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ? AND u.activo = 1", usuarioID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoEncontrado
+	}
+	if err != nil {
+		return nil, fmt.Errorf("leer cuenta: %w", err)
+	}
+	s := &Sesion{Usuario: usuario}
+	return s, r.cargarPermisos(ctx, s)
 }
 
 // RenovarSesion prolonga una sesión en uso (expiración por inactividad).
@@ -2246,14 +2295,16 @@ func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria)
 
 const sqlPostulacion = `
 SELECT p.id, p.convocatoria_id, p.usuario_id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''),
-       p.estado, p.envios, p.creado_at, p.actualizado_at
+       p.estado, p.envios, p.creado_at, p.actualizado_at, COALESCE(p.enviada_at, ''), COALESCE(p.motivo_descarte, ''),
+       COALESCE(p.dictamen, ''), COALESCE(p.anonimizada_at, '')
 FROM postulacion p`
 
 // leerPostulacion vuelca una fila de sqlPostulacion en la entidad, sin lo capturado.
 func leerPostulacion(f fila) (Postulacion, error) {
 	var p Postulacion
-	var subcategoria, estado, creado, actualizado string
-	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado)
+	var subcategoria, estado, creado, actualizado, enviada, anonimizada string
+	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado,
+		&enviada, &p.MotivoDescarte, &p.DictamenFinal, &anonimizada)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Postulacion{}, ErrNoEncontrado
 	}
@@ -2264,7 +2315,17 @@ func leerPostulacion(f fila) (Postulacion, error) {
 	if p.CreadoAt, err = deMarca(creado); err != nil {
 		return Postulacion{}, err
 	}
-	p.ActualizadoAt, err = deMarca(actualizado)
+	if p.ActualizadoAt, err = deMarca(actualizado); err != nil {
+		return Postulacion{}, err
+	}
+	if anonimizada != "" {
+		if p.AnonimizadaAt, err = deMarca(anonimizada); err != nil {
+			return Postulacion{}, err
+		}
+	}
+	if enviada != "" {
+		p.EnviadaAt, err = deMarca(enviada)
+	}
 	return p, err
 }
 
@@ -2386,7 +2447,10 @@ func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo
 	if p.Documentos, err = documentosVigentes(ctx, q, p.ID); err != nil {
 		return err
 	}
-	p.Acuses, err = acusesDe(ctx, q, p.ID)
+	if p.Acuses, err = acusesDe(ctx, q, p.ID); err != nil {
+		return err
+	}
+	p.Subsanaciones, err = subsanacionesDe(ctx, q, p.ID)
 	return err
 }
 
@@ -2498,6 +2562,9 @@ func (r *Repositorio) CrearPostulacion(ctx context.Context, actor Actor, convoca
 				return err
 			}
 		}
+		if err := r.reindexar(ctx, tx, id); err != nil {
+			return err
+		}
 		return r.auditar(ctx, tx, actor, "postulacion.crear", "postulacion", id, nil,
 			map[string]any{"convocatoria_id": convocatoriaID, "subcategoria": sub})
 	})
@@ -2505,24 +2572,45 @@ func (r *Repositorio) CrearPostulacion(ctx context.Context, actor Actor, convoca
 }
 
 // postulacionEditable lee una postulación de la cuenta dada, con su
-// convocatoria, y comprueba que pueda modificarse ahora (RN-02, RN-04).
-func (r *Repositorio) postulacionEditable(ctx context.Context, tx *sql.Tx, usuarioID, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+// convocatoria, y calcula qué puede modificar el postulante ahora (RN-02,
+// RN-04): todo si es un borrador en plazo; sólo lo señalado por el revisor si
+// está en subsanación. Si no puede modificar nada devuelve el motivo.
+//
+// Quien llama debe consultar el permiso devuelto antes de escribir: es lo que
+// hace cumplir el desbloqueo selectivo (§4.2).
+func (r *Repositorio) postulacionEditable(ctx context.Context, tx *sql.Tx, usuarioID, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, PermisoDeEdicion, error) {
+	var sinPermiso PermisoDeEdicion
 	p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ? AND p.usuario_id = ?", postulacionID, usuarioID))
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
 	}
 	cfg, err := configuracion(ctx, tx, p.ConvocatoriaID)
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
 	}
-	return p, cfg, validacion(ValidarEdicionDePostulacion(p, cfg.Convocatoria, r.ahora()))
+	if p.Subsanaciones, err = subsanacionesDe(ctx, tx, p.ID); err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, sinPermiso, err
+	}
+	permiso, errores := PermisoDeEdicionDe(p, cfg.Convocatoria, r.ahora())
+	return p, cfg, permiso, validacion(errores)
 }
 
-// tocar actualiza la marca de última modificación de una postulación.
+// errBloqueado es la respuesta a quien intenta modificar, durante una
+// subsanación, un elemento que el revisor no señaló.
+func errBloqueado(campo string) error {
+	return validacion([]ErrorCampo{{Campo: campo, Clave: "error.elemento_bloqueado"}})
+}
+
+// tocar actualiza la marca de última modificación de una postulación y su
+// entrada en el índice de búsqueda.
 func (r *Repositorio) tocar(ctx context.Context, tx *sql.Tx, postulacionID int64) (time.Time, error) {
 	ahora := r.ahora().UTC().Truncate(time.Second)
-	_, err := tx.ExecContext(ctx, "UPDATE postulacion SET actualizado_at = ? WHERE id = ?", aMarca(ahora), postulacionID)
-	return ahora, err
+	if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET actualizado_at = ? WHERE id = ?", aMarca(ahora), postulacionID); err != nil {
+		return ahora, err
+	}
+	// Todo cambio de la postulación pasa por aquí: es el lugar para mantener
+	// al día el índice del buscador.
+	return ahora, r.reindexar(ctx, tx, postulacionID)
 }
 
 // guardarCampos aplica un guardado parcial sobre una fila: valida el formato
@@ -2530,7 +2618,7 @@ func (r *Repositorio) tocar(ctx context.Context, tx *sql.Tx, postulacionID int64
 // rechazados no se guardan y se devuelven con su motivo. Las rutas se
 // recorren en orden alfabético para que el resultado sea determinista.
 func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (DefinicionCampo, bool), llave string, id int64,
-	cambios map[string]string, contexto ContextoCampos) (ResultadoGuardado, error) {
+	cambios map[string]string, contexto ContextoCampos, permitido func(ruta string) bool) (ResultadoGuardado, error) {
 	var resultado ResultadoGuardado
 	rutas := make([]string, 0, len(cambios))
 	for ruta := range cambios {
@@ -2543,6 +2631,11 @@ func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (Definic
 			// Un campo que no es de este formulario: ni se guarda ni se ignora
 			// en silencio.
 			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: "error.campo_desconocido"})
+			continue
+		}
+		if !permitido(ruta) {
+			// Durante una subsanación sólo se guarda lo que el revisor señaló.
+			resultado.Errores = append(resultado.Errores, ErrorCampo{Campo: ruta, Clave: "error.elemento_bloqueado"})
 			continue
 		}
 		valor := strings.TrimSpace(cambios[ruta])
@@ -2579,7 +2672,7 @@ func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (Definic
 func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID, postulacionID int64, cambios map[string]string) (ResultadoGuardado, error) {
 	var resultado ResultadoGuardado
 	err := r.operacion(ctx, "guardar postulación", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
 		}
@@ -2595,7 +2688,8 @@ func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID,
 			pais = actuales["datos.pais_residencia"]
 		}
 		contexto := ContextoCampos{Ahora: r.ahora(), PaisResidencia: strings.TrimSpace(pais), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto); err != nil {
+		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto,
+			func(ruta string) bool { return permiso.Campo(ruta, 0) }); err != nil {
 			return err
 		}
 		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
@@ -2606,16 +2700,16 @@ func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID,
 
 // obraEditable localiza una obra de una postulación de la cuenta dada y
 // comprueba que pueda modificarse.
-func (r *Repositorio) obraEditable(ctx context.Context, tx *sql.Tx, usuarioID, obraID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+func (r *Repositorio) obraEditable(ctx context.Context, tx *sql.Tx, usuarioID, obraID int64) (Postulacion, ConfiguracionConvocatoria, PermisoDeEdicion, error) {
 	var postulacionID int64
 	err := tx.QueryRowContext(ctx, `
 		SELECT o.postulacion_id FROM obra o JOIN postulacion p ON p.id = o.postulacion_id
 		WHERE o.id = ? AND p.usuario_id = ?`, obraID, usuarioID).Scan(&postulacionID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Postulacion{}, ConfiguracionConvocatoria{}, ErrNoEncontrado
+		return Postulacion{}, ConfiguracionConvocatoria{}, PermisoDeEdicion{}, ErrNoEncontrado
 	}
 	if err != nil {
-		return Postulacion{}, ConfiguracionConvocatoria{}, err
+		return Postulacion{}, ConfiguracionConvocatoria{}, PermisoDeEdicion{}, err
 	}
 	return r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 }
@@ -2626,14 +2720,15 @@ func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID
 	var resultado ResultadoGuardado
 	var postulacionID int64
 	err := r.operacion(ctx, "guardar obra", func(tx *sql.Tx) error {
-		p, cfg, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		p, cfg, permiso, err := r.obraEditable(ctx, tx, usuarioID, obraID)
 		if err != nil {
 			return err
 		}
 		postulacionID = p.ID
 		formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
 		contexto := ContextoCampos{Ahora: r.ahora(), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto); err != nil {
+		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto,
+			func(ruta string) bool { return permiso.Campo(ruta, obraID) }); err != nil {
 			return err
 		}
 		resultado.GuardadoAt, err = r.tocar(ctx, tx, p.ID)
@@ -2647,9 +2742,12 @@ func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID
 func (r *Repositorio) AgregarObra(ctx context.Context, usuarioID, postulacionID int64) (int64, error) {
 	var id int64
 	err := r.operacion(ctx, "agregar obra", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		var cuantas, ultimoOrden int
 		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MAX(orden), 0) FROM obra WHERE postulacion_id = ?", p.ID).
@@ -2679,9 +2777,12 @@ func (r *Repositorio) AgregarObra(ctx context.Context, usuarioID, postulacionID 
 func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (int64, error) {
 	var postulacionID int64
 	err := r.operacion(ctx, "borrar obra", func(tx *sql.Tx) error {
-		p, _, err := r.obraEditable(ctx, tx, usuarioID, obraID)
+		p, _, permiso, err := r.obraEditable(ctx, tx, usuarioID, obraID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		postulacionID = p.ID
 		// Con la obra se van sus documentos (los archivos siguen en el
@@ -2730,9 +2831,12 @@ func (r *Repositorio) BorrarObra(ctx context.Context, usuarioID, obraID int64) (
 // obras de la postulación, en el orden deseado.
 func (r *Repositorio) OrdenarObras(ctx context.Context, usuarioID, postulacionID int64, ids []int64) error {
 	return r.operacion(ctx, "ordenar obras", func(tx *sql.Tx) error {
-		p, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, _, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoObras, 0) {
+			return errBloqueado("obras")
 		}
 		filas, err := tx.QueryContext(ctx, "SELECT id FROM obra WHERE postulacion_id = ?", p.ID)
 		if err != nil {
@@ -2776,9 +2880,12 @@ func (r *Repositorio) OrdenarObras(ctx context.Context, usuarioID, postulacionID
 // (RF-POST-06). El orden de la lista es el orden en que se guardan.
 func (r *Repositorio) DefinirIntegrantes(ctx context.Context, usuarioID, postulacionID int64, integrantes []Integrante) error {
 	return r.operacion(ctx, "definir integrantes", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoIntegrantes, 0) {
+			return errBloqueado("integrantes")
 		}
 		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneIntegrantes {
 			return validacion([]ErrorCampo{{Campo: "integrantes", Clave: "error.integrantes_no_aplican"}})
@@ -2804,9 +2911,12 @@ func (r *Repositorio) DefinirIntegrantes(ctx context.Context, usuarioID, postula
 // liga queda «pendiente» hasta que el sistema la compruebe por red.
 func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionID int64, ligas []string) error {
 	return r.operacion(ctx, "definir videos", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Campo(CampoVideos, 0) {
+			return errBloqueado("videos")
 		}
 		if !FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria).TieneVideos {
 			return validacion([]ErrorCampo{{Campo: "videos", Clave: "error.videos_no_aplican"}})
@@ -2866,9 +2976,12 @@ func (r *Repositorio) DefinirVideos(ctx context.Context, usuarioID, postulacionI
 // propuesta de concierto, las obras y los videos, que son comunes.
 func (r *Repositorio) CambiarSubcategoria(ctx context.Context, actor Actor, usuarioID, postulacionID int64, sub Subcategoria) error {
 	return r.operacion(ctx, "cambiar subcategoría", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Total {
+			return errBloqueado("subcategoria")
 		}
 		if cfg.Convocatoria.Tipo != TipoInterpretes {
 			return validacion([]ErrorCampo{{Campo: "subcategoria", Clave: "error.subcategoria_no_aplica"}})
@@ -2982,8 +3095,16 @@ func acusesDe(ctx context.Context, q consultor, postulacionID int64) ([]Acuse, e
 // SHA-256) devuelve el id existente: es la deduplicación de RF-DOC-02.
 func (r *Repositorio) guardarArchivo(ctx context.Context, tx *sql.Tx, blob Blob, mime, nombreOriginal string) (int64, error) {
 	var id int64
-	err := tx.QueryRowContext(ctx, "SELECT id FROM archivo WHERE sha256 = ?", blob.SHA256).Scan(&id)
+	var purgado sql.NullString
+	err := tx.QueryRowContext(ctx, "SELECT id, purgado_at FROM archivo WHERE sha256 = ?", blob.SHA256).Scan(&id, &purgado)
 	if err == nil {
+		if purgado.Valid {
+			// El contenido se había purgado en una anonimización y alguien
+			// acaba de subirlo otra vez: vuelve a estar en el almacén.
+			if _, err := tx.ExecContext(ctx, "UPDATE archivo SET purgado_at = NULL, nombre_original = ?, mime = ? WHERE id = ?", nombreOriginal, mime, id); err != nil {
+				return 0, fmt.Errorf("restituir archivo purgado: %w", err)
+			}
+		}
 		return id, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -3006,9 +3127,12 @@ func (r *Repositorio) guardarArchivo(ctx context.Context, tx *sql.Tx, blob Blob,
 func (r *Repositorio) RegistrarDocumento(ctx context.Context, actor Actor, usuarioID, postulacionID int64, n NuevoDocumento) (Documento, error) {
 	var documento Documento
 	err := r.operacion(ctx, "registrar documento", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		p, cfg, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
+		}
+		if !permiso.Documento(n.Clave, n.ObraID) {
+			return errBloqueado("archivo")
 		}
 		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
 			return err
@@ -3081,17 +3205,26 @@ func (r *Repositorio) RegistrarDocumento(ctx context.Context, actor Actor, usuar
 func (r *Repositorio) QuitarDocumento(ctx context.Context, actor Actor, usuarioID, documentoID int64) (int64, error) {
 	var postulacionID int64
 	err := r.operacion(ctx, "quitar documento", func(tx *sql.Tx) error {
+		var clave string
+		var obraID int64
 		err := tx.QueryRowContext(ctx, `
-			SELECT d.postulacion_id FROM documento d JOIN postulacion p ON p.id = d.postulacion_id
-			WHERE d.id = ? AND d.vigente = 1 AND p.usuario_id = ?`, documentoID, usuarioID).Scan(&postulacionID)
+			SELECT d.postulacion_id, rq.clave, COALESCE(d.obra_id, 0)
+			FROM documento d
+			JOIN postulacion p ON p.id = d.postulacion_id
+			JOIN requisito_documental rq ON rq.id = d.requisito_id
+			WHERE d.id = ? AND d.vigente = 1 AND p.usuario_id = ?`, documentoID, usuarioID).Scan(&postulacionID, &clave, &obraID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNoEncontrado
 		}
 		if err != nil {
 			return err
 		}
-		if _, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID); err != nil {
+		_, _, permiso, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		if err != nil {
 			return err
+		}
+		if !permiso.Documento(clave, obraID) {
+			return errBloqueado("documento")
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE documento SET vigente = 0 WHERE id = ?", documentoID); err != nil {
 			return err
@@ -3152,7 +3285,9 @@ func (r *Repositorio) RegistrarDescarga(ctx context.Context, actor Actor, postul
 // EnviarPostulacion envía una postulación: es irreversible (§4.1). En UNA sola
 // transacción:
 //
-//  1. comprueba que sea un borrador de la cuenta, dentro de plazo;
+//  1. comprueba que sea un borrador de la cuenta, dentro de plazo, o una
+//     postulación con una subsanación abierta (entonces es un REENVÍO: mismo
+//     folio, acuse nuevo con la versión siguiente, y vuelve a revisión);
 //  2. ejecuta la validación completa (ValidarParaEnvio) y las confirmaciones;
 //  3. asigna el folio y congela lo enviado en un snapshot;
 //  4. pide a la Vista el acuse en PDF y el correo, con la función componer;
@@ -3170,10 +3305,13 @@ func (r *Repositorio) RegistrarDescarga(ctx context.Context, actor Actor, postul
 func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuarioID, postulacionID int64,
 	confirmacion ConfirmacionEnvio, componer func(SnapshotEnvio) (AcuseCompuesto, error)) error {
 	return r.operacion(ctx, "enviar postulación", func(tx *sql.Tx) error {
-		p, cfg, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
+		// El permiso no se consulta: basta con que exista. Se envía un
+		// borrador en plazo, o se reenvía una subsanación abierta.
+		p, cfg, _, err := r.postulacionEditable(ctx, tx, usuarioID, postulacionID)
 		if err != nil {
 			return err
 		}
+		subsanacion := p.SubsanacionAbierta(r.ahora())
 		if err := completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo); err != nil {
 			return err
 		}
@@ -3217,6 +3355,12 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 			return err
 		}
 		marca := aMarca(ahora)
+		// El primer envío deja la postulación «enviada»; el reenvío de una
+		// subsanación la devuelve a revisión (§4).
+		estado, accion := PostulacionEnviada, "postulacion.enviar"
+		if subsanacion != nil {
+			estado, accion = PostulacionEnRevision, "postulacion.reenviar"
+		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO acuse (postulacion_id, version, archivo_id, snapshot, idioma, generado_at) VALUES (?, ?, ?, ?, ?, ?)",
 			p.ID, version, archivoID, string(congelado), snapshot.Idioma, marca); err != nil {
@@ -3226,7 +3370,22 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 			UPDATE postulacion
 			SET estado = ?, folio = ?, envios = ?, enviada_at = ?, primera_enviada_at = COALESCE(primera_enviada_at, ?),
 			    bases_aceptadas_at = ?, actualizado_at = ?
-			WHERE id = ?`, string(PostulacionEnviada), folio, version, marca, marca, marca, marca, p.ID); err != nil {
+			WHERE id = ?`, string(estado), folio, version, marca, marca, marca, marca, p.ID); err != nil {
+			return err
+		}
+		if subsanacion != nil {
+			// Reenvío: la subsanación queda atendida y sus problemas, resueltos
+			// a juicio del postulante. El revisor decidirá si lo están.
+			if _, err := tx.ExecContext(ctx, "UPDATE subsanacion SET atendida_at = ? WHERE id = ?", marca, subsanacion.ID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE subsanacion_problema SET resuelto_at = ? WHERE subsanacion_id = ? AND resuelto_at IS NULL", marca, subsanacion.ID); err != nil {
+				return err
+			}
+		}
+		// El folio recién asignado debe poder buscarse.
+		if err := r.reindexar(ctx, tx, p.ID); err != nil {
 			return err
 		}
 		correo := compuesto.Correo
@@ -3235,9 +3394,15 @@ func (r *Repositorio) EnviarPostulacion(ctx context.Context, actor Actor, usuari
 		if err := r.encolarCorreo(ctx, tx, correo); err != nil {
 			return err
 		}
-		return r.auditar(ctx, tx, actor, "postulacion.enviar", "postulacion", p.ID,
+		for _, aviso := range compuesto.Avisos {
+			aviso.PostulacionID = p.ID
+			if err := r.encolarCorreo(ctx, tx, aviso); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, accion, "postulacion", p.ID,
 			map[string]any{"estado": p.Estado},
-			map[string]any{"estado": PostulacionEnviada, "folio": folio, "version": version, "acuse_sha256": compuesto.Blob.SHA256})
+			map[string]any{"estado": estado, "folio": folio, "version": version, "acuse_sha256": compuesto.Blob.SHA256})
 	})
 }
 
@@ -3449,4 +3614,2755 @@ func (r *Repositorio) FijarArchivoDeConvocatoria(ctx context.Context, actor Acto
 		return r.auditar(ctx, tx, actor, "convocatoria.archivo", "convocatoria", c.ID, nil,
 			map[string]any{"clase": clase, "sha256": blob.SHA256})
 	})
+}
+
+// =============================================================================
+// 12. Revisión documental y subsanación
+// =============================================================================
+
+// subsanacionesDe devuelve las subsanaciones de una postulación, de la más
+// antigua a la más reciente, con sus problemas y sus solicitudes de desbloqueo.
+func subsanacionesDe(ctx context.Context, q consultor, postulacionID int64) ([]Subsanacion, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT id, postulacion_id, revisor_id, mensaje, fecha_limite, enviada_at, COALESCE(atendida_at, ''), COALESCE(cerrada_at, '')
+		FROM subsanacion WHERE postulacion_id = ? ORDER BY id`, postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer subsanaciones: %w", err)
+	}
+	var subsanaciones []Subsanacion
+	for filas.Next() {
+		var s Subsanacion
+		var limite, enviada, atendida, cerrada string
+		if err := filas.Scan(&s.ID, &s.PostulacionID, &s.RevisorID, &s.Mensaje, &limite, &enviada, &atendida, &cerrada); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer subsanaciones: %w", err)
+		}
+		for _, marca := range []struct {
+			texto   string
+			destino *time.Time
+		}{{limite, &s.FechaLimite}, {enviada, &s.EnviadaAt}, {atendida, &s.AtendidaAt}, {cerrada, &s.CerradaAt}} {
+			if marca.texto == "" {
+				continue
+			}
+			if *marca.destino, err = deMarca(marca.texto); err != nil {
+				filas.Close()
+				return nil, err
+			}
+		}
+		subsanaciones = append(subsanaciones, s)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer subsanaciones: %w", err)
+	}
+	for i := range subsanaciones {
+		s := &subsanaciones[i]
+		if s.Problemas, err = problemasDe(ctx, q, s.ID); err != nil {
+			return nil, err
+		}
+		if s.Solicitudes, err = solicitudesDe(ctx, q, s.ID); err != nil {
+			return nil, err
+		}
+	}
+	return subsanaciones, nil
+}
+
+// problemasDe devuelve los elementos señalados en una subsanación. De un
+// documento, el campo es la clave de su requisito.
+func problemasDe(ctx context.Context, q consultor, subsanacionID int64) ([]ProblemaSubsanacion, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT sp.id, sp.clase, COALESCE(sp.campo, rq.clave, ''), COALESCE(sp.obra_id, 0), COALESCE(sp.documento_id, 0),
+		       sp.problema, COALESCE(sp.resuelto_at, '')
+		FROM subsanacion_problema sp
+		LEFT JOIN requisito_documental rq ON rq.id = sp.requisito_id
+		WHERE sp.subsanacion_id = ? ORDER BY sp.id`, subsanacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer problemas de la subsanación: %w", err)
+	}
+	defer filas.Close()
+	var problemas []ProblemaSubsanacion
+	for filas.Next() {
+		var p ProblemaSubsanacion
+		var clase, resuelto string
+		if err := filas.Scan(&p.ID, &clase, &p.Campo, &p.ObraID, &p.DocumentoID, &p.Problema, &resuelto); err != nil {
+			return nil, fmt.Errorf("leer problemas de la subsanación: %w", err)
+		}
+		p.Clase = ClaseProblema(clase)
+		if resuelto != "" {
+			if p.ResueltoAt, err = deMarca(resuelto); err != nil {
+				return nil, err
+			}
+		}
+		problemas = append(problemas, p)
+	}
+	return problemas, filas.Err()
+}
+
+// solicitudesDe devuelve las solicitudes de desbloqueo de una subsanación.
+func solicitudesDe(ctx context.Context, q consultor, subsanacionID int64) ([]SolicitudDesbloqueo, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT sd.id, COALESCE(sd.campo, rq.clave, ''), sd.requisito_id IS NOT NULL, COALESCE(sd.obra_id, 0), sd.justificacion,
+		       sd.concedida IS NOT NULL, COALESCE(sd.concedida, 0), COALESCE(sd.motivo_respuesta, ''), sd.creado_at, COALESCE(sd.resuelta_at, '')
+		FROM solicitud_desbloqueo sd
+		LEFT JOIN requisito_documental rq ON rq.id = sd.requisito_id
+		WHERE sd.subsanacion_id = ? ORDER BY sd.id`, subsanacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer solicitudes de desbloqueo: %w", err)
+	}
+	defer filas.Close()
+	var solicitudes []SolicitudDesbloqueo
+	for filas.Next() {
+		s := SolicitudDesbloqueo{Clase: ProblemaCampo}
+		var esDocumento bool
+		var creado, resuelta string
+		if err := filas.Scan(&s.ID, &s.Campo, &esDocumento, &s.ObraID, &s.Justificacion,
+			&s.Resuelta, &s.Concedida, &s.MotivoRespuesta, &creado, &resuelta); err != nil {
+			return nil, fmt.Errorf("leer solicitudes de desbloqueo: %w", err)
+		}
+		if esDocumento {
+			s.Clase = ProblemaDocumento
+		}
+		if s.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		if resuelta != "" {
+			if s.ResueltaAt, err = deMarca(resuelta); err != nil {
+				return nil, err
+			}
+		}
+		solicitudes = append(solicitudes, s)
+	}
+	return solicitudes, filas.Err()
+}
+
+// tomaDe devuelve quién tiene tomada una postulación, o nil si está libre.
+func tomaDe(ctx context.Context, q consultor, postulacionID int64) (*TomaRevision, error) {
+	var t TomaRevision
+	var nombre, apellidos, tomada string
+	err := q.QueryRowContext(ctx, `
+		SELECT t.revisor_id, u.nombre, u.apellidos, t.tomada_at
+		FROM toma_revision t JOIN usuario u ON u.id = t.revisor_id
+		WHERE t.postulacion_id = ? AND t.liberada_at IS NULL`, postulacionID).Scan(&t.RevisorID, &nombre, &apellidos, &tomada)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("leer toma de revisión: %w", err)
+	}
+	t.Revisor = strings.TrimSpace(nombre + " " + apellidos)
+	if t.TomadaAt, err = deMarca(tomada); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// revisionDe reúne lo que la revisión ha dejado sobre una postulación: el
+// dictamen vigente de cada documento, las observaciones y la toma.
+func revisionDe(ctx context.Context, q consultor, postulacionID int64) (Revision, error) {
+	var revision Revision
+	// El dictamen vigente de un documento es el último que se emitió.
+	filas, err := q.QueryContext(ctx, `
+		SELECT rd.documento_id, rd.dictamen, COALESCE(rd.motivo, ''), rd.revisor_id, rd.creado_at
+		FROM revision_documento rd
+		JOIN documento d ON d.id = rd.documento_id
+		WHERE d.postulacion_id = ?
+		  AND rd.id = (SELECT MAX(otro.id) FROM revision_documento otro WHERE otro.documento_id = rd.documento_id)
+		ORDER BY rd.documento_id`, postulacionID)
+	if err != nil {
+		return revision, fmt.Errorf("leer dictámenes: %w", err)
+	}
+	for filas.Next() {
+		var d DictamenDocumento
+		var creado string
+		if err := filas.Scan(&d.DocumentoID, &d.Dictamen, &d.Motivo, &d.RevisorID, &creado); err != nil {
+			filas.Close()
+			return revision, fmt.Errorf("leer dictámenes: %w", err)
+		}
+		if d.CreadoAt, err = deMarca(creado); err != nil {
+			filas.Close()
+			return revision, err
+		}
+		revision.Dictamenes = append(revision.Dictamenes, d)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return revision, fmt.Errorf("leer dictámenes: %w", err)
+	}
+
+	filas, err = q.QueryContext(ctx, `
+		SELECT o.id, COALESCE(o.obra_id, 0), o.revisor_id, u.nombre, u.apellidos, o.texto, o.creado_at
+		FROM observacion_revision o JOIN usuario u ON u.id = o.revisor_id
+		WHERE o.postulacion_id = ? ORDER BY o.id`, postulacionID)
+	if err != nil {
+		return revision, fmt.Errorf("leer observaciones: %w", err)
+	}
+	for filas.Next() {
+		var o ObservacionRevision
+		var nombre, apellidos, creado string
+		if err := filas.Scan(&o.ID, &o.ObraID, &o.RevisorID, &nombre, &apellidos, &o.Texto, &creado); err != nil {
+			filas.Close()
+			return revision, fmt.Errorf("leer observaciones: %w", err)
+		}
+		o.Revisor = strings.TrimSpace(nombre + " " + apellidos)
+		if o.CreadoAt, err = deMarca(creado); err != nil {
+			filas.Close()
+			return revision, err
+		}
+		revision.Observaciones = append(revision.Observaciones, o)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return revision, fmt.Errorf("leer observaciones: %w", err)
+	}
+	revision.Toma, err = tomaDe(ctx, q, postulacionID)
+	return revision, err
+}
+
+// RevisionDe devuelve lo que la revisión documental ha dejado sobre una
+// postulación. NO comprueba quién lo pide: eso lo decide el controlador con
+// la regla PuedeVerRevision.
+func (r *Repositorio) RevisionDe(ctx context.Context, postulacionID int64) (Revision, error) {
+	return revisionDe(ctx, r.lectura, postulacionID)
+}
+
+// BandejaDeRevision devuelve las postulaciones enviadas de una convocatoria,
+// en el orden en que llegaron: TODAS, sin reparto entre revisores (RN-14b).
+// Los borradores no aparecen: no entraron al proceso. revisorID es quien
+// consulta, para el filtro «tomadas por mí».
+func (r *Repositorio) BandejaDeRevision(ctx context.Context, convocatoriaID, revisorID int64, filtro FiltroBandeja) ([]PostulacionEnBandeja, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT p.id, p.folio, p.estado, COALESCE(p.subcategoria, ''),
+		       COALESCE(ds.nombre_completo, de.nombre_ensamble, dc.nombre_completo, ''),
+		       COALESCE(p.enviada_at, ''), p.envios,
+		       COALESCE(t.revisor_id, 0), COALESCE(u.nombre, ''), COALESCE(u.apellidos, ''), COALESCE(t.tomada_at, ''),
+		       (SELECT COUNT(*) FROM observacion_revision o WHERE o.postulacion_id = p.id),
+		       (SELECT COUNT(*) FROM documento d WHERE d.postulacion_id = p.id AND d.vigente = 1 AND d.dictamen = 'invalido'),
+		       COALESCE((SELECT MAX(s.fecha_limite) FROM subsanacion s
+		                 WHERE s.postulacion_id = p.id AND s.atendida_at IS NULL AND s.cerrada_at IS NULL), ''),
+		       (SELECT COUNT(*) FROM subsanacion s
+		        WHERE s.postulacion_id = p.id AND s.atendida_at IS NOT NULL AND s.cerrada_at IS NULL)
+		FROM postulacion p
+		LEFT JOIN datos_solista ds ON ds.postulacion_id = p.id
+		LEFT JOIN datos_ensamble de ON de.postulacion_id = p.id
+		LEFT JOIN datos_compositor dc ON dc.postulacion_id = p.id
+		LEFT JOIN toma_revision t ON t.postulacion_id = p.id AND t.liberada_at IS NULL
+		LEFT JOIN usuario u ON u.id = t.revisor_id
+		WHERE p.convocatoria_id = ? AND p.estado <> 'borrador'
+		ORDER BY p.enviada_at, p.id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer bandeja de revisión: %w", err)
+	}
+	defer filas.Close()
+	buscado := strings.ToLower(strings.TrimSpace(filtro.Texto))
+	bandeja := []PostulacionEnBandeja{}
+	for filas.Next() {
+		var b PostulacionEnBandeja
+		var estado, subcategoria, enviada, nombre, apellidos, tomada, limite string
+		var revisor int64
+		var atendidas int
+		if err := filas.Scan(&b.ID, &b.Folio, &estado, &subcategoria, &b.Nombre, &enviada, &b.Envios,
+			&revisor, &nombre, &apellidos, &tomada, &b.Observaciones, &b.DocumentosInvalidos, &limite, &atendidas); err != nil {
+			return nil, fmt.Errorf("leer bandeja de revisión: %w", err)
+		}
+		b.Estado, b.Subcategoria = EstadoDePostulacion(estado), Subcategoria(subcategoria)
+		b.Subsanada = atendidas > 0 && b.Estado == PostulacionEnRevision
+		if enviada != "" {
+			if b.EnviadaAt, err = deMarca(enviada); err != nil {
+				return nil, err
+			}
+		}
+		if limite != "" {
+			if b.FechaLimite, err = deMarca(limite); err != nil {
+				return nil, err
+			}
+		}
+		if revisor != 0 {
+			b.Toma = &TomaRevision{RevisorID: revisor, Revisor: strings.TrimSpace(nombre + " " + apellidos)}
+			if b.Toma.TomadaAt, err = deMarca(tomada); err != nil {
+				return nil, err
+			}
+		}
+		// Los filtros se aplican aquí: la bandeja de una convocatoria son
+		// unas cuantas centenas de renglones.
+		switch {
+		case filtro.Estado != "" && b.Estado != filtro.Estado,
+			filtro.Subcategoria != "" && b.Subcategoria != filtro.Subcategoria,
+			filtro.Toma == "libre" && b.Toma != nil,
+			filtro.Toma == "mia" && (b.Toma == nil || b.Toma.RevisorID != revisorID),
+			filtro.Toma == "otra" && (b.Toma == nil || b.Toma.RevisorID == revisorID),
+			buscado != "" && !strings.Contains(strings.ToLower(b.Folio), buscado) && !strings.Contains(strings.ToLower(b.Nombre), buscado):
+			continue
+		}
+		bandeja = append(bandeja, b)
+	}
+	return bandeja, filas.Err()
+}
+
+// postulacionEnRevision lee, dentro de una transacción, una postulación
+// completa con la configuración de su convocatoria.
+func (r *Repositorio) postulacionEnRevision(ctx context.Context, tx *sql.Tx, postulacionID int64) (Postulacion, ConfiguracionConvocatoria, error) {
+	p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ?", postulacionID))
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	cfg, err := configuracion(ctx, tx, p.ConvocatoriaID)
+	if err != nil {
+		return Postulacion{}, ConfiguracionConvocatoria{}, err
+	}
+	return p, cfg, completarPostulacion(ctx, tx, &p, cfg.Convocatoria.Tipo)
+}
+
+// iniciarRevision pasa la postulación de «enviada» a «en revisión» la primera
+// vez que un revisor actúa sobre ella (§4).
+func iniciarRevision(ctx context.Context, tx *sql.Tx, p Postulacion) error {
+	if p.Estado != PostulacionEnviada {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ?", string(PostulacionEnRevision), p.ID)
+	return err
+}
+
+// TomarPostulacion marca una postulación como «en revisión por» el revisor
+// que actúa, o la libera (RF-REV-01b). Es una toma blanda: sólo informa a los
+// demás, no les impide intervenir, y cualquiera puede tomarla de nuevo.
+func (r *Repositorio) TomarPostulacion(ctx context.Context, actor Actor, postulacionID int64, tomar bool) error {
+	return r.operacion(ctx, "tomar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		// Una fila por postulación: la toma nueva sustituye a la anterior.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM toma_revision WHERE postulacion_id = ?", p.ID); err != nil {
+			return err
+		}
+		accion := "revision.liberar"
+		if tomar {
+			accion = "revision.tomar"
+			if _, err := tx.ExecContext(ctx, "INSERT INTO toma_revision (postulacion_id, revisor_id, tomada_at) VALUES (?, ?, ?)",
+				p.ID, actor.UsuarioID, r.marca()); err != nil {
+				return err
+			}
+			if err := iniciarRevision(ctx, tx, p); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, accion, "postulacion", p.ID, nil, nil)
+	})
+}
+
+// DictaminarDocumento registra el dictamen de un revisor sobre un documento
+// vigente: válido, inválido (con motivo, RN-11) o de vuelta a pendiente. Cada
+// dictamen se conserva; el vigente es el último. Devuelve el id de la
+// postulación.
+func (r *Repositorio) DictaminarDocumento(ctx context.Context, actor Actor, documentoID int64, dictamen, motivo string) (int64, error) {
+	var postulacionID int64
+	err := r.operacion(ctx, "dictaminar documento", func(tx *sql.Tx) error {
+		documento, err := leerDocumento(tx.QueryRowContext(ctx, sqlDocumento+" WHERE d.id = ? AND d.vigente = 1", documentoID))
+		if err != nil {
+			return err
+		}
+		postulacionID = documento.PostulacionID
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarDictamenDeDocumento(dictamen, motivo)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO revision_documento (documento_id, revisor_id, dictamen, motivo, creado_at) VALUES (?, ?, ?, ?, ?)",
+			documentoID, actor.UsuarioID, dictamen, nuloSiVacio(motivo), r.marca()); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE documento SET dictamen = ? WHERE id = ?", dictamen, documentoID); err != nil {
+			return err
+		}
+		if err := iniciarRevision(ctx, tx, p); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "documento.dictaminar", "documento", documentoID,
+			map[string]any{"dictamen": documento.Dictamen}, map[string]any{"dictamen": dictamen, "postulacion_id": p.ID})
+	})
+	return postulacionID, err
+}
+
+// ObservarPostulacion añade una observación del revisor a la postulación o a
+// una de sus obras (RF-REV-04). Las observaciones son internas.
+func (r *Repositorio) ObservarPostulacion(ctx context.Context, actor Actor, postulacionID, obraID int64, texto string) error {
+	return r.operacion(ctx, "observar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAccionDeRevision(cfg.Convocatoria, p)); err != nil {
+			return err
+		}
+		texto = strings.TrimSpace(texto)
+		if err := validacion(ValidarObservacion(p, obraID, texto)); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO observacion_revision (postulacion_id, obra_id, revisor_id, texto, creado_at) VALUES (?, ?, ?, ?, ?)",
+			p.ID, nuloSiCero(obraID), actor.UsuarioID, texto, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		if err := iniciarRevision(ctx, tx, p); err != nil {
+			return err
+		}
+		// La bitácora no guarda el texto: puede mencionar al postulante.
+		return r.auditar(ctx, tx, actor, "revision.observar", "postulacion", p.ID, nil,
+			map[string]any{"observacion_id": id, "obra_id": obraID})
+	})
+}
+
+// insertarProblema guarda un elemento señalado en una subsanación. De un
+// documento se guarda su requisito; de un campo, su ruta.
+func (r *Repositorio) insertarProblema(ctx context.Context, tx *sql.Tx, subsanacionID int64, p Postulacion,
+	cfg ConfiguracionConvocatoria, problema ProblemaSubsanacion) error {
+	var campo sql.NullString
+	var requisitoID sql.NullInt64
+	if problema.Clase == ProblemaDocumento {
+		requisito, errores := RequisitoParaDocumento(p, cfg, problema.Campo, problema.ObraID)
+		if err := validacion(errores); err != nil {
+			return err
+		}
+		requisitoID = nuloSiCero(requisito.ID)
+	} else {
+		campo = nuloSiVacio(problema.Campo)
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO subsanacion_problema (subsanacion_id, clase, documento_id, requisito_id, campo, obra_id, problema)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		subsanacionID, string(problema.Clase), nuloSiCero(problema.DocumentoID), requisitoID, campo,
+		nuloSiCero(problema.ObraID), strings.TrimSpace(problema.Problema))
+	return err
+}
+
+// SolicitarSubsanacion abre una subsanación (RF-REV-05b): agrupa los
+// problemas señalados —los campos y documentos faltantes que indica el
+// revisor más los documentos que dictaminó inválidos—, pasa la postulación a
+// «en subsanación» y encola el correo al postulante. Desde ese momento el
+// postulante puede modificar EXACTAMENTE esos elementos, y ninguno más.
+//
+// componer arma el correo con la lista definitiva de problemas; es trabajo de
+// la Vista, que el Modelo no conoce.
+func (r *Repositorio) SolicitarSubsanacion(ctx context.Context, actor Actor, postulacionID int64, n NuevaSubsanacion,
+	componer func(Postulacion, ConfiguracionConvocatoria, Usuario, NuevaSubsanacion) (CorreoSaliente, error)) error {
+	return r.operacion(ctx, "solicitar subsanación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		revision, err := revisionDe(ctx, tx, p.ID)
+		if err != nil {
+			return err
+		}
+		n.Problemas = ProblemasDeSubsanacion(p, revision, n.Problemas)
+		n.FechaLimite = n.FechaLimite.UTC().Truncate(time.Second)
+		n.Nota = strings.TrimSpace(n.Nota)
+		if err := validacion(ValidarNuevaSubsanacion(p, cfg, n, r.ahora())); err != nil {
+			return err
+		}
+		titular, err := leerUsuario(tx.QueryRowContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ?", p.UsuarioID))
+		if err != nil {
+			return err
+		}
+		correo, err := componer(p, cfg, titular, n)
+		if err != nil {
+			return fmt.Errorf("componer correo de subsanación: %w", err)
+		}
+		marca := r.marca()
+		// Las subsanaciones anteriores ya atendidas quedan cerradas: la nueva
+		// es la que cuenta.
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE subsanacion SET cerrada_at = ? WHERE postulacion_id = ? AND cerrada_at IS NULL", marca, p.ID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO subsanacion (postulacion_id, revisor_id, mensaje, fecha_limite, enviada_at) VALUES (?, ?, ?, ?, ?)",
+			p.ID, actor.UsuarioID, correo.Texto, aMarca(n.FechaLimite), marca)
+		if err != nil {
+			return err
+		}
+		subsanacionID, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		for _, problema := range n.Problemas {
+			if err := r.insertarProblema(ctx, tx, subsanacionID, p, cfg, problema); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ?, actualizado_at = ? WHERE id = ?",
+			string(PostulacionEnSubsanacion), marca, p.ID); err != nil {
+			return err
+		}
+		correo.PostulacionID = p.ID
+		if err := r.encolarCorreo(ctx, tx, correo); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.subsanacion", "postulacion", p.ID,
+			map[string]any{"estado": p.Estado},
+			map[string]any{"estado": PostulacionEnSubsanacion, "subsanacion_id": subsanacionID,
+				"problemas": len(n.Problemas), "fecha_limite": aMarca(n.FechaLimite)})
+	})
+}
+
+// SolicitarDesbloqueo registra la petición de un postulante para corregir un
+// elemento que el revisor no señaló (RN-12d). No desbloquea nada por sí sola.
+func (r *Repositorio) SolicitarDesbloqueo(ctx context.Context, actor Actor, usuarioID, postulacionID int64, s SolicitudDesbloqueo) error {
+	return r.operacion(ctx, "solicitar desbloqueo", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err == nil && p.UsuarioID != usuarioID {
+			err = ErrNoEncontrado // lo ajeno no existe
+		}
+		if err != nil {
+			return err
+		}
+		s.Justificacion = strings.TrimSpace(s.Justificacion)
+		if err := validacion(ValidarSolicitudDeDesbloqueo(p, cfg, s, r.ahora())); err != nil {
+			return err
+		}
+		var campo sql.NullString
+		var requisitoID sql.NullInt64
+		if s.Clase == ProblemaDocumento {
+			requisito, errores := RequisitoParaDocumento(p, cfg, s.Campo, s.ObraID)
+			if err := validacion(errores); err != nil {
+				return err
+			}
+			requisitoID = nuloSiCero(requisito.ID)
+		} else {
+			campo = nuloSiVacio(s.Campo)
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO solicitud_desbloqueo (subsanacion_id, campo, requisito_id, obra_id, justificacion, creado_at)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			p.SubsanacionAbierta(r.ahora()).ID, campo, requisitoID, nuloSiCero(s.ObraID), s.Justificacion, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "desbloqueo.solicitar", "postulacion", p.ID, nil,
+			map[string]any{"solicitud_id": id, "clase": s.Clase, "campo": s.Campo, "obra_id": s.ObraID})
+	})
+}
+
+// ResolverDesbloqueo concede o niega una solicitud de desbloqueo (RF-REV-05c).
+// Si se concede, el elemento se añade a los problemas de la subsanación: ésa
+// es la única vía por la que algo se vuelve editable (RN-12b).
+func (r *Repositorio) ResolverDesbloqueo(ctx context.Context, actor Actor, postulacionID, solicitudID int64, concedida bool, motivo string) error {
+	return r.operacion(ctx, "resolver desbloqueo", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		subsanacion := p.SubsanacionAbierta(r.ahora())
+		if subsanacion == nil {
+			return validacion([]ErrorCampo{{Campo: "estado", Clave: "error.sin_subsanacion_abierta"}})
+		}
+		posicion := slices.IndexFunc(subsanacion.Solicitudes, func(s SolicitudDesbloqueo) bool { return s.ID == solicitudID })
+		if posicion < 0 {
+			return ErrNoEncontrado
+		}
+		solicitud := subsanacion.Solicitudes[posicion]
+		if solicitud.Resuelta {
+			return validacion([]ErrorCampo{{Campo: "solicitud", Clave: "error.solicitud_resuelta"}})
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarRespuestaDeDesbloqueo(concedida, motivo)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE solicitud_desbloqueo SET resuelta_por = ?, concedida = ?, motivo_respuesta = ?, resuelta_at = ? WHERE id = ?",
+			actor.UsuarioID, concedida, nuloSiVacio(motivo), r.marca(), solicitud.ID); err != nil {
+			return err
+		}
+		if concedida {
+			// El motivo del problema es la justificación del propio postulante.
+			problema := ProblemaSubsanacion{Clase: solicitud.Clase, Campo: solicitud.Campo, ObraID: solicitud.ObraID, Problema: solicitud.Justificacion}
+			if err := r.insertarProblema(ctx, tx, subsanacion.ID, p, cfg, problema); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "desbloqueo.resolver", "postulacion", p.ID, nil,
+			map[string]any{"solicitud_id": solicitud.ID, "concedida": concedida})
+	})
+}
+
+// DictaminarPostulacion termina la revisión documental de una postulación:
+// validada o descartada, con motivo obligatorio al descartar (RF-REV-08).
+// Cierra las subsanaciones que hubiera. No se comunica nada al postulante.
+func (r *Repositorio) DictaminarPostulacion(ctx context.Context, actor Actor, postulacionID int64, dictamen EstadoDePostulacion, motivo string) error {
+	return r.operacion(ctx, "dictaminar postulación", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarDictamenDePostulacion(cfg.Convocatoria, p, dictamen, motivo, r.ahora())); err != nil {
+			return err
+		}
+		marca := r.marca()
+		var validadaAt, motivoDescarte sql.NullString
+		estado := dictamen
+		if dictamen == PostulacionValidada {
+			validadaAt = nuloSiVacio(marca)
+			// Si la evaluación ya empezó, la postulación validada se suma de
+			// inmediato a lo que el jurado tiene por calificar.
+			estado = EstadoAlValidar(cfg.Convocatoria.Estado)
+		} else {
+			motivoDescarte = nuloSiVacio(motivo)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE postulacion SET estado = ?, validada_at = ?, motivo_descarte = ?, actualizado_at = ? WHERE id = ?",
+			string(estado), validadaAt, motivoDescarte, marca, p.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE subsanacion SET cerrada_at = ? WHERE postulacion_id = ? AND cerrada_at IS NULL", marca, p.ID); err != nil {
+			return err
+		}
+		// El motivo del descarte sí queda en la bitácora: es un acto del
+		// proceso, no un dato personal.
+		return r.auditar(ctx, tx, actor, "postulacion.dictaminar", "postulacion", p.ID,
+			map[string]any{"estado": p.Estado}, map[string]any{"estado": estado, "motivo": motivo})
+	})
+}
+
+// DiferenciasDelUltimoEnvio compara los dos últimos envíos de una postulación
+// (RF-REV-07). Con un solo envío no hay nada que comparar.
+func (r *Repositorio) DiferenciasDelUltimoEnvio(ctx context.Context, postulacionID int64) ([]CambioDeEnvio, error) {
+	filas, err := r.lectura.QueryContext(ctx,
+		"SELECT snapshot FROM acuse WHERE postulacion_id = ? ORDER BY version DESC LIMIT 2", postulacionID)
+	if err != nil {
+		return nil, fmt.Errorf("leer snapshots: %w", err)
+	}
+	defer filas.Close()
+	var snapshots []SnapshotEnvio // el más reciente primero
+	for filas.Next() {
+		var texto string
+		var snapshot SnapshotEnvio
+		if err := filas.Scan(&texto); err != nil {
+			return nil, fmt.Errorf("leer snapshots: %w", err)
+		}
+		if err := json.Unmarshal([]byte(texto), &snapshot); err != nil {
+			return nil, fmt.Errorf("snapshot que no es JSON válido: %w", err)
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := filas.Err(); err != nil || len(snapshots) < 2 {
+		return nil, err
+	}
+	return DiferenciasDeEnvio(snapshots[1], snapshots[0]), nil
+}
+
+// =============================================================================
+// 13. Evaluación por jurado
+// =============================================================================
+//
+// AISLAMIENTO ENTRE JURADOS (RN-15, §8.4). Un jurado nunca ve los puntajes ni
+// las observaciones de otro, ni la suma, en ninguna etapa. SQLite no tiene
+// seguridad por fila: toda la garantía vive aquí, y por eso es estructural.
+//
+//   - JuradoRepo es TODO lo que un jurado alcanza sobre evaluaciones. Se
+//     construye con el id del jurado y lo aplica en el WHERE de cada consulta.
+//     No tiene ningún método capaz de devolver una evaluación ajena.
+//   - SupervisionRepo es el único lugar con consultas que cruzan jurados (la
+//     matriz y la vista v_resultado). Sólo lo usan los controladores de
+//     supervisión.
+//   - Fuera de estos dos tipos no hay SQL que lea las tablas de evaluación.
+//
+// La prueba TestAislamientoEstructuralDelRepositorio comprueba estas tres
+// cosas leyendo este mismo archivo: si alguien añade mañana una consulta que
+// las rompa, la prueba falla.
+
+// JuradoRepo da acceso a las evaluaciones de UN jurado, y sólo a las suyas.
+type JuradoRepo struct {
+	r        *Repositorio
+	juradoID int64
+}
+
+// ParaJurado devuelve el acceso a las evaluaciones del jurado dado. El
+// controlador debe pasar SIEMPRE el id de la cuenta en sesión.
+func (r *Repositorio) ParaJurado(juradoID int64) JuradoRepo {
+	return JuradoRepo{r: r, juradoID: juradoID}
+}
+
+// sqlUnidades lista las unidades de evaluación de una convocatoria: cada
+// postulación en evaluación (Intérpretes) o cada una de sus obras
+// (Compositores, donde sí hay filas de obra que unir).
+const sqlUnidades = `
+SELECT p.id, COALESCE(o.id, 0), p.folio,
+       COALESCE(ds.nombre_completo, de.nombre_ensamble, dc.nombre_completo, ''),
+       COALESCE(o.titulo, ''), COALESCE(o.orden, 0), p.estado, COALESCE(p.dictamen, '')
+FROM postulacion p
+JOIN convocatoria c ON c.id = p.convocatoria_id
+LEFT JOIN obra o ON o.postulacion_id = p.id AND c.tipo = 'compositores'
+LEFT JOIN datos_solista ds ON ds.postulacion_id = p.id
+LEFT JOIN datos_ensamble de ON de.postulacion_id = p.id
+LEFT JOIN datos_compositor dc ON dc.postulacion_id = p.id
+WHERE p.convocatoria_id = ? AND p.estado IN ('en_evaluacion', 'evaluada')
+ORDER BY p.folio, o.orden`
+
+// leerUnidades ejecuta sqlUnidades. Devuelve además el estado y el dictamen
+// final de la postulación de cada unidad.
+func leerUnidades(ctx context.Context, q consultor, convocatoriaID int64) ([]FilaDeResultado, error) {
+	filas, err := q.QueryContext(ctx, sqlUnidades, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer unidades de evaluación: %w", err)
+	}
+	defer filas.Close()
+	var unidades []FilaDeResultado
+	for filas.Next() {
+		var f FilaDeResultado
+		var estado string
+		u := &f.Unidad
+		if err := filas.Scan(&u.PostulacionID, &u.ObraID, &u.Folio, &u.Nombre, &u.Obra, &u.OrdenDeObra, &estado, &f.DictamenFinal); err != nil {
+			return nil, fmt.Errorf("leer unidades de evaluación: %w", err)
+		}
+		f.Estado = EstadoDePostulacion(estado)
+		unidades = append(unidades, f)
+	}
+	return unidades, filas.Err()
+}
+
+// Unidades devuelve la lista de trabajo del jurado en una convocatoria: todas
+// las unidades por evaluar, con el estado de SU evaluación de cada una. De
+// ahí sale su indicador de avance (RF-EVA-07).
+func (j JuradoRepo) Unidades(ctx context.Context, convocatoriaID int64) ([]UnidadPropia, error) {
+	unidades, err := leerUnidades(ctx, j.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	filas, err := j.r.lectura.QueryContext(ctx,
+		"SELECT e.postulacion_id, e.obra_clave, e.enviada, e.excusado FROM evaluacion e WHERE e.jurado_id = ? AND e.convocatoria_id = ?",
+		j.juradoID, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+	}
+	defer filas.Close()
+	type unidad struct{ postulacionID, obraID int64 }
+	type avance struct{ enviada, excusada bool }
+	avances := make(map[unidad]avance)
+	for filas.Next() {
+		var u unidad
+		var a avance
+		if err := filas.Scan(&u.postulacionID, &u.obraID, &a.enviada, &a.excusada); err != nil {
+			return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+		}
+		avances[u] = a
+	}
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("leer evaluaciones propias: %w", err)
+	}
+	propias := make([]UnidadPropia, 0, len(unidades))
+	for _, f := range unidades {
+		a, iniciada := avances[unidad{f.Unidad.PostulacionID, f.Unidad.ObraID}]
+		propias = append(propias, UnidadPropia{UnidadDeEvaluacion: f.Unidad, Iniciada: iniciada, Enviada: a.enviada, Excusada: a.excusada})
+	}
+	return propias, nil
+}
+
+// evaluacionPropia lee la evaluación del jurado a una unidad, con sus
+// puntajes. Si aún no la ha empezado devuelve una evaluación vacía.
+func (j JuradoRepo) evaluacionPropia(ctx context.Context, q consultor, postulacionID, obraID int64) (Evaluacion, error) {
+	e := Evaluacion{PostulacionID: postulacionID, ObraID: obraID, Puntajes: make(map[string]int)}
+	var enviadaAt, actualizado string
+	err := q.QueryRowContext(ctx, `
+		SELECT e.id, COALESCE(e.observaciones, ''), e.enviada, COALESCE(e.enviada_at, ''), e.actualizado_at,
+		       e.excusado, COALESCE(e.motivo_excusa, '')
+		FROM evaluacion e
+		WHERE e.jurado_id = ? AND e.postulacion_id = ? AND e.obra_clave = ?`,
+		j.juradoID, postulacionID, obraID).Scan(&e.ID, &e.Observaciones, &e.Enviada, &enviadaAt, &actualizado, &e.Excusado, &e.MotivoExcusa)
+	if errors.Is(err, sql.ErrNoRows) {
+		return e, nil
+	}
+	if err != nil {
+		return e, fmt.Errorf("leer evaluación propia: %w", err)
+	}
+	if e.ActualizadoAt, err = deMarca(actualizado); err != nil {
+		return e, err
+	}
+	if enviadaAt != "" {
+		if e.EnviadaAt, err = deMarca(enviadaAt); err != nil {
+			return e, err
+		}
+	}
+	filas, err := q.QueryContext(ctx, `
+		SELECT c.clave, ep.puntaje
+		FROM evaluacion e
+		JOIN evaluacion_puntaje ep ON ep.evaluacion_id = e.id
+		JOIN criterio_evaluacion c ON c.id = ep.criterio_id
+		WHERE e.jurado_id = ? AND e.id = ?`, j.juradoID, e.ID)
+	if err != nil {
+		return e, fmt.Errorf("leer puntajes propios: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var clave string
+		var puntaje int
+		if err := filas.Scan(&clave, &puntaje); err != nil {
+			return e, fmt.Errorf("leer puntajes propios: %w", err)
+		}
+		e.Puntajes[clave] = puntaje
+	}
+	return e, filas.Err()
+}
+
+// Evaluacion devuelve la evaluación del jurado a una unidad, o una vacía si
+// no la ha empezado.
+func (j JuradoRepo) Evaluacion(ctx context.Context, postulacionID, obraID int64) (Evaluacion, error) {
+	return j.evaluacionPropia(ctx, j.r.lectura, postulacionID, obraID)
+}
+
+// Guardar guarda la evaluación del jurado a una unidad: como borrador, o
+// enviada si la entrada lo pide (RF-EVA-06). Una evaluación enviada puede
+// seguir corrigiéndose mientras dure la etapa, pero ya no vuelve a borrador.
+//
+// Cuando con este envío los tres jurados han enviado todas las unidades de
+// la postulación, ésta pasa a «evaluada» (RN-18).
+func (j JuradoRepo) Guardar(ctx context.Context, actor Actor, postulacionID int64, entrada EntradaEvaluacion) (Evaluacion, error) {
+	var guardada Evaluacion
+	err := j.r.operacion(ctx, "guardar evaluación", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		previa, err := j.evaluacionPropia(ctx, tx, postulacionID, entrada.ObraID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarSinExcusa(previa)); err != nil {
+			return err
+		}
+		entrada.Observaciones = strings.TrimSpace(entrada.Observaciones)
+		if err := validacion(ValidarEvaluacion(cfg, p, entrada, previa.Enviada)); err != nil {
+			return err
+		}
+		marca := j.r.marca()
+		enviada := previa.Enviada || entrada.Enviar
+		enviadaAt := nuloSiVacio("")
+		if enviada {
+			enviadaAt = nuloSiVacio(marca)
+			if previa.Enviada {
+				enviadaAt = nuloSiVacio(aMarca(previa.EnviadaAt)) // conserva la fecha del primer envío
+			}
+		}
+		evaluacionID := previa.ID
+		if evaluacionID == 0 {
+			res, err := tx.ExecContext(ctx, `
+				INSERT INTO evaluacion (convocatoria_id, jurado_id, postulacion_id, obra_id, obra_clave, observaciones,
+				                        enviada, enviada_at, creado_at, actualizado_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				p.ConvocatoriaID, j.juradoID, p.ID, nuloSiCero(entrada.ObraID), entrada.ObraID,
+				nuloSiVacio(entrada.Observaciones), enviada, enviadaAt, marca, marca)
+			if err != nil {
+				return err
+			}
+			if evaluacionID, err = res.LastInsertId(); err != nil {
+				return err
+			}
+		} else if _, err := tx.ExecContext(ctx, `
+			UPDATE evaluacion SET observaciones = ?, enviada = ?, enviada_at = ?, actualizado_at = ?
+			WHERE jurado_id = ? AND id = ?`,
+			nuloSiVacio(entrada.Observaciones), enviada, enviadaAt, marca, j.juradoID, evaluacionID); err != nil {
+			return err
+		}
+		// Los puntajes se sustituyen completos: los que no vienen se quitan.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM evaluacion_puntaje
+			WHERE evaluacion_id IN (SELECT e.id FROM evaluacion e WHERE e.jurado_id = ? AND e.id = ?)`, j.juradoID, evaluacionID); err != nil {
+			return err
+		}
+		for _, criterio := range cfg.Criterios {
+			puntaje, calificado := entrada.Puntajes[criterio.Clave]
+			if !calificado {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT INTO evaluacion_puntaje (evaluacion_id, criterio_id, puntaje) VALUES (?, ?, ?)",
+				evaluacionID, criterio.ID, puntaje); err != nil {
+				return err
+			}
+		}
+		if enviada {
+			if err := marcarEvaluadaSiCompleta(ctx, tx, cfg, p); err != nil {
+				return err
+			}
+		}
+		if guardada, err = j.evaluacionPropia(ctx, tx, postulacionID, entrada.ObraID); err != nil {
+			return err
+		}
+		// La bitácora registra que el jurado guardó o envió, no qué calificó:
+		// la administra gente que no debe conocer puntajes sueltos por esa vía.
+		accion := "evaluacion.guardar"
+		if entrada.Enviar && !previa.Enviada {
+			accion = "evaluacion.enviar"
+		}
+		return j.r.auditar(ctx, tx, actor, accion, "evaluacion", evaluacionID, nil,
+			map[string]any{"postulacion_id": p.ID, "obra_id": entrada.ObraID})
+	})
+	return guardada, err
+}
+
+// Excusarse registra que el jurado no califica una unidad por conflicto de
+// interés (RF-EVA-12). En Compositores, sin obra indicada, se excusa de todas
+// las obras de la postulación. Lo que hubiera calificado de esas unidades se
+// retira: una excusa no convive con una calificación.
+//
+// La excusa no perjudica a la postulación: la matriz ordena por un puntaje
+// que promedia entre los jurados que sí calificaron (PuntajeComparable).
+func (j JuradoRepo) Excusarse(ctx context.Context, actor Actor, postulacionID, obraID int64, motivo string) error {
+	return j.r.operacion(ctx, "excusarse de evaluar", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		motivo = strings.TrimSpace(motivo)
+		if err := validacion(ValidarExcusa(cfg, p, obraID, motivo)); err != nil {
+			return err
+		}
+		marca := j.r.marca()
+		for _, unidad := range UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID) {
+			previa, err := j.evaluacionPropia(ctx, tx, postulacionID, unidad)
+			if err != nil {
+				return err
+			}
+			if previa.ID == 0 {
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO evaluacion (convocatoria_id, jurado_id, postulacion_id, obra_id, obra_clave,
+					                        excusado, motivo_excusa, creado_at, actualizado_at)
+					VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+					p.ConvocatoriaID, j.juradoID, p.ID, nuloSiCero(unidad), unidad, motivo, marca, marca)
+			} else {
+				if _, err := tx.ExecContext(ctx, `
+					DELETE FROM evaluacion_puntaje
+					WHERE evaluacion_id IN (SELECT e.id FROM evaluacion e WHERE e.jurado_id = ? AND e.id = ?)`, j.juradoID, previa.ID); err != nil {
+					return err
+				}
+				_, err = tx.ExecContext(ctx, `
+					UPDATE evaluacion
+					SET excusado = 1, motivo_excusa = ?, enviada = 0, enviada_at = NULL, observaciones = NULL, actualizado_at = ?
+					WHERE jurado_id = ? AND id = ?`, motivo, marca, j.juradoID, previa.ID)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if err := marcarEvaluadaSiCompleta(ctx, tx, cfg, p); err != nil {
+			return err
+		}
+		// El motivo no va a la bitácora: suele nombrar a una persona.
+		return j.r.auditar(ctx, tx, actor, "evaluacion.excusarse", "postulacion", p.ID, nil, map[string]any{"obra_id": obraID})
+	})
+}
+
+// RetirarExcusa deshace una excusa: el jurado vuelve a tener la unidad por
+// calificar. Si la postulación ya figuraba como evaluada, regresa a
+// evaluación, porque vuelve a faltarle una calificación.
+func (j JuradoRepo) RetirarExcusa(ctx context.Context, actor Actor, postulacionID, obraID int64) error {
+	return j.r.operacion(ctx, "retirar excusa", func(tx *sql.Tx) error {
+		p, cfg, err := j.r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		// Se exige lo mismo que para excusarse, salvo el motivo.
+		if err := validacion(ValidarExcusa(cfg, p, obraID, "retiro")); err != nil {
+			return err
+		}
+		for _, unidad := range UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID) {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE evaluacion SET excusado = 0, motivo_excusa = NULL, actualizado_at = ?
+				WHERE jurado_id = ? AND postulacion_id = ? AND obra_clave = ? AND excusado = 1`,
+				j.r.marca(), j.juradoID, p.ID, unidad); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ? AND estado = ?",
+			string(PostulacionEnEvaluacion), p.ID, string(PostulacionEvaluada)); err != nil {
+			return err
+		}
+		return j.r.auditar(ctx, tx, actor, "evaluacion.retirar_excusa", "postulacion", p.ID, nil, map[string]any{"obra_id": obraID})
+	})
+}
+
+// marcarEvaluadaSiCompleta pasa una postulación a «evaluada» cuando los tres
+// jurados activos han atendido todas sus unidades (RN-18): cada uno la envió
+// o se excusó de calificarla.
+//
+// Es la ÚNICA consulta fuera de SupervisionRepo que cuenta evaluaciones de
+// varios jurados. Sólo cuenta cuántas se han enviado: no lee puntajes ni
+// observaciones, y su resultado no se devuelve a nadie; decide un cambio de
+// estado dentro de la transacción.
+func marcarEvaluadaSiCompleta(ctx context.Context, tx *sql.Tx, cfg ConfiguracionConvocatoria, p Postulacion) error {
+	var enviadas int
+	err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM evaluacion e
+		JOIN asignacion a ON a.usuario_id = e.jurado_id AND a.convocatoria_id = e.convocatoria_id
+		                 AND a.perfil = 'jurado' AND a.activo = 1
+		WHERE e.postulacion_id = ? AND (e.enviada = 1 OR e.excusado = 1)`, p.ID).Scan(&enviadas)
+	if err != nil {
+		return err
+	}
+	if esperadas := len(UnidadesDeEvaluacion(cfg.Convocatoria.Tipo, p)) * CuotaJurados; enviadas < esperadas || p.Estado != PostulacionEnEvaluacion {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE postulacion SET estado = ? WHERE id = ?", string(PostulacionEvaluada), p.ID)
+	return err
+}
+
+// SupervisionRepo reúne las consultas que cruzan a los jurados: la matriz de
+// resultados. Sólo la alcanzan el administrador y el observador.
+type SupervisionRepo struct {
+	r *Repositorio
+}
+
+// Supervision devuelve el acceso a los resultados de la evaluación. NUNCA
+// debe usarse desde un controlador que atienda a un jurado.
+func (r *Repositorio) Supervision() SupervisionRepo {
+	return SupervisionRepo{r: r}
+}
+
+// Matriz devuelve la matriz de resultados de una convocatoria (RF-EVA-08):
+// por cada unidad, lo que calificó cada jurado, quién se excusó, la suma, el
+// promedio y el puntaje comparable, por el que se ordena. Sólo cuentan las
+// evaluaciones enviadas.
+//
+// La consulta queda en la bitácora (§8.4): quién miró los resultados y cuándo.
+func (s SupervisionRepo) Matriz(ctx context.Context, actor Actor, convocatoriaID int64) (MatrizDeResultados, error) {
+	var matriz MatrizDeResultados
+	err := s.r.operacion(ctx, "leer matriz de resultados", func(tx *sql.Tx) error {
+		cfg, err := configuracion(ctx, tx, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		matriz = MatrizDeResultados{Criterios: cfg.Criterios}
+		for _, a := range cfg.Asignaciones {
+			if a.Activo && a.Perfil == PerfilJurado {
+				matriz.Jurados = append(matriz.Jurados, JuradoEnMatriz{ID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos)})
+			}
+		}
+		if matriz.Filas, err = leerUnidades(ctx, tx, convocatoriaID); err != nil {
+			return err
+		}
+		type unidad struct{ postulacionID, obraID int64 }
+		posicion := make(map[unidad]int)
+		for i := range matriz.Filas {
+			matriz.Filas[i].PorJurado, matriz.Filas[i].Excusas = make(map[int64]Evaluacion), make(map[int64]string)
+			posicion[unidad{matriz.Filas[i].Unidad.PostulacionID, matriz.Filas[i].Unidad.ObraID}] = i
+		}
+
+		// Evaluaciones enviadas, con sus puntajes.
+		filas, err := tx.QueryContext(ctx, `
+			SELECT e.postulacion_id, e.obra_clave, e.jurado_id, COALESCE(e.observaciones, ''), COALESCE(e.enviada_at, ''),
+			       COALESCE(c.clave, ''), COALESCE(ep.puntaje, 0)
+			FROM evaluacion e
+			LEFT JOIN evaluacion_puntaje ep ON ep.evaluacion_id = e.id
+			LEFT JOIN criterio_evaluacion c ON c.id = ep.criterio_id
+			WHERE e.convocatoria_id = ? AND e.enviada = 1`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var juradoID int64
+			var observaciones, enviadaAt, clave string
+			var puntaje int
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &juradoID, &observaciones, &enviadaAt, &clave, &puntaje); err != nil {
+				filas.Close()
+				return err
+			}
+			i, existe := posicion[u]
+			if !existe {
+				continue // la postulación ya no está en evaluación
+			}
+			e, vista := matriz.Filas[i].PorJurado[juradoID]
+			if !vista {
+				e = Evaluacion{PostulacionID: u.postulacionID, ObraID: u.obraID, Observaciones: observaciones, Enviada: true, Puntajes: make(map[string]int)}
+				if enviadaAt != "" {
+					if e.EnviadaAt, err = deMarca(enviadaAt); err != nil {
+						filas.Close()
+						return err
+					}
+				}
+			}
+			if clave != "" {
+				e.Puntajes[clave] = puntaje
+			}
+			matriz.Filas[i].PorJurado[juradoID] = e
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+
+		// Excusas: quién no califica qué, y por qué.
+		filas, err = tx.QueryContext(ctx, `
+			SELECT e.postulacion_id, e.obra_clave, e.jurado_id, COALESCE(e.motivo_excusa, '')
+			FROM evaluacion e WHERE e.convocatoria_id = ? AND e.excusado = 1`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var juradoID int64
+			var motivo string
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &juradoID, &motivo); err != nil {
+				filas.Close()
+				return err
+			}
+			if i, existe := posicion[u]; existe {
+				matriz.Filas[i].Excusas[juradoID] = motivo
+			}
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+
+		// Suma y promedio: de la vista v_resultado, la única agregación.
+		filas, err = tx.QueryContext(ctx, `
+			SELECT postulacion_id, obra_clave, jurados_que_evaluaron, puntaje_total, COALESCE(puntaje_promedio, 0)
+			FROM v_resultado WHERE convocatoria_id = ?`, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		for filas.Next() {
+			var u unidad
+			var jurados, total int
+			var promedio float64
+			if err := filas.Scan(&u.postulacionID, &u.obraID, &jurados, &total, &promedio); err != nil {
+				filas.Close()
+				return err
+			}
+			if i, existe := posicion[u]; existe {
+				matriz.Filas[i].JuradosQueEvaluaron, matriz.Filas[i].Total, matriz.Filas[i].Promedio = jurados, total, promedio
+			}
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		// De mayor a menor puntaje COMPARABLE, no por la suma: así una unidad
+		// que calificaron dos jurados, porque el tercero se excusó, compite en
+		// igualdad con las que calificaron tres. A igual puntaje, por folio y
+		// orden de obra.
+		for i := range matriz.Filas {
+			matriz.Filas[i].Comparable = PuntajeComparable(matriz.Filas[i].Total, matriz.Filas[i].JuradosQueEvaluaron)
+		}
+		slices.SortStableFunc(matriz.Filas, func(a, b FilaDeResultado) int { return cmp.Compare(b.Comparable, a.Comparable) })
+		return s.r.auditar(ctx, tx, actor, "evaluacion.consultar", "convocatoria", convocatoriaID, nil, nil)
+	})
+	return matriz, err
+}
+
+// RegistrarDictamenFinal registra el resultado de una postulación:
+// seleccionada, no seleccionada o lista de espera; vacío lo retira. Lo hace
+// el administrador (§2.2). No toca ninguna evaluación ni se comunica al
+// postulante: el resultado se da a conocer fuera del sistema (D-09).
+func (r *Repositorio) RegistrarDictamenFinal(ctx context.Context, actor Actor, postulacionID int64, dictamen string) error {
+	return r.operacion(ctx, "registrar dictamen final", func(tx *sql.Tx) error {
+		p, cfg, err := r.postulacionEnRevision(ctx, tx, postulacionID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarDictamenFinal(cfg.Convocatoria, p, dictamen)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE postulacion SET dictamen = ?, actualizado_at = ? WHERE id = ?",
+			nuloSiVacio(dictamen), r.marca(), p.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "postulacion.dictamen_final", "postulacion", p.ID,
+			map[string]any{"dictamen": p.DictamenFinal}, map[string]any{"dictamen": dictamen})
+	})
+}
+
+// =============================================================================
+// 14. Archivo histórico, búsqueda y descargas masivas
+// =============================================================================
+
+// nombreDePostulante es la expresión SQL con el nombre que identifica a una
+// postulación: el del solista, el del ensamble o el del compositor.
+const nombreDePostulante = "COALESCE(ds.nombre_completo, de.nombre_ensamble, dc.nombre_completo, '')"
+
+// unionesDeDatos une una postulación (p) con sus tablas de datos generales.
+const unionesDeDatos = `
+LEFT JOIN datos_solista ds ON ds.postulacion_id = p.id
+LEFT JOIN datos_ensamble de ON de.postulacion_id = p.id
+LEFT JOIN datos_compositor dc ON dc.postulacion_id = p.id`
+
+// reindexar actualiza la entrada de una postulación en el índice de búsqueda
+// (RF-ARCH-10). Se llama dentro de la transacción que la modifica, de modo
+// que el buscador nunca queda atrasado respecto de los datos. Si el texto
+// indexable no cambió no escribe nada: la mayoría de los autoguardados tocan
+// campos que no se buscan.
+func (r *Repositorio) reindexar(ctx context.Context, tx *sql.Tx, postulacionID int64) error {
+	p := Postulacion{ID: postulacionID, Campos: make(map[string]string)}
+	var titular Usuario
+	var completoSolista, artisticoSolista, correoSolista, ensamble, representante, correoEnsamble string
+	var completoCompositor, artisticoCompositor, correoCompositor, anonimizada string
+	err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(p.anonimizada_at, ''), COALESCE(p.folio, ''), u.nombre, u.apellidos, u.email,
+		       COALESCE(ds.nombre_completo, ''), COALESCE(ds.nombre_artistico, ''), COALESCE(ds.email_contacto, ''),
+		       COALESCE(de.nombre_ensamble, ''), COALESCE(de.representante, ''), COALESCE(de.email_contacto, ''),
+		       COALESCE(dc.nombre_completo, ''), COALESCE(dc.nombre_artistico, ''), COALESCE(dc.email_contacto, '')
+		FROM postulacion p JOIN usuario u ON u.id = p.usuario_id`+unionesDeDatos+`
+		WHERE p.id = ?`, postulacionID).Scan(&anonimizada, &p.Folio, &titular.Nombre, &titular.Apellidos, &titular.Email,
+		&completoSolista, &artisticoSolista, &correoSolista, &ensamble, &representante, &correoEnsamble,
+		&completoCompositor, &artisticoCompositor, &correoCompositor)
+	if err != nil {
+		return fmt.Errorf("leer datos para el índice de búsqueda: %w", err)
+	}
+	if anonimizada != "" {
+		// Una postulación anonimizada ya no se encuentra por quien la envió.
+		titular = Usuario{}
+	}
+	p.Campos["datos.nombre_completo"] = completoSolista + completoCompositor
+	p.Campos["datos.nombre_artistico"] = artisticoSolista + artisticoCompositor
+	p.Campos["datos.email_contacto"] = correoSolista + correoEnsamble + correoCompositor
+	p.Campos["datos.nombre_ensamble"], p.Campos["datos.representante"] = ensamble, representante
+
+	filas, err := tx.QueryContext(ctx, "SELECT nombre FROM integrante WHERE postulacion_id = ? ORDER BY orden", postulacionID)
+	if err != nil {
+		return err
+	}
+	for filas.Next() {
+		var integrante Integrante
+		if err := filas.Scan(&integrante.Nombre); err != nil {
+			filas.Close()
+			return err
+		}
+		p.Integrantes = append(p.Integrantes, integrante)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return err
+	}
+	filas, err = tx.QueryContext(ctx, "SELECT COALESCE(titulo, ''), COALESCE(compositor, '') FROM obra WHERE postulacion_id = ? ORDER BY orden", postulacionID)
+	if err != nil {
+		return err
+	}
+	for filas.Next() {
+		var titulo, compositor string
+		if err := filas.Scan(&titulo, &compositor); err != nil {
+			filas.Close()
+			return err
+		}
+		p.Obras = append(p.Obras, Obra{Campos: map[string]string{"obra.titulo": titulo, "obra.compositor": compositor}})
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return err
+	}
+
+	texto := TextoDeBusqueda(p, titular)
+	var actual string
+	err = tx.QueryRowContext(ctx, "SELECT texto FROM indice_busqueda WHERE postulacion_id = ?", postulacionID).Scan(&actual)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		_, err = tx.ExecContext(ctx, "INSERT INTO indice_busqueda (postulacion_id, texto, actualizado_at) VALUES (?, ?, ?)", postulacionID, texto, r.marca())
+	case err == nil && actual != texto:
+		_, err = tx.ExecContext(ctx, "UPDATE indice_busqueda SET texto = ?, actualizado_at = ? WHERE postulacion_id = ?", texto, r.marca(), postulacionID)
+	}
+	return err
+}
+
+// ReconstruirIndiceDeBusqueda vuelve a indexar todas las postulaciones y
+// devuelve cuántas son. Lo ejecuta «fimnme-cli migrate»: deja buscables las
+// postulaciones que existían antes de que hubiera buscador, y corrige el
+// índice si alguna vez quedó atrasado.
+func (r *Repositorio) ReconstruirIndiceDeBusqueda(ctx context.Context) (int, error) {
+	total := 0
+	err := r.operacion(ctx, "reconstruir índice de búsqueda", func(tx *sql.Tx) error {
+		filas, err := tx.QueryContext(ctx, "SELECT id FROM postulacion ORDER BY id")
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for filas.Next() {
+			var id int64
+			if err := filas.Scan(&id); err != nil {
+				filas.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := r.reindexar(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+		total = len(ids)
+		return nil
+	})
+	return total, err
+}
+
+// idsPorTexto busca en el índice de texto completo y devuelve los ids de las
+// postulaciones que coinciden (RF-ARCH-11). Primero por palabras, tolerando
+// acentos y mayúsculas; si no hay nada, por fragmentos, para el nombre mal
+// recordado. hayConsulta es false si el texto no trae nada que buscar.
+func idsPorTexto(ctx context.Context, q consultor, texto string) (ids []int64, hayConsulta bool, err error) {
+	porPalabras, porSubcadena := ConsultasDeBusqueda(texto)
+	if porPalabras == "" {
+		return nil, false, nil
+	}
+	buscar := func(tabla, consulta string) ([]int64, error) {
+		filas, err := q.QueryContext(ctx, "SELECT rowid FROM "+tabla+" WHERE "+tabla+" MATCH ?", consulta)
+		if err != nil {
+			return nil, fmt.Errorf("buscar en el índice: %w", err)
+		}
+		defer filas.Close()
+		var encontrados []int64
+		for filas.Next() {
+			var id int64
+			if err := filas.Scan(&id); err != nil {
+				return nil, err
+			}
+			encontrados = append(encontrados, id)
+		}
+		return encontrados, filas.Err()
+	}
+	if ids, err = buscar("fts_postulacion", porPalabras); err != nil || len(ids) > 0 || porSubcadena == "" {
+		return ids, true, err
+	}
+	ids, err = buscar("fts_postulacion_trgm", porSubcadena)
+	return ids, true, err
+}
+
+// marcadores devuelve «?, ?, ?» para n valores, y los valores como []any.
+func marcadores(ids []int64) (string, []any) {
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	return strings.TrimSuffix(strings.Repeat("?, ", len(ids)), ", "), args
+}
+
+// columnasDeOrden traduce cada orden admitido del listado a su expresión SQL.
+// El texto del ORDER BY sale de esta tabla, nunca de la petición.
+var columnasDeOrden = map[string]string{
+	"folio": "p.folio", "nombre": "nombre", "enviada": "p.enviada_at", "estado": "p.estado", "obras": "obras", "duracion": "duracion",
+}
+
+// condicionesDeListado arma el WHERE del listado: lo que la sesión puede ver
+// (alcance) y los filtros pedidos. soloDe, si no es 0, limita a las
+// postulaciones de una cuenta. Devuelve nadaQueVer si ya se sabe que el
+// resultado es vacío.
+func condicionesDeListado(ctx context.Context, q consultor, alcance AlcanceDeConsulta, f FiltroDeListado, soloDe int64) (condiciones []string, args []any, nadaQueVer bool, err error) {
+	donde := func(condicion string, valores ...any) {
+		condiciones = append(condiciones, condicion)
+		args = append(args, valores...)
+	}
+	// 1. Alcance: las restricciones de perfil, que no caducan (RN-24 y 25).
+	switch {
+	case soloDe != 0:
+		donde("p.usuario_id = ?", soloDe)
+	case alcance.Todo:
+	case alcance.Vacio():
+		return nil, nil, true, nil
+	default:
+		var ramas []string
+		var valores []any
+		if len(alcance.ComoRevisor) > 0 {
+			lista, ids := marcadores(alcance.ComoRevisor)
+			ramas, valores = append(ramas, "(p.convocatoria_id IN ("+lista+") AND p.estado <> 'borrador')"), append(valores, ids...)
+		}
+		if len(alcance.ComoJurado) > 0 {
+			lista, ids := marcadores(alcance.ComoJurado)
+			ramas, valores = append(ramas, "(p.convocatoria_id IN ("+lista+") AND p.estado IN ('en_evaluacion', 'evaluada'))"), append(valores, ids...)
+		}
+		donde("("+strings.Join(ramas, " OR ")+")", valores...)
+	}
+
+	// 2. Texto completo.
+	if ids, hayConsulta, err := idsPorTexto(ctx, q, f.Texto); err != nil {
+		return nil, nil, false, err
+	} else if hayConsulta {
+		if len(ids) == 0 {
+			return nil, nil, true, nil
+		}
+		lista, valores := marcadores(ids)
+		donde("p.id IN ("+lista+")", valores...)
+	}
+	if len(f.IDs) > 0 {
+		lista, valores := marcadores(f.IDs)
+		donde("p.id IN ("+lista+")", valores...)
+	}
+
+	// 3. Filtros simples: un valor vacío no filtra.
+	for _, filtro := range []struct {
+		condicion string
+		valor     string
+	}{
+		{"c.tipo = ?", string(f.Tipo)}, {"p.subcategoria = ?", string(f.Subcategoria)}, {"p.estado = ?", string(f.Estado)},
+		{"COALESCE(ds.entidad_residencia, de.entidad_residencia, dc.entidad_residencia) = ?", f.EntidadResidencia},
+		{"pc.entidad = ?", f.EntidadConcierto}, {"COALESCE(ds.nacionalidad, dc.nacionalidad) = ?", f.Nacionalidad},
+		{"COALESCE(ds.pais_residencia, de.pais_residencia, dc.pais_residencia) = ?", f.Pais},
+		{"COALESCE(ds.genero, dc.genero) = ?", f.Genero},
+		{"EXISTS (SELECT 1 FROM obra o WHERE o.postulacion_id = p.id AND o.estreno = ?)", f.Estreno},
+	} {
+		if filtro.valor != "" {
+			donde(filtro.condicion, filtro.valor)
+		}
+	}
+	if f.Edicion != 0 {
+		donde("e.numero = ?", f.Edicion)
+	}
+	if f.ConvocatoriaID != 0 {
+		donde("p.convocatoria_id = ?", f.ConvocatoriaID)
+	}
+	if f.DotacionID != 0 {
+		donde("EXISTS (SELECT 1 FROM obra o WHERE o.postulacion_id = p.id AND o.dotacion_id = ?)", f.DotacionID)
+	}
+	if !f.EnviadaDesde.IsZero() {
+		donde("p.enviada_at >= ?", aMarca(f.EnviadaDesde))
+	}
+	if !f.EnviadaHasta.IsZero() {
+		donde("p.enviada_at <= ?", aMarca(f.EnviadaHasta))
+	}
+	existe := func(valor, subconsulta string) {
+		switch valor {
+		case "si":
+			donde("EXISTS (" + subconsulta + ")")
+		case "no":
+			donde("NOT EXISTS (" + subconsulta + ")")
+		}
+	}
+	existe(f.LigasConProblema, "SELECT 1 FROM enlace_video v WHERE v.postulacion_id = p.id AND v.estado IN ('inaccesible', 'no_publico')")
+
+	// 4. Filtros sobre lo que no todos ven. El dictamen final es de la
+	//    supervisión, y la revisión documental no es asunto del jurado: a
+	//    quien no puede ver un dato tampoco se le deja filtrar por él, porque
+	//    filtrar es una forma de leer.
+	if alcance.Todo && soloDe == 0 && f.Dictamen != "" {
+		donde("p.dictamen = ?", f.Dictamen)
+	}
+	if soloDe == 0 && (alcance.Todo || len(alcance.ComoJurado) == 0) {
+		existe(f.ConSubsanaciones, "SELECT 1 FROM subsanacion s WHERE s.postulacion_id = p.id")
+		existe(f.DocumentosPendientes, "SELECT 1 FROM documento d WHERE d.postulacion_id = p.id AND d.vigente = 1 AND d.dictamen = 'pendiente'")
+	}
+	return condiciones, args, false, nil
+}
+
+// listar ejecuta el listado del archivo. Lo comparten la consulta en pantalla
+// y la descarga masiva.
+func (r *Repositorio) listar(ctx context.Context, alcance AlcanceDeConsulta, f FiltroDeListado, soloDe int64) ([]RenglonDeListado, int, error) {
+	condiciones, args, nadaQueVer, err := condicionesDeListado(ctx, r.lectura, alcance, f, soloDe)
+	if err != nil || nadaQueVer {
+		return []RenglonDeListado{}, 0, err
+	}
+	desde := `
+		FROM postulacion p
+		JOIN convocatoria c ON c.id = p.convocatoria_id
+		JOIN edicion e ON e.id = c.edicion_id` + unionesDeDatos + `
+		LEFT JOIN propuesta_concierto pc ON pc.postulacion_id = p.id`
+	if len(condiciones) > 0 {
+		desde += "\n\t\tWHERE " + strings.Join(condiciones, " AND ")
+	}
+	var total int
+	if err := r.lectura.QueryRowContext(ctx, "SELECT COUNT(*)"+desde, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("contar postulaciones: %w", err)
+	}
+	orden, conocido := columnasDeOrden[f.Orden]
+	if !conocido {
+		orden = columnasDeOrden["folio"]
+	}
+	if f.Descendente {
+		orden += " DESC"
+	}
+	consulta := `
+		SELECT p.id, COALESCE(p.folio, ''), p.estado, COALESCE(p.subcategoria, ''), ` + nombreDePostulante + ` AS nombre,
+		       e.numero, c.id, c.tipo, c.titulo_es, COALESCE(p.enviada_at, ''),
+		       (SELECT COUNT(*) FROM obra o WHERE o.postulacion_id = p.id) AS obras,
+		       (SELECT COALESCE(SUM(o.duracion_min), 0) FROM obra o WHERE o.postulacion_id = p.id) AS duracion` + desde + `
+		ORDER BY ` + orden + `, p.id`
+	if f.Pagina > 0 {
+		consulta += " LIMIT ? OFFSET ?"
+		args = append(args, f.Tamano, (f.Pagina-1)*f.Tamano)
+	}
+	filas, err := r.lectura.QueryContext(ctx, consulta, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listar postulaciones: %w", err)
+	}
+	defer filas.Close()
+	renglones := []RenglonDeListado{}
+	for filas.Next() {
+		var renglon RenglonDeListado
+		var estado, subcategoria, tipo, enviada string
+		if err := filas.Scan(&renglon.ID, &renglon.Folio, &estado, &subcategoria, &renglon.Nombre, &renglon.Edicion,
+			&renglon.ConvocatoriaID, &tipo, &renglon.Convocatoria, &enviada, &renglon.Obras, &renglon.DuracionMin); err != nil {
+			return nil, 0, fmt.Errorf("listar postulaciones: %w", err)
+		}
+		renglon.Estado, renglon.Subcategoria, renglon.Tipo = EstadoDePostulacion(estado), Subcategoria(subcategoria), TipoConvocatoria(tipo)
+		if enviada != "" {
+			if renglon.EnviadaAt, err = deMarca(enviada); err != nil {
+				return nil, 0, err
+			}
+		}
+		renglones = append(renglones, renglon)
+	}
+	return renglones, total, filas.Err()
+}
+
+// ListarPostulaciones devuelve una página del archivo: las postulaciones que
+// la sesión puede ver y que pasan los filtros, y cuántas son en total
+// (RF-ARCH-13 a 16). El alcance lo calcula el controlador con AlcanceDe.
+func (r *Repositorio) ListarPostulaciones(ctx context.Context, alcance AlcanceDeConsulta, f FiltroDeListado) ([]RenglonDeListado, int, error) {
+	return r.listar(ctx, alcance, f, 0)
+}
+
+// PostulacionPorFolio devuelve el id de la postulación de un folio: es lo que
+// hace permanentes los enlaces por folio (RF-ARCH-06).
+func (r *Repositorio) PostulacionPorFolio(ctx context.Context, folio string) (int64, error) {
+	var id int64
+	err := r.lectura.QueryRowContext(ctx, "SELECT id FROM postulacion WHERE folio = ?", folio).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNoEncontrado
+	}
+	if err != nil {
+		return 0, fmt.Errorf("buscar folio: %w", err)
+	}
+	return id, nil
+}
+
+// --- Vistas guardadas (RF-ARCH-18) --------------------------------------------
+
+// VistasGuardadas devuelve las vistas que una cuenta guardó, por nombre.
+func (r *Repositorio) VistasGuardadas(ctx context.Context, usuarioID int64) ([]VistaGuardada, error) {
+	filas, err := r.lectura.QueryContext(ctx, "SELECT id, nombre, ruta, creado_at FROM vista_guardada WHERE usuario_id = ? ORDER BY nombre", usuarioID)
+	if err != nil {
+		return nil, fmt.Errorf("leer vistas guardadas: %w", err)
+	}
+	defer filas.Close()
+	vistas := []VistaGuardada{}
+	for filas.Next() {
+		var v VistaGuardada
+		var creado string
+		if err := filas.Scan(&v.ID, &v.Nombre, &v.Ruta, &creado); err != nil {
+			return nil, fmt.Errorf("leer vistas guardadas: %w", err)
+		}
+		if v.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		vistas = append(vistas, v)
+	}
+	return vistas, filas.Err()
+}
+
+// GuardarVista guarda una combinación de filtros con nombre. Devuelve
+// ErrDuplicado si la cuenta ya tiene una vista con ese nombre.
+func (r *Repositorio) GuardarVista(ctx context.Context, usuarioID int64, nombre, ruta string) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "guardar vista", func(tx *sql.Tx) error {
+		nombre = strings.TrimSpace(nombre)
+		var existentes int
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM vista_guardada WHERE usuario_id = ?", usuarioID).Scan(&existentes); err != nil {
+			return err
+		}
+		if err := validacion(ValidarVistaGuardada(nombre, ruta, existentes)); err != nil {
+			return err
+		}
+		if repetida, err := existe(ctx, tx, "SELECT COUNT(*) FROM vista_guardada WHERE usuario_id = ? AND nombre = ?", usuarioID, nombre); err != nil {
+			return err
+		} else if repetida {
+			return ErrDuplicado
+		}
+		res, err := tx.ExecContext(ctx, "INSERT INTO vista_guardada (usuario_id, nombre, ruta, creado_at) VALUES (?, ?, ?, ?)",
+			usuarioID, nombre, ruta, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		return err
+	})
+	return id, err
+}
+
+// BorrarVista borra una vista guardada de la cuenta. La de otra cuenta
+// responde ErrNoEncontrado.
+func (r *Repositorio) BorrarVista(ctx context.Context, usuarioID, vistaID int64) error {
+	return r.operacion(ctx, "borrar vista", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "DELETE FROM vista_guardada WHERE id = ? AND usuario_id = ?", vistaID, usuarioID)
+		if err != nil {
+			return err
+		}
+		if borradas, err := res.RowsAffected(); err != nil || borradas == 0 {
+			if err == nil {
+				err = ErrNoEncontrado
+			}
+			return err
+		}
+		return nil
+	})
+}
+
+// --- Descarga masiva en ZIP (RF-ARCH-31 a 37) ---------------------------------
+
+// DocumentosParaZIP devuelve los documentos vigentes que entran a una
+// descarga masiva: los de las postulaciones que el solicitante puede ver y
+// que pasan su filtro, limitados a los tipos pedidos. Van en el orden en que
+// quedarán en el ZIP.
+func (r *Repositorio) DocumentosParaZIP(ctx context.Context, parametros ParametrosDeExportacion) ([]DocumentoEnZIP, error) {
+	filtro := parametros.Filtro
+	filtro.Pagina, filtro.Tamano = 0, 0 // todas, sin paginar
+	renglones, _, err := r.listar(ctx, parametros.Alcance, filtro, parametros.SoloDe)
+	if err != nil || len(renglones) == 0 {
+		return nil, err
+	}
+	ids := make([]int64, len(renglones))
+	for i, renglon := range renglones {
+		ids[i] = renglon.ID
+	}
+	lista, args := marcadores(ids)
+	consulta := `
+		SELECT d.id, d.postulacion_id, COALESCE(d.obra_id, 0), rq.clave, d.version, d.vigente, d.dictamen, d.subido_at,
+		       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes,
+		       COALESCE(p.folio, ''), ` + nombreDePostulante + `, COALESCE(o.orden, 0), COALESCE(o.titulo, '')
+		FROM documento d
+		JOIN requisito_documental rq ON rq.id = d.requisito_id
+		JOIN archivo a ON a.id = d.archivo_id
+		JOIN postulacion p ON p.id = d.postulacion_id
+		LEFT JOIN obra o ON o.id = d.obra_id` + unionesDeDatos + `
+		WHERE d.vigente = 1 AND d.postulacion_id IN (` + lista + `)`
+	if len(parametros.Claves) > 0 {
+		consulta += " AND rq.clave IN (" + strings.TrimSuffix(strings.Repeat("?, ", len(parametros.Claves)), ", ") + ")"
+		for _, clave := range parametros.Claves {
+			args = append(args, clave)
+		}
+	}
+	filas, err := r.lectura.QueryContext(ctx, consulta+" ORDER BY p.folio, p.id, COALESCE(o.orden, 0), rq.orden, d.id", args...)
+	if err != nil {
+		return nil, fmt.Errorf("leer documentos para el ZIP: %w", err)
+	}
+	defer filas.Close()
+	var documentos []DocumentoEnZIP
+	for filas.Next() {
+		var z DocumentoEnZIP
+		var subido string
+		d := &z.Documento
+		if err := filas.Scan(&d.ID, &d.PostulacionID, &d.ObraID, &d.Clave, &d.Version, &d.Vigente, &d.Dictamen, &subido,
+			&d.Archivo.ID, &d.Archivo.SHA256, &d.Archivo.Clave, &d.Archivo.MIME, &d.Archivo.TamanoBytes,
+			&z.Folio, &z.Nombre, &z.OrdenDeObra, &z.Obra); err != nil {
+			return nil, fmt.Errorf("leer documentos para el ZIP: %w", err)
+		}
+		if d.SubidoAt, err = deMarca(subido); err != nil {
+			return nil, err
+		}
+		if z.Folio == "" {
+			z.Folio = "borrador-" + strconv.FormatInt(d.PostulacionID, 10)
+		}
+		documentos = append(documentos, z)
+	}
+	return documentos, filas.Err()
+}
+
+// leerExportacion vuelca una fila de tarea_exportacion en la entidad.
+func leerExportacion(f fila) (TareaDeExportacion, error) {
+	var t TareaDeExportacion
+	var parametros, creado, terminado, expira string
+	err := f.Scan(&t.ID, &t.Tipo, &t.SolicitadoPor, &parametros, &t.Estado, &t.Progreso, &t.MensajeError, &creado, &terminado, &expira, &t.Archivos, &t.Bytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return t, ErrNoEncontrado
+	}
+	if err != nil {
+		return t, err
+	}
+	if err := json.Unmarshal([]byte(parametros), &t.Parametros); err != nil {
+		return t, fmt.Errorf("tarea %d: parámetros que no son JSON válido: %w", t.ID, err)
+	}
+	for _, marca := range []struct {
+		texto   string
+		destino *time.Time
+	}{{creado, &t.CreadoAt}, {terminado, &t.TerminadoAt}, {expira, &t.ExpiraAt}} {
+		if marca.texto == "" {
+			continue
+		}
+		if *marca.destino, err = deMarca(marca.texto); err != nil {
+			return t, err
+		}
+	}
+	return t, nil
+}
+
+// sqlExportacion lee una tarea en segundo plano. El número de archivos y el
+// tamaño del resultado se guardan dentro de «parametros», que es JSON (§8.3).
+const sqlExportacion = `
+SELECT id, tipo, solicitado_por, parametros, estado, progreso, COALESCE(mensaje_error, ''), creado_at,
+       COALESCE(terminado_at, ''), COALESCE(expira_at, ''),
+       COALESCE(json_extract(parametros, '$.archivos'), 0), COALESCE(json_extract(parametros, '$.bytes'), 0)
+FROM tarea_exportacion`
+
+// tiposDeTarea son los tipos de tarea que arma el trabajador de
+// exportaciones, como lista SQL.
+const tiposDeTarea = "('" + TareaZIP + "', '" + TareaExpediente + "')"
+
+// EncolarExportacion registra una tarea —descarga masiva o expediente por
+// convocatoria— para armarla en segundo plano (RF-ARCH-35 y 45) y devuelve su
+// id. Queda en la bitácora quién la pidió.
+func (r *Repositorio) EncolarExportacion(ctx context.Context, actor Actor, tipo string, parametros ParametrosDeExportacion) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "encolar exportación", func(tx *sql.Tx) error {
+		texto, err := json.Marshal(parametros)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO tarea_exportacion (tipo, solicitado_por, convocatoria_id, parametros, creado_at)
+			VALUES (?, ?, ?, ?, ?)`,
+			tipo, actor.UsuarioID, nuloSiCero(parametros.Filtro.ConvocatoriaID), string(texto), r.marca())
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "exportacion.solicitar", "tarea_exportacion", id, nil,
+			map[string]any{"tipo": tipo, "convocatoria_id": parametros.Filtro.ConvocatoriaID, "tipos": parametros.Claves})
+	})
+	return id, err
+}
+
+// ExportacionPorID devuelve una tarea de descarga masiva, o ErrNoEncontrado.
+func (r *Repositorio) ExportacionPorID(ctx context.Context, id int64) (TareaDeExportacion, error) {
+	t, err := leerExportacion(r.lectura.QueryRowContext(ctx, sqlExportacion+" WHERE id = ? AND tipo IN "+tiposDeTarea, id))
+	if err != nil && !errors.Is(err, ErrNoEncontrado) {
+		return t, fmt.Errorf("leer exportación: %w", err)
+	}
+	return t, err
+}
+
+// TomarExportacion entrega al trabajador la tarea encolada más antigua y la
+// marca como «procesando». hay es false si no queda ninguna.
+func (r *Repositorio) TomarExportacion(ctx context.Context) (tarea TareaDeExportacion, hay bool, err error) {
+	err = r.operacion(ctx, "tomar exportación", func(tx *sql.Tx) error {
+		t, err := leerExportacion(tx.QueryRowContext(ctx, sqlExportacion+" WHERE estado = 'encolado' AND tipo IN "+tiposDeTarea+" ORDER BY id LIMIT 1"))
+		if errors.Is(err, ErrNoEncontrado) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		tarea, hay = t, true
+		_, err = tx.ExecContext(ctx, "UPDATE tarea_exportacion SET estado = 'procesando' WHERE id = ?", t.ID)
+		return err
+	})
+	return tarea, hay, err
+}
+
+// ReencolarExportacionesInterrumpidas devuelve a la cola las descargas que un
+// apagado dejó a medio armar, y dice cuántas eran. La llama el trabajador al
+// arrancar: como es el único que las arma, una tarea «procesando» en ese
+// momento no la está armando nadie.
+func (r *Repositorio) ReencolarExportacionesInterrumpidas(ctx context.Context) (int, error) {
+	var reencoladas int64
+	err := r.operacion(ctx, "reencolar exportaciones", func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, "UPDATE tarea_exportacion SET estado = 'encolado' WHERE estado = 'procesando' AND tipo IN "+tiposDeTarea)
+		if err != nil {
+			return err
+		}
+		reencoladas, err = res.RowsAffected()
+		return err
+	})
+	return int(reencoladas), err
+}
+
+// TerminarExportacion anota el resultado de una tarea: lista, con cuántos
+// archivos y de qué tamaño, o con error. El enlace vive siete días. Si se da
+// un aviso, queda en la bandeja de correo en la misma transacción: quien la
+// pidió se entera de que ya puede bajarla (RF-ARCH-45).
+func (r *Repositorio) TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string, aviso *CorreoSaliente) error {
+	return r.operacion(ctx, "terminar exportación", func(tx *sql.Tx) error {
+		estado := ExportacionLista
+		if mensajeDeError != "" {
+			estado = ExportacionConError
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE tarea_exportacion
+			SET estado = ?, progreso = 100, mensaje_error = ?, terminado_at = ?, expira_at = ?,
+			    parametros = json_set(parametros, '$.archivos', ?, '$.bytes', ?)
+			WHERE id = ?`,
+			estado, nuloSiVacio(mensajeDeError), r.marca(), aMarca(r.ahora().Add(VigenciaDeExportacion)), archivos, bytes, id); err != nil {
+			return err
+		}
+		if aviso == nil || mensajeDeError != "" {
+			return nil
+		}
+		return r.encolarCorreo(ctx, tx, *aviso)
+	})
+}
+
+// RegistrarDescargaDeExportacion deja constancia de que una cuenta bajó una
+// descarga masiva (RF-ARCH-37): en «descarga» y en la bitácora.
+func (r *Repositorio) RegistrarDescargaDeExportacion(ctx context.Context, actor Actor, tarea TareaDeExportacion) error {
+	return r.operacion(ctx, "registrar descarga masiva", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO descarga (usuario_id, tarea_id, ip, creado_at) VALUES (?, ?, ?, ?)",
+			actor.UsuarioID, tarea.ID, nuloSiVacio(actor.IP), r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "exportacion.descargar", "tarea_exportacion", tarea.ID, nil,
+			map[string]any{"tipo": tarea.Tipo, "archivos": tarea.Archivos, "bytes": tarea.Bytes})
+	})
+}
+
+// =============================================================================
+// 15. Expediente, reportes y tableros
+// =============================================================================
+
+// RegistrarExpediente deja constancia de que una cuenta generó el expediente
+// en PDF de una postulación (RN-27): en «descarga» y en la bitácora. El
+// expediente lleva datos personales y material inédito, igual que un
+// documento.
+func (r *Repositorio) RegistrarExpediente(ctx context.Context, actor Actor, postulacionID int64) error {
+	return r.operacion(ctx, "registrar expediente", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO descarga (usuario_id, postulacion_id, ip, creado_at) VALUES (?, ?, ?, ?)",
+			actor.UsuarioID, postulacionID, nuloSiVacio(actor.IP), r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "expediente.generar", "postulacion", postulacionID, nil, nil)
+	})
+}
+
+// RegistrarReporte deja en la bitácora que una cuenta generó un reporte: de
+// qué convocatoria, con qué campos y cuántos renglones. No guarda ningún
+// valor del reporte.
+func (r *Repositorio) RegistrarReporte(ctx context.Context, actor Actor, convocatoriaID int64, campos []string, renglones int) error {
+	return r.operacion(ctx, "registrar reporte", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "reporte.generar", "convocatoria", convocatoriaID, nil,
+			map[string]any{"campos": campos, "renglones": renglones})
+	})
+}
+
+// --- Plantillas de reporte (RF-REP-04) ----------------------------------------
+
+// leerPlantillaDeReporte vuelca una fila de plantilla_reporte en la entidad.
+func leerPlantillaDeReporte(f fila) (PlantillaDeReporte, error) {
+	var p PlantillaDeReporte
+	var tipo, creado string
+	if err := f.Scan(&p.ID, &p.Nombre, &tipo, &p.Consulta, &p.CreadoPor, &creado); err != nil {
+		return p, err
+	}
+	p.Tipo = TipoConvocatoria(tipo)
+	var err error
+	p.CreadoAt, err = deMarca(creado)
+	return p, err
+}
+
+// sqlPlantillaDeReporte lee las plantillas de reporte.
+const sqlPlantillaDeReporte = "SELECT id, nombre, tipo, consulta, creado_por, creado_at FROM plantilla_reporte"
+
+// PlantillasDeReporte devuelve las plantillas de reporte guardadas, por
+// nombre. Las comparten quienes generan reportes.
+func (r *Repositorio) PlantillasDeReporte(ctx context.Context) ([]PlantillaDeReporte, error) {
+	filas, err := r.lectura.QueryContext(ctx, sqlPlantillaDeReporte+" ORDER BY nombre")
+	if err != nil {
+		return nil, fmt.Errorf("leer plantillas de reporte: %w", err)
+	}
+	defer filas.Close()
+	plantillas := []PlantillaDeReporte{}
+	for filas.Next() {
+		plantilla, err := leerPlantillaDeReporte(filas)
+		if err != nil {
+			return nil, fmt.Errorf("leer plantillas de reporte: %w", err)
+		}
+		plantillas = append(plantillas, plantilla)
+	}
+	return plantillas, filas.Err()
+}
+
+// PlantillaDeReportePorID devuelve una plantilla de reporte, o ErrNoEncontrado.
+func (r *Repositorio) PlantillaDeReportePorID(ctx context.Context, id int64) (PlantillaDeReporte, error) {
+	plantilla, err := leerPlantillaDeReporte(r.lectura.QueryRowContext(ctx, sqlPlantillaDeReporte+" WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return plantilla, ErrNoEncontrado
+	}
+	if err != nil {
+		return plantilla, fmt.Errorf("leer plantilla de reporte: %w", err)
+	}
+	return plantilla, nil
+}
+
+// GuardarPlantillaDeReporte guarda con nombre la definición de un reporte.
+// Devuelve ErrDuplicado si ya hay una plantilla con ese nombre.
+func (r *Repositorio) GuardarPlantillaDeReporte(ctx context.Context, actor Actor, p PlantillaDeReporte) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "guardar plantilla de reporte", func(tx *sql.Tx) error {
+		p.Nombre = strings.TrimSpace(p.Nombre)
+		if err := validacion(ValidarPlantillaDeReporte(p)); err != nil {
+			return err
+		}
+		if repetida, err := existe(ctx, tx, "SELECT COUNT(*) FROM plantilla_reporte WHERE nombre = ?", p.Nombre); err != nil {
+			return err
+		} else if repetida {
+			return ErrDuplicado
+		}
+		res, err := tx.ExecContext(ctx, "INSERT INTO plantilla_reporte (nombre, tipo, consulta, creado_por, creado_at) VALUES (?, ?, ?, ?, ?)",
+			p.Nombre, string(p.Tipo), p.Consulta, actor.UsuarioID, r.marca())
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "plantilla_reporte.crear", "plantilla_reporte", id, nil, map[string]any{"nombre": p.Nombre, "tipo": string(p.Tipo)})
+	})
+	return id, err
+}
+
+// BorrarPlantillaDeReporte borra una plantilla de reporte. Si soloDe no es 0,
+// sólo la borra si esa cuenta la creó; la de otra persona responde
+// ErrNoEncontrado.
+func (r *Repositorio) BorrarPlantillaDeReporte(ctx context.Context, actor Actor, id, soloDe int64) error {
+	return r.operacion(ctx, "borrar plantilla de reporte", func(tx *sql.Tx) error {
+		consulta, args := "DELETE FROM plantilla_reporte WHERE id = ?", []any{id}
+		if soloDe != 0 {
+			consulta, args = consulta+" AND creado_por = ?", append(args, soloDe)
+		}
+		res, err := tx.ExecContext(ctx, consulta, args...)
+		if err != nil {
+			return err
+		}
+		if borradas, err := res.RowsAffected(); err != nil {
+			return err
+		} else if borradas == 0 {
+			return ErrNoEncontrado
+		}
+		return r.auditar(ctx, tx, actor, "plantilla_reporte.borrar", "plantilla_reporte", id, nil, nil)
+	})
+}
+
+// --- Tableros (§5.13) ---------------------------------------------------------
+
+// cifras ejecuta una consulta de dos columnas —clave y cantidad— y devuelve
+// sus renglones. Las claves vacías se omiten: un dato sin capturar no es una
+// categoría.
+func cifras(ctx context.Context, q consultor, consulta string, args ...any) ([]Cifra, error) {
+	filas, err := q.QueryContext(ctx, consulta, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer filas.Close()
+	lista := []Cifra{}
+	for filas.Next() {
+		var c Cifra
+		if err := filas.Scan(&c.Clave, &c.Cantidad); err != nil {
+			return nil, err
+		}
+		if c.Clave != "" {
+			lista = append(lista, c)
+		}
+	}
+	return lista, filas.Err()
+}
+
+// TableroDeConvocatoria devuelve las cifras de una convocatoria en curso
+// (RF-DASH-01): postulaciones por estado, primeros envíos, documentos por
+// dictaminar y subsanaciones abiertas, por vencer y vencidas. No lleva nada
+// de la evaluación.
+func (r *Repositorio) TableroDeConvocatoria(ctx context.Context, convocatoriaID int64) (TableroDeConvocatoria, error) {
+	var t TableroDeConvocatoria
+	var err error
+	q := r.lectura
+	if t.PorEstado, err = cifras(ctx, q, "SELECT estado, COUNT(*) FROM postulacion WHERE convocatoria_id = ? GROUP BY estado ORDER BY estado", convocatoriaID); err != nil {
+		return t, fmt.Errorf("contar postulaciones por estado: %w", err)
+	}
+	filas, err := q.QueryContext(ctx, `
+		SELECT a.generado_at FROM acuse a JOIN postulacion p ON p.id = a.postulacion_id
+		WHERE p.convocatoria_id = ? AND a.version = 1 ORDER BY a.generado_at`, convocatoriaID)
+	if err != nil {
+		return t, fmt.Errorf("leer primeros envíos: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var marca string
+		if err := filas.Scan(&marca); err != nil {
+			return t, fmt.Errorf("leer primeros envíos: %w", err)
+		}
+		momento, err := deMarca(marca)
+		if err != nil {
+			return t, err
+		}
+		t.PrimerosEnvios = append(t.PrimerosEnvios, momento)
+	}
+	if err := filas.Err(); err != nil {
+		return t, fmt.Errorf("leer primeros envíos: %w", err)
+	}
+	if err := q.QueryRowContext(ctx, `
+		SELECT COUNT(*), COUNT(DISTINCT d.postulacion_id)
+		FROM documento d JOIN postulacion p ON p.id = d.postulacion_id
+		WHERE p.convocatoria_id = ? AND p.estado <> 'borrador' AND d.vigente = 1 AND d.dictamen = 'pendiente'`,
+		convocatoriaID).Scan(&t.DocumentosPendientes, &t.PostulacionesConPendientes); err != nil {
+		return t, fmt.Errorf("contar documentos pendientes: %w", err)
+	}
+	// Subsanaciones que siguen esperando al postulante, según su plazo.
+	ahora := r.ahora()
+	pendientes := `
+		SELECT COUNT(*) FROM subsanacion s JOIN postulacion p ON p.id = s.postulacion_id
+		WHERE p.convocatoria_id = ? AND p.estado = 'en_subsanacion' AND s.atendida_at IS NULL AND s.cerrada_at IS NULL AND `
+	for _, cuenta := range []struct {
+		condicion string
+		args      []any
+		destino   *int
+	}{
+		{"s.fecha_limite >= ?", []any{aMarca(ahora)}, &t.SubsanacionesAbiertas},
+		{"s.fecha_limite >= ? AND s.fecha_limite < ?", []any{aMarca(ahora), aMarca(ahora.AddDate(0, 0, DiasPorVencer))}, &t.SubsanacionesPorVencer},
+		{"s.fecha_limite < ?", []any{aMarca(ahora)}, &t.SubsanacionesVencidas},
+	} {
+		if err := q.QueryRowContext(ctx, pendientes+cuenta.condicion, append([]any{convocatoriaID}, cuenta.args...)...).Scan(cuenta.destino); err != nil {
+			return t, fmt.Errorf("contar subsanaciones: %w", err)
+		}
+	}
+	return t, nil
+}
+
+// Avance devuelve cuánto lleva cada jurado de una convocatoria (RF-DASH-02):
+// cuántas unidades ha enviado y de cuántas se excusó, de cuántas. Cruza a los
+// jurados —por eso vive aquí—, pero sólo CUENTA: no lee ningún puntaje ni
+// ninguna observación.
+func (s SupervisionRepo) Avance(ctx context.Context, convocatoriaID int64) ([]AvanceDeJurado, error) {
+	cfg, err := configuracion(ctx, s.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	unidades, err := leerUnidades(ctx, s.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	filas, err := s.r.lectura.QueryContext(ctx, `
+		SELECT e.jurado_id, COALESCE(SUM(e.enviada), 0), COALESCE(SUM(e.excusado), 0)
+		FROM evaluacion e
+		JOIN postulacion p ON p.id = e.postulacion_id
+		WHERE e.convocatoria_id = ? AND p.estado IN ('en_evaluacion', 'evaluada')
+		GROUP BY e.jurado_id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+	}
+	defer filas.Close()
+	type cuenta struct{ enviadas, excusadas int }
+	cuentas := make(map[int64]cuenta)
+	for filas.Next() {
+		var juradoID int64
+		var c cuenta
+		if err := filas.Scan(&juradoID, &c.enviadas, &c.excusadas); err != nil {
+			return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+		}
+		cuentas[juradoID] = c
+	}
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+	}
+	avances := []AvanceDeJurado{}
+	for _, a := range cfg.Asignaciones {
+		if !a.Activo || a.Perfil != PerfilJurado {
+			continue
+		}
+		c := cuentas[a.Usuario.ID]
+		avances = append(avances, AvanceDeJurado{JuradoID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos),
+			Enviadas: c.enviadas, Excusadas: c.excusadas, Total: len(unidades)})
+	}
+	return avances, nil
+}
+
+// EstadisticasDeEdicion devuelve las distribuciones descriptivas de las
+// postulaciones ENVIADAS de una edición (RF-DASH-03): por entidad, país,
+// nacionalidad, género, rango de edad, dotación y tipo de estreno, y la
+// duración media de las obras. Los borradores no cuentan. Si convocatoriaID
+// no es 0, se limita a esa convocatoria.
+//
+// La edad se calcula al cierre de la etapa de postulación de cada
+// convocatoria, igual que en los reportes.
+func (r *Repositorio) EstadisticasDeEdicion(ctx context.Context, edicionID, convocatoriaID int64) (EstadisticasDeEdicion, error) {
+	var e EstadisticasDeEdicion
+	q := r.lectura
+	desde := `
+		FROM postulacion p
+		JOIN convocatoria c ON c.id = p.convocatoria_id` + unionesDeDatos
+	donde, args := "\n\t\tWHERE c.edicion_id = ? AND p.estado <> 'borrador'", []any{edicionID}
+	if convocatoriaID != 0 {
+		donde, args = donde+" AND c.id = ?", append(args, convocatoriaID)
+	}
+	if err := q.QueryRowContext(ctx, "SELECT COUNT(*)"+desde+donde, args...).Scan(&e.Postulaciones); err != nil {
+		return e, fmt.Errorf("contar postulaciones de la edición: %w", err)
+	}
+	// Distribuciones de la postulación: una consulta por dimensión.
+	for _, dimension := range []struct {
+		columna string
+		destino *[]Cifra
+	}{
+		{"c.tipo", &e.PorConvocatoria},
+		{"COALESCE(ds.entidad_residencia, de.entidad_residencia, dc.entidad_residencia, '')", &e.PorEntidad},
+		{"COALESCE(ds.pais_residencia, de.pais_residencia, dc.pais_residencia, '')", &e.PorPais},
+		{"COALESCE(ds.nacionalidad, dc.nacionalidad, '')", &e.PorNacionalidad},
+		{"COALESCE(ds.genero, dc.genero, '')", &e.PorGenero},
+	} {
+		var err error
+		if *dimension.destino, err = cifras(ctx, q, "SELECT "+dimension.columna+" AS clave, COUNT(*) AS cantidad"+desde+donde+
+			"\n\t\tGROUP BY clave ORDER BY cantidad DESC, clave", args...); err != nil {
+			return e, fmt.Errorf("estadísticas de la edición: %w", err)
+		}
+	}
+	// Distribuciones de las obras.
+	obras := `
+		FROM obra o
+		JOIN postulacion p ON p.id = o.postulacion_id
+		JOIN convocatoria c ON c.id = p.convocatoria_id`
+	var media sql.NullFloat64
+	if err := q.QueryRowContext(ctx, "SELECT COUNT(*), AVG(o.duracion_min)"+obras+donde, args...).Scan(&e.Obras, &media); err != nil {
+		return e, fmt.Errorf("estadísticas de las obras: %w", err)
+	}
+	e.DuracionMediaMin = math.Round(media.Float64*10) / 10
+	var err error
+	if e.PorEstreno, err = cifras(ctx, q, "SELECT COALESCE(o.estreno, '') AS clave, COUNT(*) AS cantidad"+obras+donde+
+		"\n\t\tGROUP BY clave ORDER BY cantidad DESC, clave", args...); err != nil {
+		return e, fmt.Errorf("estadísticas de las obras: %w", err)
+	}
+	filas, err := q.QueryContext(ctx, "SELECT d.id, d.nombre_es, COUNT(*) AS cantidad"+obras+
+		"\n\t\tJOIN dotacion d ON d.id = o.dotacion_id"+donde+"\n\t\tGROUP BY d.id, d.nombre_es ORDER BY cantidad DESC, d.nombre_es", args...)
+	if err != nil {
+		return e, fmt.Errorf("estadísticas por dotación: %w", err)
+	}
+	e.PorDotacion = []Cifra{}
+	for filas.Next() {
+		var id int64
+		var c Cifra
+		if err := filas.Scan(&id, &c.Nombre, &c.Cantidad); err != nil {
+			filas.Close()
+			return e, fmt.Errorf("estadísticas por dotación: %w", err)
+		}
+		c.Clave = strconv.FormatInt(id, 10)
+		e.PorDotacion = append(e.PorDotacion, c)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return e, fmt.Errorf("estadísticas por dotación: %w", err)
+	}
+
+	// Edades: se leen las fechas de nacimiento y se cuentan aquí por rango,
+	// porque la aritmética de fechas no es igual en SQLite y en MariaDB.
+	filas, err = q.QueryContext(ctx, `
+		SELECT COALESCE(ds.fecha_nacimiento, dc.fecha_nacimiento, ''), COALESCE(et.termina_at, p.enviada_at, '')`+desde+`
+		LEFT JOIN etapa et ON et.convocatoria_id = c.id AND et.clave = 'postulacion'`+donde, args...)
+	if err != nil {
+		return e, fmt.Errorf("estadísticas por edad: %w", err)
+	}
+	defer filas.Close()
+	porRango := make(map[string]int)
+	for filas.Next() {
+		var nacimiento, referencia string
+		if err := filas.Scan(&nacimiento, &referencia); err != nil {
+			return e, fmt.Errorf("estadísticas por edad: %w", err)
+		}
+		if nacimiento == "" || referencia == "" {
+			continue // un ensamble no tiene fecha de nacimiento
+		}
+		cierre, err := deMarca(referencia)
+		if err != nil {
+			return e, err
+		}
+		if edad, ok := EdadEn(nacimiento, cierre); ok {
+			porRango[RangoDeEdad(edad)]++
+		}
+	}
+	e.PorEdad = []Cifra{}
+	for _, rango := range RangosDeEdad {
+		if porRango[rango] > 0 {
+			e.PorEdad = append(e.PorEdad, Cifra{Clave: rango, Cantidad: porRango[rango]})
+		}
+	}
+	return e, filas.Err()
+}
+
+// =============================================================================
+// 16. Continuidad operativa, portal público y anonimización
+// =============================================================================
+
+// --- Acervo y espejo (§5.17) --------------------------------------------------
+
+// sqlArchivosRegistrados lee todos los archivos que la base registra, con la
+// marca de los que se purgaron.
+const sqlArchivosRegistrados = "SELECT id, sha256, clave, mime, tamano_bytes, COALESCE(purgado_at, '') FROM archivo ORDER BY id"
+
+// archivosRegistrados ejecuta sqlArchivosRegistrados.
+func archivosRegistrados(ctx context.Context, q consultor) ([]Archivo, error) {
+	filas, err := q.QueryContext(ctx, sqlArchivosRegistrados)
+	if err != nil {
+		return nil, fmt.Errorf("leer archivos registrados: %w", err)
+	}
+	defer filas.Close()
+	var archivos []Archivo
+	for filas.Next() {
+		var a Archivo
+		var purgado string
+		if err := filas.Scan(&a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes, &purgado); err != nil {
+			return nil, fmt.Errorf("leer archivos registrados: %w", err)
+		}
+		if purgado != "" {
+			if a.PurgadoAt, err = deMarca(purgado); err != nil {
+				return nil, err
+			}
+		}
+		archivos = append(archivos, a)
+	}
+	return archivos, filas.Err()
+}
+
+// ArchivosRegistrados devuelve todos los archivos que la base registra: es lo
+// que la verificación del acervo compara con el disco (RF-CLI-08).
+func (r *Repositorio) ArchivosRegistrados(ctx context.Context) ([]Archivo, error) {
+	return archivosRegistrados(ctx, r.lectura)
+}
+
+// RegistrarVerificacion deja en la bitácora el resultado de una verificación
+// del acervo: cuántos archivos se revisaron y cuántos problemas hubo.
+func (r *Repositorio) RegistrarVerificacion(ctx context.Context, actor Actor, v VerificacionDeAcervo, rapida bool) error {
+	return r.operacion(ctx, "registrar verificación del acervo", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "acervo.verificar", "archivo", 0, nil, map[string]any{
+			"registrados": v.Registrados, "correctos": v.Correctos, "faltantes": len(v.Faltantes), "alterados": len(v.Alterados),
+			"purgados_presentes": len(v.PurgadosPresentes), "huerfanos": len(v.Huerfanos), "rapida": rapida})
+	})
+}
+
+// InstantaneaEn escribe en la ruta dada una copia completa y consistente de
+// la base, sin detener el servicio (RF-OPS-01). ESPECÍFICO DE SQLITE: es
+// VACUUM INTO, que no puede ejecutarse dentro de una transacción. Con
+// MariaDB el espejo se haría con sus propias herramientas de réplica.
+func (r *Repositorio) InstantaneaEn(ctx context.Context, ruta string) error {
+	if _, err := r.escritura.ExecContext(ctx, "VACUUM INTO ?", ruta); err != nil {
+		return fmt.Errorf("tomar la instantánea de la base: %w", err)
+	}
+	return nil
+}
+
+// RegistrarInstantanea asienta una instantánea del espejo en snapshot_espejo
+// y en la bitácora (RF-OPS-06).
+func (r *Repositorio) RegistrarInstantanea(ctx context.Context, actor Actor, i InstantaneaDeEspejo) error {
+	return r.operacion(ctx, "registrar instantánea", func(tx *sql.Tx) error {
+		estado := "ok"
+		if !i.Correcta {
+			estado = "error"
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO snapshot_espejo (ruta, sha256, hmac_sha256, tamano_bytes, archivos_ok, archivos_faltantes, destino, estado, detalle, creado_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			i.Ruta, i.SHA256, i.HMACSHA256, i.TamanoBytes, i.ArchivosOK, i.ArchivosFaltantes, i.Destino, estado, nuloSiVacio(i.Detalle), r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "espejo.instantanea", "snapshot_espejo", id, nil, map[string]any{
+			"sha256": i.SHA256, "tamano_bytes": i.TamanoBytes, "archivos_ok": i.ArchivosOK, "archivos_faltantes": i.ArchivosFaltantes, "estado": estado})
+	})
+}
+
+// UltimasInstantaneas devuelve las instantáneas registradas más recientes.
+func (r *Repositorio) UltimasInstantaneas(ctx context.Context, limite int) ([]InstantaneaDeEspejo, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT id, ruta, sha256, hmac_sha256, tamano_bytes, COALESCE(archivos_ok, 0), COALESCE(archivos_faltantes, 0),
+		       COALESCE(destino, ''), estado, COALESCE(detalle, ''), creado_at
+		FROM snapshot_espejo ORDER BY id DESC LIMIT ?`, limite)
+	if err != nil {
+		return nil, fmt.Errorf("leer instantáneas: %w", err)
+	}
+	defer filas.Close()
+	var lista []InstantaneaDeEspejo
+	for filas.Next() {
+		var i InstantaneaDeEspejo
+		var estado, creado string
+		if err := filas.Scan(&i.ID, &i.Ruta, &i.SHA256, &i.HMACSHA256, &i.TamanoBytes, &i.ArchivosOK, &i.ArchivosFaltantes,
+			&i.Destino, &estado, &i.Detalle, &creado); err != nil {
+			return nil, fmt.Errorf("leer instantáneas: %w", err)
+		}
+		i.Correcta = estado == "ok"
+		if i.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		lista = append(lista, i)
+	}
+	return lista, filas.Err()
+}
+
+// ArchivosDeInstantanea abre, en sólo lectura, el archivo de base de una
+// instantánea y devuelve los archivos que registra. Antes comprueba la
+// integridad interna de esa base: una copia que no la pasa no sirve para
+// restaurar. No necesita la base en producción. ESPECÍFICO DE SQLITE.
+func ArchivosDeInstantanea(ctx context.Context, rutaDeLaBase string) ([]Archivo, error) {
+	parametros := url.Values{"mode": {"ro"}}
+	parametros.Add("_pragma", "query_only(1)")
+	base, err := sql.Open("sqlite", "file:"+(&url.URL{Path: rutaDeLaBase}).EscapedPath()+"?"+parametros.Encode())
+	if err != nil {
+		return nil, fmt.Errorf("abrir la instantánea: %w", err)
+	}
+	defer base.Close()
+	var integridad string
+	if err := base.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integridad); err != nil {
+		return nil, fmt.Errorf("comprobar la integridad de la instantánea: %w", err)
+	}
+	if integridad != "ok" {
+		return nil, fmt.Errorf("la base de la instantánea está dañada: %s", integridad)
+	}
+	archivos, err := archivosRegistrados(ctx, base)
+	if err != nil {
+		return nil, fmt.Errorf("leer los archivos de la instantánea: %w", err)
+	}
+	return archivos, nil
+}
+
+// AdministradoresActivos devuelve las cuentas activas con perfil de
+// administrador: son a quienes se avisa de un problema de operación.
+func (r *Repositorio) AdministradoresActivos(ctx context.Context) ([]Usuario, error) {
+	cuentas, _, err := r.cuentas(ctx, `WHERE u.activo = 1 AND u.id IN (SELECT usuario_id FROM usuario_perfil WHERE perfil = ?)`,
+		[]any{string(PerfilAdminSistema)}, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+	var usuarios []Usuario
+	for _, cuenta := range cuentas {
+		if cuenta.Activada {
+			usuarios = append(usuarios, cuenta.Usuario)
+		}
+	}
+	return usuarios, nil
+}
+
+// EncolarAviso deja un correo de aviso en la bandeja de salida.
+func (r *Repositorio) EncolarAviso(ctx context.Context, correo CorreoSaliente) error {
+	return r.operacion(ctx, "encolar aviso", func(tx *sql.Tx) error {
+		return r.encolarCorreo(ctx, tx, correo)
+	})
+}
+
+// --- Portal público (§5.16) ---------------------------------------------------
+
+// seleccionadosDe lee la nómina de seleccionados de una convocatoria.
+//
+// Es la única consulta que saca datos de postulaciones hacia el portal
+// público, y sólo pide las columnas de la lista blanca (RF-PUB-02): el nombre
+// con que se anuncia, la subcategoría, la semblanza y los títulos de las
+// obras. No lee correos, teléfonos, fechas de nacimiento, documentos,
+// dictámenes de revisión ni evaluaciones; sólo postulaciones con dictamen
+// «seleccionada», y nunca una anonimizada.
+func seleccionadosDe(ctx context.Context, q consultor, convocatoriaID int64) ([]InteropSeleccionado, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT p.id, COALESCE(p.subcategoria, ''),
+		       COALESCE(NULLIF(ds.nombre_artistico, ''), ds.nombre_completo, de.nombre_ensamble,
+		                NULLIF(dc.nombre_artistico, ''), dc.nombre_completo, '') AS nombre,
+		       COALESCE(ds.semblanza, de.semblanza, dc.semblanza, '')
+		FROM postulacion p`+unionesDeDatos+`
+		WHERE p.convocatoria_id = ? AND p.dictamen = 'seleccionada' AND p.anonimizada_at IS NULL
+		ORDER BY nombre, p.id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer seleccionados: %w", err)
+	}
+	seleccionados := []InteropSeleccionado{}
+	var ids []int64
+	posicion := make(map[int64]int)
+	for filas.Next() {
+		var id int64
+		s := InteropSeleccionado{Obras: []InteropObra{}}
+		if err := filas.Scan(&id, &s.Subcategoria, &s.Nombre, &s.Semblanza); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer seleccionados: %w", err)
+		}
+		posicion[id] = len(seleccionados)
+		ids = append(ids, id)
+		seleccionados = append(seleccionados, s)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil || len(ids) == 0 {
+		return seleccionados, err
+	}
+	lista, args := marcadores(ids)
+	filas, err = q.QueryContext(ctx, "SELECT postulacion_id, COALESCE(titulo, '') FROM obra WHERE postulacion_id IN ("+lista+") ORDER BY postulacion_id, orden", args...)
+	if err != nil {
+		return nil, fmt.Errorf("leer obras de los seleccionados: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var id int64
+		var obra InteropObra
+		if err := filas.Scan(&id, &obra.Titulo); err != nil {
+			return nil, fmt.Errorf("leer obras de los seleccionados: %w", err)
+		}
+		seleccionados[posicion[id]].Obras = append(seleccionados[posicion[id]].Obras, obra)
+	}
+	return seleccionados, filas.Err()
+}
+
+// SeleccionadosDe devuelve la nómina de seleccionados de una convocatoria tal
+// como está HOY. Sirve para la vista previa y para publicarla; lo que sale al
+// portal es siempre la última publicada, no ésta.
+func (r *Repositorio) SeleccionadosDe(ctx context.Context, convocatoriaID int64) ([]InteropSeleccionado, error) {
+	return seleccionadosDe(ctx, r.lectura, convocatoriaID)
+}
+
+// PublicarNomina registra la publicación de una nómina hacia el portal
+// público (RF-PUB-04 y 05): el JSON, que ya está en el almacén, su SHA-256 y
+// quién la autorizó. Aplica en la misma transacción la regla: sólo con la
+// convocatoria cerrada, y sólo con confirmación. seleccionados es cuántos
+// lleva; 0 si es una retirada.
+func (r *Repositorio) PublicarNomina(ctx context.Context, actor Actor, convocatoriaID int64, blob Blob, seleccionados int, confirmo bool) error {
+	return r.operacion(ctx, "publicar nómina", func(tx *sql.Tx) error {
+		c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoEncontrado
+		}
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarPublicacionDeNomina(c, confirmo)); err != nil {
+			return err
+		}
+		archivoID, err := r.guardarArchivo(ctx, tx, blob, "application/json", fmt.Sprintf("nomina_%d.json", convocatoriaID))
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO exportacion_interop (convocatoria_id, alcance, archivo_id, sha256, autorizado_por, creado_at)
+			VALUES (?, 'seleccionados', ?, ?, ?, ?)`, convocatoriaID, archivoID, blob.SHA256, actor.UsuarioID, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "interop.publicar", "convocatoria", convocatoriaID, nil,
+			map[string]any{"exportacion_id": id, "alcance": "seleccionados", "sha256": blob.SHA256, "seleccionados": seleccionados})
+	})
+}
+
+// PublicacionesDe devuelve las publicaciones de nómina de una convocatoria,
+// de la más reciente a la más antigua, con el archivo de cada una.
+func (r *Repositorio) PublicacionesDe(ctx context.Context, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error) {
+	return publicacionesDe(ctx, r.lectura, convocatoriaID)
+}
+
+// publicacionesDe ejecuta la consulta de PublicacionesDe.
+func publicacionesDe(ctx context.Context, q consultor, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT x.id, x.alcance, COALESCE(x.sha256, ''), u.nombre, u.apellidos, x.creado_at,
+		       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+		FROM exportacion_interop x
+		JOIN usuario u ON u.id = x.autorizado_por
+		JOIN archivo a ON a.id = x.archivo_id
+		WHERE x.convocatoria_id = ? AND x.alcance = 'seleccionados'
+		ORDER BY x.id DESC`, convocatoriaID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("leer publicaciones: %w", err)
+	}
+	defer filas.Close()
+	var publicaciones []PublicacionInterop
+	var archivos []Archivo
+	for filas.Next() {
+		var p PublicacionInterop
+		var a Archivo
+		var nombre, apellidos, creado string
+		if err := filas.Scan(&p.ID, &p.Alcance, &p.SHA256, &nombre, &apellidos, &creado, &a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes); err != nil {
+			return nil, nil, fmt.Errorf("leer publicaciones: %w", err)
+		}
+		p.AutorizadoPor = strings.TrimSpace(nombre + " " + apellidos)
+		if p.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, nil, err
+		}
+		publicaciones, archivos = append(publicaciones, p), append(archivos, a)
+	}
+	return publicaciones, archivos, filas.Err()
+}
+
+// PortalPublico compone la exportación para el portal público (RF-PUB-01):
+// las ediciones con sus convocatorias visibles al público —bases, calendario
+// y catálogo de dotaciones, en vivo— y, de cada una, la última nómina de
+// seleccionados que el administrador publicó, leída del almacén tal como se
+// publicó. Si numeroDeEdicion no es 0, sólo esa edición.
+//
+// No lee ninguna postulación: la nómina viaja congelada en su publicación.
+func (r *Repositorio) PortalPublico(ctx context.Context, almacen BlobStore, numeroDeEdicion int) (InteropPortal, error) {
+	portal := InteropPortal{GeneradoAt: r.ahora().UTC().Format(time.RFC3339), Ediciones: []InteropEdicion{}}
+	condicion, args := "ORDER BY e.numero DESC, c.id", []any{}
+	if numeroDeEdicion != 0 {
+		condicion, args = "WHERE e.numero = ? ORDER BY c.id", []any{numeroDeEdicion}
+	}
+	todas, err := convocatorias(ctx, r.lectura, condicion, args...)
+	if err != nil {
+		return portal, fmt.Errorf("leer convocatorias: %w", err)
+	}
+	for _, c := range todas {
+		if !ConvocatoriaVisibleAlPublico(c) {
+			continue
+		}
+		if ultima := len(portal.Ediciones) - 1; ultima < 0 || portal.Ediciones[ultima].Numero != c.Edicion.Numero {
+			portal.Ediciones = append(portal.Ediciones, InteropEdicion{Numero: c.Edicion.Numero, Anio: c.Edicion.Anio,
+				NombreES: c.Edicion.NombreES, NombreEN: c.Edicion.NombreEN, Convocatorias: []InteropConvocatoria{}})
+		}
+		publica := InteropConvocatoria{Tipo: string(c.Tipo), Estado: string(c.Estado), TituloES: c.TituloES, TituloEN: c.TituloEN,
+			BasesMDES: c.BasesMDES, BasesMDEN: c.BasesMDEN, Etapas: []InteropEtapa{}, Dotaciones: []InteropDotacion{}}
+		for _, etapa := range c.Etapas {
+			publica.Etapas = append(publica.Etapas, InteropEtapa{Clave: string(etapa.Clave),
+				IniciaAt: etapa.IniciaAt.UTC().Format(time.RFC3339), TerminaAt: etapa.TerminaAt.UTC().Format(time.RFC3339)})
+		}
+		dotaciones, err := leerDotaciones(ctx, r.lectura, c.ID)
+		if err != nil {
+			return portal, err
+		}
+		for _, d := range dotaciones {
+			if d.Activa {
+				publica.Dotaciones = append(publica.Dotaciones, InteropDotacion{NombreES: d.NombreES, NombreEN: d.NombreEN,
+					DescripcionES: d.DescripcionES, DescripcionEN: d.DescripcionEN})
+			}
+		}
+		// La nómina sólo acompaña a una convocatoria cerrada: si alguien la
+		// reabriera, lo publicado deja de salir.
+		if PuedePublicarNomina(c) {
+			if publica.Nomina, err = ultimaNomina(ctx, r.lectura, almacen, c.ID); err != nil {
+				return portal, err
+			}
+		}
+		ultima := len(portal.Ediciones) - 1
+		portal.Ediciones[ultima].Convocatorias = append(portal.Ediciones[ultima].Convocatorias, publica)
+	}
+	return portal, nil
+}
+
+// ultimaNomina lee del almacén la última nómina publicada de una
+// convocatoria. Devuelve nil si no hay ninguna o si la última fue una
+// retirada (una nómina vacía).
+func ultimaNomina(ctx context.Context, q consultor, almacen BlobStore, convocatoriaID int64) (*InteropNomina, error) {
+	_, archivos, err := publicacionesDe(ctx, q, convocatoriaID)
+	if err != nil || len(archivos) == 0 {
+		return nil, err
+	}
+	contenido, err := almacen.Abrir(archivos[0].Clave)
+	if err != nil {
+		return nil, fmt.Errorf("abrir la nómina publicada: %w", err)
+	}
+	defer contenido.Close()
+	var nomina InteropNomina
+	if err := json.NewDecoder(io.LimitReader(contenido, 16<<20)).Decode(&nomina); err != nil {
+		return nil, fmt.Errorf("la nómina publicada no es JSON válido: %w", err)
+	}
+	if len(nomina.Seleccionados) == 0 {
+		return nil, nil
+	}
+	return &nomina, nil
+}
+
+// RegistrarExportacionInterop deja en la bitácora que se generó una
+// exportación para el portal desde la línea de órdenes, con su SHA-256.
+func (r *Repositorio) RegistrarExportacionInterop(ctx context.Context, actor Actor, sha256 string, ediciones int) error {
+	return r.operacion(ctx, "registrar exportación al portal", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "interop.exportar", "edicion", 0, nil, map[string]any{"sha256": sha256, "ediciones": ediciones})
+	})
+}
+
+// --- Anonimización ARCO (RF-ARCH-07, RN-28) -----------------------------------
+
+// AnonimizarPostulacion borra los datos personales de una postulación
+// conservando obra, dictamen y estadísticas. Es la ÚNICA operación
+// destructiva del sistema. En una sola transacción:
+//
+//  1. valida la solicitud (confirmación doble, fundamento, proceso terminado);
+//  2. borra nombre, nombre artístico, teléfono, correo de contacto y
+//     semblanza; de la fecha de nacimiento deja sólo el año; borra los
+//     nombres de los integrantes, las ligas de video y las ligas de las obras;
+//  3. marca como purgados los archivos con datos personales —todo documento
+//     que no sea la obra, y los acuses— si ninguna otra postulación los usa;
+//  4. vacía el snapshot de los acuses, el texto de las subsanaciones y los
+//     correos que se le enviaron;
+//  5. si se pidió, anonimiza también la cuenta, siempre que no tenga otras
+//     postulaciones sin anonimizar;
+//  6. rehace el índice de búsqueda y lo deja en la bitácora, con el
+//     fundamento.
+//
+// No toca género, nacionalidad, país ni entidad, ni el estado, el dictamen o
+// las evaluaciones: los conteos y los resultados agregados no cambian.
+//
+// Devuelve los archivos que quedan por borrar del disco. Borrarlos es tarea
+// de quien llama, DESPUÉS de esta transacción: si ese borrado se interrumpe,
+// la verificación del acervo los señala y la purga puede terminarse.
+func (r *Repositorio) AnonimizarPostulacion(ctx context.Context, actor Actor, postulacionID int64, solicitud SolicitudDeAnonimizacion) (ResultadoDeAnonimizacion, error) {
+	var resultado ResultadoDeAnonimizacion
+	err := r.operacion(ctx, "anonimizar postulación", func(tx *sql.Tx) error {
+		p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ?", postulacionID))
+		if err != nil {
+			return err
+		}
+		c, err := convocatoriaPorID(ctx, tx, p.ConvocatoriaID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAnonimizacion(p, c, solicitud)); err != nil {
+			return err
+		}
+		if solicitud.ConCuenta {
+			if otras, err := existe(ctx, tx, "SELECT COUNT(*) FROM postulacion WHERE usuario_id = ? AND id <> ? AND anonimizada_at IS NULL", p.UsuarioID, p.ID); err != nil {
+				return err
+			} else if otras {
+				return &ErrorValidacion{Errores: []ErrorCampo{{Campo: "con_cuenta", Clave: "error.cuenta_con_postulaciones"}}}
+			}
+		}
+		resultado = ResultadoDeAnonimizacion{PostulacionID: p.ID, Folio: p.Folio}
+		ahora := r.marca()
+
+		// 2. Datos de la persona. La fecha de nacimiento se reduce a su año
+		//    aquí, en Go: concatenar texto en SQL no es igual en MariaDB.
+		for _, tabla := range []string{"datos_solista", "datos_compositor"} {
+			var nacimiento sql.NullString
+			err := tx.QueryRowContext(ctx, "SELECT fecha_nacimiento FROM "+tabla+" WHERE postulacion_id = ?", p.ID).Scan(&nacimiento)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE "+tabla+` SET nombre_completo = ?, nombre_artistico = NULL, telefono = NULL,
+				email_contacto = NULL, semblanza = NULL, fecha_nacimiento = ? WHERE postulacion_id = ?`,
+				TextoAnonimizado, nuloSiVacio(FechaAnonimizada(nacimiento.String)), p.ID); err != nil {
+				return err
+			}
+		}
+		for _, sentencia := range []struct {
+			sql  string
+			args []any
+		}{
+			{`UPDATE datos_ensamble SET nombre_ensamble = ?, representante = ?, telefono = NULL, email_contacto = NULL, semblanza = NULL
+			  WHERE postulacion_id = ?`, []any{TextoAnonimizado, TextoAnonimizado, p.ID}},
+			{"UPDATE integrante SET nombre = ? WHERE postulacion_id = ?", []any{TextoAnonimizado, p.ID}},
+			{"DELETE FROM enlace_video WHERE postulacion_id = ?", []any{p.ID}},
+			{"UPDATE obra SET liga_media = NULL, liga_media_estado = 'pendiente', campos_extra = '{}' WHERE postulacion_id = ?", []any{p.ID}},
+			// 4. Lo que repite sus datos: acuses, subsanaciones y correos.
+			{`UPDATE acuse SET snapshot = '{"anonimizado":true}' WHERE postulacion_id = ?`, []any{p.ID}},
+			{"UPDATE subsanacion SET mensaje = ? WHERE postulacion_id = ?", []any{TextoAnonimizado, p.ID}},
+			{`UPDATE email_outbox SET destinatario = 'anonimizado@anonimizado.invalid', asunto = ?, cuerpo_html = '', cuerpo_texto = '',
+			  adjuntos = '[]', estado = CASE WHEN estado = 'pendiente' THEN 'error' ELSE estado END, ultimo_error = NULL
+			  WHERE postulacion_id = ?`, []any{TextoAnonimizado, p.ID}},
+			{"UPDATE postulacion SET anonimizada_at = ?, campos_extra = '{}', actualizado_at = ? WHERE id = ?", []any{ahora, ahora, p.ID}},
+		} {
+			if _, err := tx.ExecContext(ctx, sentencia.sql, sentencia.args...); err != nil {
+				return fmt.Errorf("borrar datos personales: %w", err)
+			}
+		}
+
+		// 3. Archivos. Todas las versiones de sus documentos, no sólo las
+		//    vigentes, y sus acuses.
+		filas, err := tx.QueryContext(ctx, `
+			SELECT a.id, a.sha256, a.clave, a.mime, a.tamano_bytes, rq.clave
+			FROM documento d JOIN archivo a ON a.id = d.archivo_id JOIN requisito_documental rq ON rq.id = d.requisito_id
+			WHERE d.postulacion_id = ? AND a.purgado_at IS NULL
+			UNION
+			SELECT a.id, a.sha256, a.clave, a.mime, a.tamano_bytes, 'acuse'
+			FROM acuse ac JOIN archivo a ON a.id = ac.archivo_id
+			WHERE ac.postulacion_id = ? AND a.purgado_at IS NULL`, p.ID, p.ID)
+		if err != nil {
+			return fmt.Errorf("leer archivos de la postulación: %w", err)
+		}
+		type candidato struct {
+			archivo Archivo
+			clave   string
+		}
+		var candidatos []candidato
+		for filas.Next() {
+			var c candidato
+			if err := filas.Scan(&c.archivo.ID, &c.archivo.SHA256, &c.archivo.Clave, &c.archivo.MIME, &c.archivo.TamanoBytes, &c.clave); err != nil {
+				filas.Close()
+				return fmt.Errorf("leer archivos de la postulación: %w", err)
+			}
+			candidatos = append(candidatos, c)
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		purgados := make(map[int64]bool)
+		for _, c := range candidatos {
+			if DocumentoSeConserva(c.clave) {
+				resultado.ArchivosConservados++
+				// Se conserva el contenido, pero no el nombre con que se
+				// subió, que suele llevar el de la persona.
+				if _, err := tx.ExecContext(ctx, "UPDATE archivo SET nombre_original = ? WHERE id = ?", TextoAnonimizado, c.archivo.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			if purgados[c.archivo.ID] {
+				continue
+			}
+			// El almacén guarda cada contenido una sola vez: si otra
+			// postulación —o una convocatoria— usa el mismo archivo, no se
+			// borra.
+			compartido, err := existe(ctx, tx, `
+				SELECT (SELECT COUNT(*) FROM documento WHERE archivo_id = ? AND postulacion_id <> ?)
+				     + (SELECT COUNT(*) FROM acuse WHERE archivo_id = ? AND postulacion_id <> ?)
+				     + (SELECT COUNT(*) FROM convocatoria WHERE bases_pdf_es_id = ? OR bases_pdf_en_id = ? OR imagen_id = ?)`,
+				c.archivo.ID, p.ID, c.archivo.ID, p.ID, c.archivo.ID, c.archivo.ID, c.archivo.ID)
+			if err != nil {
+				return err
+			}
+			if compartido {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE archivo SET purgado_at = ?, nombre_original = ? WHERE id = ?", ahora, TextoAnonimizado, c.archivo.ID); err != nil {
+				return err
+			}
+			purgados[c.archivo.ID] = true
+			resultado.ArchivosPorPurgar = append(resultado.ArchivosPorPurgar, c.archivo)
+		}
+
+		// 5. La cuenta.
+		if solicitud.ConCuenta {
+			var correo string
+			if err := tx.QueryRowContext(ctx, "SELECT email FROM usuario WHERE id = ?", p.UsuarioID).Scan(&correo); err != nil {
+				return err
+			}
+			for _, sentencia := range []struct {
+				sql  string
+				args []any
+			}{
+				{`UPDATE usuario SET email = ?, nombre = ?, apellidos = '', password_hash = ?, totp_secret = NULL, activo = 0,
+				  anonimizado_at = ?, actualizado_at = ? WHERE id = ?`,
+					[]any{fmt.Sprintf("anonimizado-%d@anonimizado.invalid", p.UsuarioID), TextoAnonimizado, PasswordSinDefinir, ahora, ahora, p.UsuarioID}},
+				{"DELETE FROM sesion WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{"DELETE FROM token WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{"DELETE FROM vista_guardada WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{`UPDATE email_outbox SET destinatario = 'anonimizado@anonimizado.invalid', asunto = ?, cuerpo_html = '', cuerpo_texto = '',
+				  adjuntos = '[]', estado = CASE WHEN estado = 'pendiente' THEN 'error' ELSE estado END, ultimo_error = NULL
+				  WHERE destinatario = ?`, []any{TextoAnonimizado, correo}},
+			} {
+				if _, err := tx.ExecContext(ctx, sentencia.sql, sentencia.args...); err != nil {
+					return fmt.Errorf("anonimizar la cuenta: %w", err)
+				}
+			}
+			resultado.CuentaAnonimizada = true
+		}
+
+		// 6. Índice de búsqueda y bitácora.
+		if err := r.reindexar(ctx, tx, p.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "arco.anonimizar", "postulacion", p.ID, nil, map[string]any{
+			"fundamento": strings.TrimSpace(solicitud.Fundamento), "archivos_purgados": len(resultado.ArchivosPorPurgar),
+			"archivos_conservados": resultado.ArchivosConservados, "cuenta": resultado.CuentaAnonimizada})
+	})
+	return resultado, err
 }

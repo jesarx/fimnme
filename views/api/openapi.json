@@ -15,6 +15,286 @@
     }
   ],
   "paths": {
+    "/api/v1/archivo": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Listado del archivo, con búsqueda y filtros",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "Página del listado; con formato=csv, el resultado completo en CSV",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Listado"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Abarca todas las ediciones, vivas y archivadas. Lo que cada cuenta ve no caduca: revisores y jurados sólo encuentran las convocatorias en que participaron, y el jurado sólo las postulaciones que pasaron a evaluación.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "orden",
+            "in": "query",
+            "required": false,
+            "description": "folio, nombre, enviada, estado, obras o duracion; con un guion delante, descendente",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "json (por omisión) o csv",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pagina",
+            "in": "query",
+            "required": false,
+            "description": "Página, desde 1",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tamano",
+            "in": "query",
+            "required": false,
+            "description": "Elementos por página (1 a 200; 50 por omisión)",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/asignaciones/{id}": {
       "delete": {
         "tags": [
@@ -1418,6 +1698,66 @@
         ]
       }
     },
+    "/api/v1/convocatorias/{id}/evaluacion": {
+      "get": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Lista de trabajo del jurado y su avance",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "Unidades por evaluar, con el estado de la evaluación PROPIA de cada una",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaDeJurado"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Un jurado nunca recibe nada de los demás jurados, ni la suma, en ninguna etapa.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/convocatorias/{id}/postulaciones": {
       "post": {
         "tags": [
@@ -1531,6 +1871,589 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/publicacion": {
+      "get": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Vista previa de la nómina y publicaciones anteriores",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lo que se publicaría ahora y lo ya publicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publicacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Publica o retira la nómina de seleccionados",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de la publicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publicacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sólo con la convocatoria cerrada o archivada, y sólo por esta acción explícita: ningún cambio de etapa publica nada. Lo publicado queda congelado; un cambio posterior de dictamen no sale hasta volver a publicar. Queda registrado con su SHA-256.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Debe ser true"
+                  },
+                  "retirar": {
+                    "type": "boolean",
+                    "description": "Con true retira la nómina del portal en vez de publicarla"
+                  }
+                },
+                "required": [
+                  "confirmo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/reporte": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Genera un reporte CSV",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo CSV: UTF-8 con BOM, comillas RFC 4180",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Los campos de obra piden granularidad «obra». Los de la evaluación (eval.*) y el rango de puntaje piden la granularidad de lo que califica el jurado: postulación en Intérpretes, obra en Compositores. Queda en la bitácora.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "campos",
+            "in": "query",
+            "required": false,
+            "description": "Claves del catálogo separadas por coma, en el orden de las columnas",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "granularidad",
+            "in": "query",
+            "required": false,
+            "description": "postulacion (por omisión) u obra",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "separador",
+            "in": "query",
+            "required": false,
+            "description": "coma (por omisión) o punto_y_coma",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "puntaje_min",
+            "in": "query",
+            "required": false,
+            "description": "Puntaje mínimo",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "puntaje_max",
+            "in": "query",
+            "required": false,
+            "description": "Puntaje máximo",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "orden",
+            "in": "query",
+            "required": false,
+            "description": "Los del archivo, o puntaje / -puntaje",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plantilla",
+            "in": "query",
+            "required": false,
+            "description": "Id de una plantilla guardada: aporta los parámetros que falten",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en, para encabezados y valores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/reporte/campos": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Catálogo de campos del generador de reportes",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Campos disponibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogoDeReporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -1702,6 +2625,283 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/resultados": {
+      "get": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Matriz de resultados",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Puntaje por jurado y criterio, suma, promedio y orden por total",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Matriz"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sólo cuentan las evaluaciones enviadas. Cada consulta queda en la bitácora.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "json (por omisión) o csv: el reporte de resultados",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "separador",
+            "in": "query",
+            "required": false,
+            "description": "coma o punto_y_coma",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/revision": {
+      "get": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Bandeja del revisor y tablero de avance",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulaciones enviadas de la convocatoria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bandeja"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Todas las postulaciones enviadas, sin reparto entre revisores. Los borradores no aparecen.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toma",
+            "in": "query",
+            "required": false,
+            "description": "libre, mia u otra",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto en el folio o en el nombre",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/tablero": {
+      "get": {
+        "tags": [
+          "Tableros"
+        ],
+        "summary": "Tablero de la convocatoria",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cifras de la convocatoria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tablero"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cada cifra trae «filtro»: la consulta de /api/v1/archivo que lista lo que cuenta. El avance del jurado no lleva puntajes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -2059,6 +3259,123 @@
             }
           }
         ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/documentos/{id}/dictamen": {
+      "put": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Dictamina un documento",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dictamen": {
+                    "type": "string",
+                    "enum": [
+                      "valido",
+                      "invalido",
+                      "pendiente"
+                    ]
+                  },
+                  "motivo": {
+                    "type": "string",
+                    "description": "Obligatorio si el dictamen es «invalido»"
+                  }
+                },
+                "required": [
+                  "dictamen"
+                ]
+              }
+            }
+          }
+        },
         "security": [
           {
             "sesion": []
@@ -2719,6 +4036,902 @@
         ]
       }
     },
+    "/api/v1/ediciones/{id}/estadisticas": {
+      "get": {
+        "tags": [
+          "Tableros"
+        ],
+        "summary": "Estadísticas descriptivas de una edición",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Distribuciones de las postulaciones enviadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estadisticas"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Sólo las de esta convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/expedientes": {
+      "post": {
+        "tags": [
+          "Expediente"
+        ],
+        "summary": "Pide el expediente de una convocatoria, en un solo PDF",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "202": {
+            "description": "Tarea encolada; se consulta y se baja en /api/v1/exportaciones/{id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "«convocatoria» es obligatorio. Lleva portada, índice y marcadores, y una postulación por sección. El contenido se decide con los permisos que la persona tenga al generarse, no al pedirlo. Al terminar se avisa por correo.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en; por omisión, el de quien lo pide",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fotografia",
+            "in": "query",
+            "required": false,
+            "description": "«no» para omitir la fotografía",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hoja",
+            "in": "query",
+            "required": false,
+            "description": "«si» añade una hoja de calificación en blanco por cada unidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones": {
+      "post": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Pide una descarga masiva de documentos en ZIP",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "postulante (sólo su postulación)"
+        ],
+        "responses": {
+          "202": {
+            "description": "Tarea encolada; el ZIP se arma en segundo plano",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Toma los mismos filtros que el listado: el ZIP trae los documentos vigentes de las postulaciones que ese listado mostraría, en carpetas por folio, con manifiesto.csv. El jurado no descarga en masa.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tipos",
+            "in": "query",
+            "required": false,
+            "description": "Claves de documento separadas por coma (p. ej. partitura,particellas); sin él, todos",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "postulacion",
+            "in": "query",
+            "required": false,
+            "description": "Una sola postulación, por id",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones/{id}": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Estado de una descarga masiva",
+        "x-perfiles": [
+          "quien la pidió"
+        ],
+        "responses": {
+          "200": {
+            "description": "Tarea",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/exportaciones/{id}/archivo": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Baja el ZIP de una descarga masiva",
+        "x-perfiles": [
+          "quien la pidió"
+        ],
+        "responses": {
+          "200": {
+            "description": "El archivo ZIP",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "La descarga aún no está lista",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "El enlace de la descarga ya venció",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Disponible durante siete días. Cada descarga queda registrada con cuenta, IP y momento.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/folios/{folio}": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "La postulación de un folio (enlace permanente)",
+        "x-perfiles": [
+          "quien pueda ver la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "folio",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "P. ej. FIM49-INT-0137"
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/interop/convocatoria.json": {
+      "get": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Exportación sanitizada para el portal público",
+        "x-perfiles": [
+          "publico"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ediciones con sus convocatorias públicas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteropPortal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lista blanca: bases y títulos en ambos idiomas, fechas de cada etapa, catálogo de dotaciones y, si el administrador la publicó tras el cierre, la nómina de seleccionados (nombre artístico, semblanza y títulos de obra). Nunca lleva datos de contacto, fechas de nacimiento, documentos, dictámenes ni calificaciones. La nómina no se calcula al exportar: sale la última publicada.",
+        "parameters": [
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición; sin él, todas",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/obras/{id}": {
       "patch": {
         "tags": [
@@ -3199,6 +5412,596 @@
         ]
       }
     },
+    "/api/v1/postulaciones/{id}/anonimizacion": {
+      "post": {
+        "tags": [
+          "Protección de datos"
+        ],
+        "summary": "Anonimiza una postulación (solicitud ARCO)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lo que se hizo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Anonimizacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La única operación destructiva del sistema; no se puede deshacer. Borra nombre, contacto, semblanza, ligas, fotografía, autorizaciones y acuses; conserva la obra, el dictamen, las evaluaciones y los datos estadísticos. Sólo cuando la convocatoria cerró o la postulación fue descartada.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "folio": {
+                    "type": "string",
+                    "description": "El folio, escrito de nuevo: es la segunda confirmación"
+                  },
+                  "fundamento": {
+                    "type": "string",
+                    "description": "Referencia de la solicitud, de 10 a 500 caracteres; queda en la bitácora. Sin datos personales"
+                  },
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Debe ser true"
+                  },
+                  "con_cuenta": {
+                    "type": "boolean",
+                    "description": "Anonimiza también la cuenta, si no tiene otras postulaciones sin anonimizar"
+                  }
+                },
+                "required": [
+                  "folio",
+                  "fundamento",
+                  "confirmo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/desbloqueos": {
+      "post": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "El postulante pide corregir un elemento no señalado",
+        "x-perfiles": [
+          "titular de la postulación"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clase": {
+                    "type": "string",
+                    "enum": [
+                      "campo",
+                      "documento"
+                    ]
+                  },
+                  "campo": {
+                    "type": "string",
+                    "description": "Ruta del campo (datos.telefono, obra.duracion_min, integrantes, videos, obras) o clave del requisito si es un documento"
+                  },
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "Obra a la que pertenece el elemento; se omite si es de la postulación"
+                  },
+                  "justificacion": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "clase",
+                  "campo",
+                  "justificacion"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/desbloqueos/{solicitud}": {
+      "put": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Concede o niega una solicitud de desbloqueo",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "solicitud",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "concedida": {
+                    "type": "boolean"
+                  },
+                  "motivo": {
+                    "type": "string",
+                    "description": "Obligatorio al negar"
+                  }
+                },
+                "required": [
+                  "concedida"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/dictamen": {
+      "post": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Dictamina la postulación: validada o descartada",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "No se comunica nada al postulante.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dictamen": {
+                    "type": "string",
+                    "enum": [
+                      "validada",
+                      "descartada"
+                    ]
+                  },
+                  "motivo": {
+                    "type": "string",
+                    "description": "Obligatorio al descartar"
+                  }
+                },
+                "required": [
+                  "dictamen"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/dictamen-final": {
+      "put": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Registra el resultado de una postulación",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "No se comunica al postulante: el resultado se da a conocer fuera del sistema.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dictamen": {
+                    "type": "string",
+                    "enum": [
+                      "seleccionada",
+                      "no_seleccionada",
+                      "lista_espera",
+                      ""
+                    ],
+                    "description": "Vacío lo retira"
+                  }
+                },
+                "required": [
+                  "dictamen"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones/{id}/documentos": {
       "post": {
         "tags": [
@@ -3417,6 +6220,519 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/evaluacion": {
+      "get": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "La evaluación propia de una unidad",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "Evaluación del jurado en sesión; vacía si no la ha empezado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "obra_id",
+            "in": "query",
+            "required": false,
+            "description": "En Compositores, la obra que se califica; en Intérpretes se omite",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Guarda la evaluación propia de una unidad",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "Evaluación guardada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sin «enviar» queda en borrador. Una evaluación enviada puede corregirse mientras dure la etapa; cerrada, queda congelada.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "En Compositores, la obra; en Intérpretes se omite"
+                  },
+                  "puntajes": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    },
+                    "description": "Clave del criterio → puntaje entero dentro de su escala"
+                  },
+                  "observaciones": {
+                    "type": "string",
+                    "description": "Opcional"
+                  },
+                  "enviar": {
+                    "type": "boolean",
+                    "description": "Con true la da por enviada: exige todos los criterios obligatorios"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/excusa": {
+      "put": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "El jurado se excusa de evaluar por conflicto de interés",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "La evaluación propia, ya excusada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La excusa no perjudica a la postulación: la matriz ordena por un puntaje que promedia entre los jurados que sí calificaron.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "En Compositores, la obra; si se omite, todas las de la postulación"
+                  },
+                  "motivo": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "motivo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Evaluación"
+        ],
+        "summary": "Retira la excusa",
+        "x-perfiles": [
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "200": {
+            "description": "La evaluación propia",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evaluacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "obra_id",
+            "in": "query",
+            "required": false,
+            "description": "En Compositores, la obra que se califica; en Intérpretes se omite",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/expediente": {
+      "get": {
+        "tags": [
+          "Expediente"
+        ],
+        "summary": "Expediente en PDF de una postulación",
+        "x-perfiles": [
+          "quien pueda ver la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "El PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "El contenido se recorta al generarlo según quién lo pide: la revisión documental, para revisores y supervisión; la evaluación propia, para el jurado; las evaluaciones de todos, la suma y el resultado, sólo para la supervisión. El titular no ve el descarte. Queda registrado.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en; por omisión, el de quien lo pide",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fotografia",
+            "in": "query",
+            "required": false,
+            "description": "«no» para omitir la fotografía",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hoja",
+            "in": "query",
+            "required": false,
+            "description": "«si» añade una hoja de calificación en blanco por cada unidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -3706,6 +7022,119 @@
         ]
       }
     },
+    "/api/v1/postulaciones/{id}/observaciones": {
+      "post": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Añade una observación interna",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "El postulante no ve las observaciones.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "obra_id": {
+                    "type": "integer",
+                    "description": "Si la observación es sobre una obra"
+                  },
+                  "texto": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "texto"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones/{id}/subcategoria": {
       "put": {
         "tags": [
@@ -3812,6 +7241,313 @@
         ]
       }
     },
+    "/api/v1/postulaciones/{id}/subsanaciones": {
+      "post": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Solicita una subsanación",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Postulación, ya en subsanación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Desbloquea para el postulante EXACTAMENTE los elementos señalados, y ninguno más, y le envía el correo con la lista y el plazo.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "problemas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "clase": {
+                          "type": "string",
+                          "enum": [
+                            "campo",
+                            "documento"
+                          ]
+                        },
+                        "campo": {
+                          "type": "string",
+                          "description": "Ruta del campo (datos.telefono, obra.duracion_min, integrantes, videos, obras) o clave del requisito si es un documento"
+                        },
+                        "obra_id": {
+                          "type": "integer",
+                          "description": "Obra a la que pertenece el elemento; se omite si es de la postulación"
+                        },
+                        "problema": {
+                          "type": "string",
+                          "description": "Qué hay que corregir; obligatorio"
+                        }
+                      },
+                      "required": [
+                        "clase",
+                        "campo",
+                        "problema"
+                      ]
+                    },
+                    "description": "Campos erróneos y documentos que faltan. Los documentos dictaminados inválidos se añaden solos"
+                  },
+                  "fecha_limite": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO-8601 con desfase; se guarda en UTC"
+                  },
+                  "nota": {
+                    "type": "string",
+                    "description": "Texto libre del revisor para el correo"
+                  }
+                },
+                "required": [
+                  "fecha_limite"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/toma": {
+      "post": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Marca la postulación como «en revisión por mí»",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Toma blanda: informa a los demás revisores, pero no les impide intervenir.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Revisión"
+        ],
+        "summary": "Libera la postulación",
+        "x-perfiles": [
+          "revisor_documental de la convocatoria",
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Postulación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Postulacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones/{id}/videos": {
       "put": {
         "tags": [
@@ -3907,6 +7643,243 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reportes/plantillas": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Plantillas de reporte guardadas",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Guarda la definición de un reporte con nombre",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La plantilla sirve para cualquier convocatoria de su tipo, también en ediciones posteriores.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre": {
+                    "type": "string",
+                    "description": "Hasta 100 caracteres; único"
+                  },
+                  "tipo": {
+                    "type": "string",
+                    "description": "interpretes o compositores"
+                  },
+                  "consulta": {
+                    "type": "string",
+                    "description": "Parámetros del reporte, sin la convocatoria: campos=folio,estado&granularidad=obra"
+                  }
+                },
+                "required": [
+                  "nombre",
+                  "tipo",
+                  "consulta"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reportes/plantillas/{id}": {
+      "delete": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Borra una plantilla de reporte",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "El administrador borra cualquiera; el observador, las que guardó.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -4493,6 +8466,203 @@
           }
         ]
       }
+    },
+    "/api/v1/vistas": {
+      "get": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Vistas guardadas de la cuenta",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Guarda una combinación de filtros con nombre",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas de la cuenta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre": {
+                    "type": "string",
+                    "description": "Hasta 100 caracteres; único por cuenta"
+                  },
+                  "ruta": {
+                    "type": "string",
+                    "description": "Ruta local con sus parámetros, p. ej. /archivo?estado=validada"
+                  }
+                },
+                "required": [
+                  "nombre",
+                  "ruta"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/vistas/{id}": {
+      "delete": {
+        "tags": [
+          "Archivo"
+        ],
+        "summary": "Borra una vista guardada",
+        "x-perfiles": [
+          "cualquier cuenta"
+        ],
+        "responses": {
+          "200": {
+            "description": "Vistas de la cuenta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Vistas"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -4956,6 +9126,10 @@
               }
             },
             "description": "Archivos públicos cargados; null el que falta"
+          },
+          "postulaciones_sin_dictaminar": {
+            "type": "integer",
+            "description": "Enviadas que la revisión aún no valida ni descarta; no impiden pasar a evaluación"
           }
         },
         "description": "Una convocatoria con toda su configuración"
@@ -5443,6 +9617,429 @@
                 }
               }
             }
+          },
+          "subsanacion": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "mensaje": {
+                    "type": "string"
+                  },
+                  "fecha_limite": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO-8601 con desfase; se guarda en UTC"
+                  },
+                  "enviada_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO-8601 con desfase; se guarda en UTC"
+                  },
+                  "atendida_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "cerrada_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "vencida": {
+                    "type": "boolean"
+                  },
+                  "problemas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "clase": {
+                          "type": "string"
+                        },
+                        "campo": {
+                          "type": "string"
+                        },
+                        "obra_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "etiqueta": {
+                          "type": "string"
+                        },
+                        "problema": {
+                          "type": "string"
+                        },
+                        "resuelto_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "solicitudes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "clase": {
+                          "type": "string"
+                        },
+                        "campo": {
+                          "type": "string"
+                        },
+                        "obra_id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "etiqueta": {
+                          "type": "string"
+                        },
+                        "justificacion": {
+                          "type": "string"
+                        },
+                        "concedida": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ],
+                          "description": "null mientras no se resuelve"
+                        },
+                        "motivo_respuesta": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "creado_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "ISO-8601 con desfase; se guarda en UTC"
+                        },
+                        "resuelta_at": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "La subsanación que espera al postulante. Sus problemas son exactamente los elementos que puede modificar"
+          },
+          "revision": {
+            "type": "object",
+            "properties": {
+              "titular": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  },
+                  "apellidos": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                }
+              },
+              "enviada_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "motivo_descarte": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "toma": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "revisor_id": {
+                        "type": "integer"
+                      },
+                      "revisor": {
+                        "type": "string"
+                      },
+                      "tomada_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "ISO-8601 con desfase; se guarda en UTC"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dictamenes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "documento_id": {
+                      "type": "integer"
+                    },
+                    "dictamen": {
+                      "type": "string"
+                    },
+                    "motivo": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "revisor_id": {
+                      "type": "integer"
+                    },
+                    "creado_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "ISO-8601 con desfase; se guarda en UTC"
+                    }
+                  }
+                }
+              },
+              "observaciones": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "obra_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "revisor_id": {
+                      "type": "integer"
+                    },
+                    "revisor": {
+                      "type": "string"
+                    },
+                    "texto": {
+                      "type": "string"
+                    },
+                    "creado_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "ISO-8601 con desfase; se guarda en UTC"
+                    }
+                  }
+                }
+              },
+              "subsanaciones": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "mensaje": {
+                      "type": "string"
+                    },
+                    "fecha_limite": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "ISO-8601 con desfase; se guarda en UTC"
+                    },
+                    "enviada_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "description": "ISO-8601 con desfase; se guarda en UTC"
+                    },
+                    "atendida_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "cerrada_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "vencida": {
+                      "type": "boolean"
+                    },
+                    "problemas": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "clase": {
+                            "type": "string"
+                          },
+                          "campo": {
+                            "type": "string"
+                          },
+                          "obra_id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "etiqueta": {
+                            "type": "string"
+                          },
+                          "problema": {
+                            "type": "string"
+                          },
+                          "resuelto_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "solicitudes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "clase": {
+                            "type": "string"
+                          },
+                          "campo": {
+                            "type": "string"
+                          },
+                          "obra_id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "etiqueta": {
+                            "type": "string"
+                          },
+                          "justificacion": {
+                            "type": "string"
+                          },
+                          "concedida": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ],
+                            "description": "null mientras no se resuelve"
+                          },
+                          "motivo_respuesta": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "creado_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "ISO-8601 con desfase; se guarda en UTC"
+                          },
+                          "resuelta_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "cambios": {
+                "type": "array",
+                "description": "Lo que el postulante cambió en su último reenvío",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "clase": {
+                      "type": "string"
+                    },
+                    "campo": {
+                      "type": "string"
+                    },
+                    "obra_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "etiqueta": {
+                      "type": "string"
+                    },
+                    "antes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "despues": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "subsanacion_vencida": {
+                "type": "boolean"
+              }
+            },
+            "description": "Sólo para quien revisa o supervisa; el postulante no lo recibe"
+          },
+          "dictamen_final": {
+            "type": "string",
+            "description": "Resultado del proceso; sólo lo recibe la supervisión"
+          },
+          "anonimizada_at": {
+            "type": "string",
+            "description": "Sólo si fue anonimizada por una solicitud ARCO"
           }
         }
       },
@@ -5486,6 +10083,1259 @@
           }
         },
         "description": "A la postulación le falta algo para poder enviarse"
+      },
+      "Bandeja": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "folio": {
+                  "type": "string"
+                },
+                "estado": {
+                  "type": "string"
+                },
+                "subcategoria": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "enviada_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                },
+                "envios": {
+                  "type": "integer"
+                },
+                "toma": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "revisor_id": {
+                          "type": "integer"
+                        },
+                        "revisor": {
+                          "type": "string"
+                        },
+                        "tomada_at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "ISO-8601 con desfase; se guarda en UTC"
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "observaciones": {
+                  "type": "integer"
+                },
+                "documentos_invalidos": {
+                  "type": "integer"
+                },
+                "fecha_limite": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Plazo de la subsanación pendiente"
+                },
+                "vencida": {
+                  "type": "boolean",
+                  "description": "El plazo de la subsanación pasó sin respuesta"
+                },
+                "subsanada": {
+                  "type": "boolean",
+                  "description": "El postulante reenvió y falta volver a revisarla"
+                }
+              }
+            }
+          },
+          "tablero": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "por_estado": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Evaluacion": {
+        "type": "object",
+        "properties": {
+          "postulacion_id": {
+            "type": "integer"
+          },
+          "obra_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "puntajes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "observaciones": {
+            "type": "string"
+          },
+          "iniciada": {
+            "type": "boolean"
+          },
+          "enviada": {
+            "type": "boolean"
+          },
+          "enviada_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actualizado_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "excusado": {
+            "type": "boolean"
+          },
+          "motivo_excusa": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ListaDeJurado": {
+        "type": "object",
+        "properties": {
+          "abierta": {
+            "type": "boolean",
+            "description": "La etapa de evaluación sigue abierta"
+          },
+          "criterios": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "descripcion_es": {
+                  "type": "string"
+                },
+                "descripcion_en": {
+                  "type": "string"
+                },
+                "escala_min": {
+                  "type": "integer"
+                },
+                "escala_max": {
+                  "type": "integer"
+                },
+                "obligatorio": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "unidades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "postulacion_id": {
+                  "type": "integer"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "null en Intérpretes"
+                },
+                "folio": {
+                  "type": "string"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "obra": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "orden_de_obra": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "iniciada": {
+                  "type": "boolean"
+                },
+                "enviada": {
+                  "type": "boolean"
+                },
+                "excusada": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "progreso": {
+            "type": "object",
+            "properties": {
+              "enviadas": {
+                "type": "integer"
+              },
+              "excusadas": {
+                "type": "integer"
+              },
+              "pendientes": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "Matriz": {
+        "type": "object",
+        "properties": {
+          "jurados": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "criterios": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "descripcion_es": {
+                  "type": "string"
+                },
+                "descripcion_en": {
+                  "type": "string"
+                },
+                "escala_min": {
+                  "type": "integer"
+                },
+                "escala_max": {
+                  "type": "integer"
+                },
+                "obligatorio": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "filas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "postulacion_id": {
+                  "type": "integer"
+                },
+                "obra_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "null en Intérpretes"
+                },
+                "folio": {
+                  "type": "string"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "obra": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "orden_de_obra": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "lugar": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Los empates comparten lugar; null si nadie ha calificado"
+                },
+                "estado": {
+                  "type": "string"
+                },
+                "dictamen_final": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evaluaciones": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "jurado_id": {
+                        "type": "integer"
+                      },
+                      "enviada": {
+                        "type": "boolean"
+                      },
+                      "puntajes": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "integer"
+                        }
+                      },
+                      "observaciones": {
+                        "type": "string"
+                      },
+                      "enviada_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "excusado": {
+                        "type": "boolean"
+                      },
+                      "motivo_excusa": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "jurados_que_evaluaron": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                },
+                "promedio": {
+                  "type": "number"
+                },
+                "excusados": {
+                  "type": "integer"
+                },
+                "puntaje": {
+                  "type": "number",
+                  "description": "Suma llevada a tres jurados; por él se ordena, para que una excusa no perjudique"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Listado": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "folio": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "null en un borrador"
+                },
+                "estado": {
+                  "type": "string"
+                },
+                "subcategoria": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "edicion": {
+                  "type": "integer"
+                },
+                "convocatoria_id": {
+                  "type": "integer"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "convocatoria": {
+                  "type": "string"
+                },
+                "enviada_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "obras": {
+                  "type": "integer"
+                },
+                "duracion_min": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Coincidencias en total, no sólo las de esta página"
+          },
+          "pagina": {
+            "type": "integer"
+          },
+          "tamano": {
+            "type": "integer"
+          },
+          "orden": {
+            "type": "string"
+          }
+        }
+      },
+      "Vistas": {
+        "type": "object",
+        "properties": {
+          "vistas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "ruta": {
+                  "type": "string"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Exportacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "encolado",
+              "procesando",
+              "listo",
+              "error"
+            ]
+          },
+          "progreso": {
+            "type": "integer"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "archivos": {
+            "type": "integer",
+            "description": "Documentos del ZIP, o postulaciones del expediente"
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Tamaño del ZIP"
+          },
+          "creado_at": {
+            "type": "string"
+          },
+          "terminado_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expira_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hasta cuándo puede bajarse"
+          }
+        }
+      },
+      "CatalogoDeReporte": {
+        "type": "object",
+        "properties": {
+          "campos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "etiqueta": {
+                  "type": "string"
+                },
+                "nivel": {
+                  "type": "string",
+                  "enum": [
+                    "postulacion",
+                    "obra",
+                    "evaluacion"
+                  ]
+                }
+              }
+            }
+          },
+          "granularidades": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "granularidad_de_evaluacion": {
+            "type": "string"
+          },
+          "separadores": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PlantillasDeReporte": {
+        "type": "object",
+        "properties": {
+          "plantillas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "consulta": {
+                  "type": "string"
+                },
+                "creado_por": {
+                  "type": "integer"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Tablero": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "object",
+            "properties": {
+              "clave": {
+                "type": "string"
+              },
+              "cantidad": {
+                "type": "integer"
+              },
+              "filtro": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Consulta del archivo que produce la cifra"
+              },
+              "nombre": {
+                "type": "string"
+              }
+            }
+          },
+          "por_estado": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "envios_por_dia": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "documentos_pendientes": {
+            "type": "object",
+            "properties": {
+              "documentos": {
+                "type": "integer"
+              },
+              "postulaciones": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "subsanaciones": {
+            "type": "object",
+            "properties": {
+              "abiertas": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "por_vencer": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "vencidas": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "dias_por_vencer": {
+                "type": "integer"
+              }
+            }
+          },
+          "evaluacion": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jurado_id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "enviadas": {
+                  "type": "integer"
+                },
+                "excusadas": {
+                  "type": "integer"
+                },
+                "pendientes": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Estadisticas": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "integer"
+          },
+          "obras": {
+            "type": "integer"
+          },
+          "duracion_media_min": {
+            "type": "number"
+          },
+          "por_convocatoria": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_entidad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_pais": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_nacionalidad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_genero": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_edad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_dotacion": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_estreno": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "rangos_de_edad": {
+            "type": "string"
+          }
+        }
+      },
+      "InteropPortal": {
+        "type": "object",
+        "properties": {
+          "generado_at": {
+            "type": "string"
+          },
+          "ediciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "numero": {
+                  "type": "integer"
+                },
+                "anio": {
+                  "type": "integer"
+                },
+                "nombre_es": {
+                  "type": "string"
+                },
+                "nombre_en": {
+                  "type": "string"
+                },
+                "convocatorias": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "tipo": {
+                        "type": "string"
+                      },
+                      "estado": {
+                        "type": "string"
+                      },
+                      "titulo_es": {
+                        "type": "string"
+                      },
+                      "titulo_en": {
+                        "type": "string"
+                      },
+                      "bases_md_es": {
+                        "type": "string"
+                      },
+                      "bases_md_en": {
+                        "type": "string"
+                      },
+                      "etapas": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "clave": {
+                              "type": "string"
+                            },
+                            "inicia_at": {
+                              "type": "string"
+                            },
+                            "termina_at": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "dotaciones": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "nombre_es": {
+                              "type": "string"
+                            },
+                            "nombre_en": {
+                              "type": "string"
+                            },
+                            "descripcion_es": {
+                              "type": "string"
+                            },
+                            "descripcion_en": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "nomina": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "publicada_at": {
+                                "type": "string"
+                              },
+                              "seleccionados": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "nombre": {
+                                      "type": "string"
+                                    },
+                                    "subcategoria": {
+                                      "type": "string"
+                                    },
+                                    "semblanza": {
+                                      "type": "string"
+                                    },
+                                    "obras": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "titulo": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Última nómina publicada; null si no hay o se retiró"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Publicacion": {
+        "type": "object",
+        "properties": {
+          "puede_publicar": {
+            "type": "boolean"
+          },
+          "vista_previa": {
+            "type": "object",
+            "properties": {
+              "seleccionados": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nombre": {
+                      "type": "string"
+                    },
+                    "subcategoria": {
+                      "type": "string"
+                    },
+                    "semblanza": {
+                      "type": "string"
+                    },
+                    "obras": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "titulo": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "publicaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "autorizado_por": {
+                  "type": "string"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Anonimizacion": {
+        "type": "object",
+        "properties": {
+          "postulacion_id": {
+            "type": "integer"
+          },
+          "folio": {
+            "type": "string"
+          },
+          "archivos_purgados": {
+            "type": "integer"
+          },
+          "archivos_por_purgar": {
+            "type": "integer",
+            "description": "Marcados que no pudieron borrarse del disco"
+          },
+          "archivos_conservados": {
+            "type": "integer"
+          },
+          "cuenta_anonimizada": {
+            "type": "boolean"
+          }
+        }
       }
     }
   }

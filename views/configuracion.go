@@ -186,8 +186,11 @@ func ConfiguracionJSON(cfg models.ConfiguracionConvocatoria, archivos map[models
 			"jurados": cfg.Activos(models.PerfilJurado), "jurados_requeridos": models.CuotaJurados,
 			"revisores": cfg.Activos(models.PerfilRevisorDocumental),
 		},
-		"archivos":  archivosDeConvocatoriaJSON(archivos),
-		"siguiente": transicion,
+		// Informativo: postulaciones enviadas que la revisión aún no valida
+		// ni descarta. No impiden pasar a evaluación.
+		"postulaciones_sin_dictaminar": cfg.SinDictaminar,
+		"archivos":                     archivosDeConvocatoriaJSON(archivos),
+		"siguiente":                    transicion,
 	}
 }
 

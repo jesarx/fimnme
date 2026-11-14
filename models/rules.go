@@ -20,6 +20,8 @@ package models
 
 import (
 	"fmt"
+	"maps"
+	"math"
 	"net/mail"
 	"net/netip"
 	"net/url"
@@ -28,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -696,6 +699,8 @@ func ValidarCambioDeEstado(cfg ConfiguracionConvocatoria, destino EstadoConvocat
 		if len(cfg.Criterios) == 0 {
 			errores = append(errores, ErrorCampo{Campo: "criterios", Clave: "error.sin_criterios"})
 		}
+		// Las postulaciones que la revisión aún no dictamina NO detienen el
+		// paso a evaluación: se revisan después y se suman al jurado.
 	}
 	return errores
 }
@@ -772,11 +777,13 @@ func RequisitosIniciales(tipo TipoConvocatoria) []RequisitoDocumental {
 	}
 	if tipo == TipoCompositores {
 		return []RequisitoDocumental{fotografia, partitura,
+			// Las particellas van reunidas en un solo PDF (decisión de la CNMO).
 			{Clave: "particellas", EtiquetaES: "Particellas", EtiquetaEN: "Parts", Ambito: AmbitoObra,
+				AyudaES: "Todas las particellas reunidas en un solo archivo PDF.", AyudaEN: "All the parts together in a single PDF file.",
 				Obligatorio: true, MimesPermitidos: pdf, TamanoMaxBytes: megabytes(30), MaxArchivos: 1, Orden: 3},
 			{Clave: "audio", EtiquetaES: "Archivo de audio", EtiquetaEN: "Audio file", Ambito: AmbitoObra,
 				Obligatorio: false, MimesPermitidos: []string{"audio/wav", "audio/flac", "audio/mpeg"},
-				TamanoMaxBytes: megabytes(100), MaxArchivos: 1, Orden: 4},
+				TamanoMaxBytes: megabytes(30), MaxArchivos: 1, Orden: 4},
 		}
 	}
 	return []RequisitoDocumental{fotografia, partitura,
@@ -1177,16 +1184,27 @@ func ValidarNuevaPostulacion(c Convocatoria, sub Subcategoria, esJuradoORevisor 
 // en plazo. La edición acotada de una subsanación llegará con la revisión
 // documental.
 func ValidarEdicionDePostulacion(p Postulacion, c Convocatoria, ahora time.Time) []ErrorCampo {
-	if p.Estado != PostulacionBorrador {
-		return []ErrorCampo{{Campo: "estado", Clave: "error.postulacion_enviada"}}
-	}
-	return EnPlazoDePostulacion(c, ahora)
+	_, errores := PermisoDeEdicionDe(p, c, ahora)
+	return errores
 }
 
 // PuedeVerPostulacion: una postulación la ven su titular, el administrador y
 // el observador. El acceso de revisores y jurados llegará con sus módulos.
 func PuedeVerPostulacion(s *Sesion, p Postulacion) bool {
-	return s != nil && (s.Usuario.ID == p.UsuarioID || PuedeSupervisar(s))
+	if s == nil {
+		return false
+	}
+	if s.Usuario.ID == p.UsuarioID || PuedeSupervisar(s) {
+		return true
+	}
+	// El revisor ve las postulaciones ENVIADAS de su convocatoria. Un
+	// borrador no ha entrado al proceso: no es asunto suyo.
+	if p.Estado != PostulacionBorrador && s.TieneAsignacion(p.ConvocatoriaID, PerfilRevisorDocumental) {
+		return true
+	}
+	// El jurado ve sólo las que pasaron a evaluación (RN-20), y las ve
+	// completas: la evaluación NO es a ciegas (decisión de la CNMO).
+	return EnEvaluacion(p.Estado) && s.TieneAsignacion(p.ConvocatoriaID, PerfilJurado)
 }
 
 // ValidarIntegrantes valida la lista de integrantes de un ensamble (RN-10):
@@ -1757,4 +1775,1389 @@ func ClasificarEnlace(porOEmbed bool, estadoHTTP int, pideIngreso bool) Resultad
 		r.Estado, r.Detalle = EnlaceNoPublico, DetalleEnlaceRequiereAcceso
 	}
 	return r
+}
+
+// --- Revisión documental y subsanación (§4.2 y §5.5) --------------------------
+
+const (
+	// LongitudMaxMotivo acota los textos del revisor y del postulante en la
+	// revisión: motivos, observaciones, justificaciones y la nota del correo.
+	LongitudMaxMotivo = 2000
+	// PlazoMaxSubsanacion es lo más lejos que puede fijarse la fecha límite
+	// de una subsanación.
+	PlazoMaxSubsanacion = 90 * 24 * time.Hour
+	// MaxProblemasPorSubsanacion acota cuántos elementos se señalan de una vez.
+	MaxProblemasPorSubsanacion = 100
+	// MaxSolicitudesDeDesbloqueo acota las solicitudes sin resolver de una
+	// misma subsanación.
+	MaxSolicitudesDeDesbloqueo = 20
+)
+
+// PuedeRevisar indica si la sesión puede hacer la revisión documental de una
+// convocatoria: sus revisores asignados y el administrador (§2.2).
+func PuedeRevisar(s *Sesion, convocatoriaID int64) bool {
+	return s != nil && (PuedeAdministrar(s) || s.TieneAsignacion(convocatoriaID, PerfilRevisorDocumental))
+}
+
+// PuedeVerRevision indica si la sesión puede ver lo que la revisión ha
+// dejado sobre las postulaciones de una convocatoria: quienes revisan y
+// quienes supervisan. El postulante no: los dictámenes y las observaciones
+// son internos, y de ellos sólo le llega lo que el revisor decide solicitar.
+func PuedeVerRevision(s *Sesion, convocatoriaID int64) bool {
+	return PuedeRevisar(s, convocatoriaID) || PuedeSupervisar(s)
+}
+
+// PermisoDeEdicion dice qué puede modificar el postulante en este momento.
+// Es el motor del desbloqueo selectivo (§4.2): en un borrador todo es
+// editable; durante una subsanación, sólo lo que el revisor señaló.
+type PermisoDeEdicion struct {
+	// Total: la postulación es un borrador dentro de plazo.
+	Total bool
+	// desbloqueados son los elementos editables durante una subsanación.
+	desbloqueados map[string]bool
+}
+
+// claveDeElemento identifica un elemento de la postulación: un campo o la
+// ranura de un documento, de la postulación (obraID 0) o de una obra.
+func claveDeElemento(clase ClaseProblema, campo string, obraID int64) string {
+	return fmt.Sprintf("%s|%s|%d", clase, campo, obraID)
+}
+
+// PermisoDeEdicionDe calcula qué puede modificar el postulante ahora (RN-02 y
+// RN-04). Si no puede modificar nada devuelve por qué.
+//
+//   - Borrador: todo, mientras la convocatoria esté en postulación y en plazo.
+//   - En subsanación, sin vencer: sólo los elementos listados en los problemas
+//     de la subsanación abierta. No existe otra vía (RN-12b).
+//   - Cualquier otro estado: nada.
+func PermisoDeEdicionDe(p Postulacion, c Convocatoria, ahora time.Time) (PermisoDeEdicion, []ErrorCampo) {
+	switch p.Estado {
+	case PostulacionBorrador:
+		if errores := EnPlazoDePostulacion(c, ahora); len(errores) > 0 {
+			return PermisoDeEdicion{}, errores
+		}
+		return PermisoDeEdicion{Total: true}, nil
+	case PostulacionEnSubsanacion:
+		subsanacion := p.SubsanacionAbierta(ahora)
+		if subsanacion == nil {
+			return PermisoDeEdicion{}, []ErrorCampo{{Campo: "estado", Clave: "error.subsanacion_vencida"}}
+		}
+		permiso := PermisoDeEdicion{desbloqueados: make(map[string]bool)}
+		for _, problema := range subsanacion.Problemas {
+			permiso.desbloqueados[claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)] = true
+		}
+		return permiso, nil
+	}
+	return PermisoDeEdicion{}, []ErrorCampo{{Campo: "estado", Clave: "error.postulacion_enviada"}}
+}
+
+// programaAbierto indica que el revisor autorizó cambiar la lista de obras
+// (RN-12c). Entonces también son editables los datos y los documentos de
+// cada obra: de nada serviría poder añadir una obra y no poder describirla.
+func (pe PermisoDeEdicion) programaAbierto() bool {
+	return pe.desbloqueados[claveDeElemento(ProblemaCampo, CampoObras, 0)]
+}
+
+// Campo indica si puede modificarse un campo. obraID es 0 para los campos de
+// la postulación. Vale también para las listas: CampoIntegrantes, CampoVideos
+// y CampoObras.
+func (pe PermisoDeEdicion) Campo(ruta string, obraID int64) bool {
+	return pe.Total || pe.desbloqueados[claveDeElemento(ProblemaCampo, ruta, obraID)] || (obraID != 0 && pe.programaAbierto())
+}
+
+// Documento indica si puede subirse o retirarse el documento de un requisito.
+func (pe PermisoDeEdicion) Documento(clave string, obraID int64) bool {
+	return pe.Total || pe.desbloqueados[claveDeElemento(ProblemaDocumento, clave, obraID)] || (obraID != 0 && pe.programaAbierto())
+}
+
+// validarElemento comprueba que un elemento exista en la postulación: que el
+// campo sea de su formulario, o que el requisito se le pida, y que la obra
+// sea suya.
+func validarElemento(p Postulacion, cfg ConfiguracionConvocatoria, clase ClaseProblema, campo string, obraID int64) []ErrorCampo {
+	inexistente := []ErrorCampo{{Campo: "campo", Clave: "error.elemento_inexistente"}}
+	formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
+	esDeLaPostulacion := obraID == 0 || slices.ContainsFunc(p.Obras, func(o Obra) bool { return o.ID == obraID })
+	switch {
+	case !esDeLaPostulacion:
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+	case clase == ProblemaDocumento:
+		if _, errores := RequisitoParaDocumento(p, cfg, campo, obraID); len(errores) > 0 {
+			return inexistente
+		}
+		return nil
+	case clase != ProblemaCampo:
+		return []ErrorCampo{{Campo: "clase", Clave: "error.elemento_inexistente"}}
+	case obraID != 0:
+		if _, existe := formulario.CampoDeObra(campo); !existe {
+			return inexistente
+		}
+		return nil
+	}
+	_, esCampo := formulario.Campo(campo)
+	esLista := campo == CampoObras || (campo == CampoIntegrantes && formulario.TieneIntegrantes) || (campo == CampoVideos && formulario.TieneVideos)
+	if !esCampo && !esLista {
+		return inexistente
+	}
+	return nil
+}
+
+// textoRequerido valida un texto libre obligatorio de la revisión.
+func textoRequerido(texto, campo string) []ErrorCampo {
+	switch largo := utf8.RuneCountInString(strings.TrimSpace(texto)); {
+	case largo == 0:
+		return []ErrorCampo{{Campo: campo, Clave: "error.texto_requerido"}}
+	case largo > LongitudMaxMotivo:
+		return []ErrorCampo{{Campo: campo, Clave: "error.texto_largo"}}
+	}
+	return nil
+}
+
+// AdmiteRevision indica si en esta etapa de la convocatoria puede hacerse
+// revisión documental: en la etapa de revisión y TAMBIÉN durante la
+// evaluación (decisión de la CNMO). La convocatoria pasa a evaluación aunque
+// queden postulaciones por subsanar o por dictaminar; se terminan de revisar
+// después y, al validarse, se suman a lo que el jurado tiene por calificar.
+func AdmiteRevision(estado EstadoConvocatoria) bool {
+	return estado == EstadoRevisionDocumental || estado == EstadoEvaluacion
+}
+
+// EstadoAlValidar es el estado en que queda una postulación al validarla: si
+// la evaluación ya empezó pasa directamente al jurado (RN-20).
+func EstadoAlValidar(estado EstadoConvocatoria) EstadoDePostulacion {
+	if estado == EstadoEvaluacion {
+		return PostulacionEnEvaluacion
+	}
+	return PostulacionValidada
+}
+
+// ValidarAccionDeRevision comprueba que pueda revisarse una postulación: la
+// convocatoria debe admitir revisión y la postulación estar enviada y
+// sin una subsanación en curso (mientras el postulante corrige, el revisor
+// espera).
+func ValidarAccionDeRevision(c Convocatoria, p Postulacion) []ErrorCampo {
+	if !AdmiteRevision(c.Estado) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
+	}
+	if p.Estado != PostulacionEnviada && p.Estado != PostulacionEnRevision {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_revisable"}}
+	}
+	return nil
+}
+
+// ValidarDictamenDeDocumento: un documento inválido exige motivo (RN-11).
+func ValidarDictamenDeDocumento(dictamen, motivo string) []ErrorCampo {
+	switch dictamen {
+	case "valido", "pendiente":
+		return nil
+	case "invalido":
+		return textoRequerido(motivo, "motivo")
+	}
+	return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+}
+
+// ValidarObservacion valida una observación del revisor sobre la postulación
+// o sobre una de sus obras (RF-REV-04).
+func ValidarObservacion(p Postulacion, obraID int64, texto string) []ErrorCampo {
+	if obraID != 0 && !slices.ContainsFunc(p.Obras, func(o Obra) bool { return o.ID == obraID }) {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.obra_ajena"}}
+	}
+	return textoRequerido(texto, "texto")
+}
+
+// ProblemasDeSubsanacion arma la lista definitiva de problemas de una
+// subsanación: los que el revisor señala a mano —campos y documentos que
+// faltan— más, automáticamente, cada documento vigente que dictaminó como
+// inválido, con el motivo de su dictamen. Así «solicitar subsanación» agrupa
+// todo lo señalado (RF-REV-05b) sin que el revisor lo repita.
+func ProblemasDeSubsanacion(p Postulacion, revision Revision, senalados []ProblemaSubsanacion) []ProblemaSubsanacion {
+	problemas := slices.Clone(senalados)
+	vistos := make(map[string]bool)
+	for _, problema := range problemas {
+		vistos[claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)] = true
+	}
+	motivos := make(map[int64]string)
+	for _, dictamen := range revision.Dictamenes {
+		motivos[dictamen.DocumentoID] = dictamen.Motivo
+	}
+	for _, documento := range p.Documentos {
+		clave := claveDeElemento(ProblemaDocumento, documento.Clave, documento.ObraID)
+		if documento.Dictamen != "invalido" || vistos[clave] {
+			continue
+		}
+		vistos[clave] = true
+		problemas = append(problemas, ProblemaSubsanacion{Clase: ProblemaDocumento, Campo: documento.Clave,
+			ObraID: documento.ObraID, DocumentoID: documento.ID, Problema: motivos[documento.ID]})
+	}
+	return problemas
+}
+
+// ValidarNuevaSubsanacion valida una solicitud de subsanación ya con su lista
+// definitiva de problemas: al menos uno, cada uno sobre un elemento que existe
+// y con su motivo, sin repetir, y con una fecha límite futura.
+func ValidarNuevaSubsanacion(p Postulacion, cfg ConfiguracionConvocatoria, n NuevaSubsanacion, ahora time.Time) []ErrorCampo {
+	if errores := ValidarAccionDeRevision(cfg.Convocatoria, p); len(errores) > 0 {
+		return errores
+	}
+	var errores []ErrorCampo
+	if len(n.Problemas) == 0 {
+		errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.sin_problemas"})
+	}
+	if len(n.Problemas) > MaxProblemasPorSubsanacion {
+		errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.demasiados_problemas"})
+	}
+	vistos := make(map[string]bool)
+	for _, problema := range n.Problemas {
+		clave := claveDeElemento(problema.Clase, problema.Campo, problema.ObraID)
+		elemento := validarElemento(p, cfg, problema.Clase, problema.Campo, problema.ObraID)
+		motivo := textoRequerido(problema.Problema, "problema")
+		switch {
+		case len(elemento) > 0:
+			errores = append(errores, elemento...)
+		case len(motivo) > 0:
+			errores = append(errores, motivo...)
+		case vistos[clave]:
+			errores = append(errores, ErrorCampo{Campo: "problemas", Clave: "error.problema_repetido"})
+		}
+		vistos[clave] = true
+	}
+	if !n.FechaLimite.After(ahora) || n.FechaLimite.After(ahora.Add(PlazoMaxSubsanacion)) {
+		errores = append(errores, ErrorCampo{Campo: "fecha_limite", Clave: "error.fecha_limite_invalida"})
+	}
+	if utf8.RuneCountInString(n.Nota) > LongitudMaxMotivo {
+		errores = append(errores, ErrorCampo{Campo: "nota", Clave: "error.texto_largo"})
+	}
+	return errores
+}
+
+// ValidarSolicitudDeDesbloqueo valida la petición de un postulante para
+// corregir algo que el revisor no señaló (RN-12d): debe haber una subsanación
+// abierta, el elemento debe existir y no estar ya desbloqueado ni pedido, y
+// la justificación es obligatoria.
+func ValidarSolicitudDeDesbloqueo(p Postulacion, cfg ConfiguracionConvocatoria, s SolicitudDesbloqueo, ahora time.Time) []ErrorCampo {
+	subsanacion := p.SubsanacionAbierta(ahora)
+	if subsanacion == nil {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.sin_subsanacion_abierta"}}
+	}
+	if errores := validarElemento(p, cfg, s.Clase, s.Campo, s.ObraID); len(errores) > 0 {
+		return errores
+	}
+	if errores := textoRequerido(s.Justificacion, "justificacion"); len(errores) > 0 {
+		return errores
+	}
+	permiso, _ := PermisoDeEdicionDe(p, cfg.Convocatoria, ahora)
+	if desbloqueado := permiso.desbloqueados[claveDeElemento(s.Clase, s.Campo, s.ObraID)]; desbloqueado {
+		return []ErrorCampo{{Campo: "campo", Clave: "error.ya_desbloqueado"}}
+	}
+	pendientes := 0
+	for _, otra := range subsanacion.Solicitudes {
+		if otra.Resuelta {
+			continue
+		}
+		pendientes++
+		if otra.Clase == s.Clase && otra.Campo == s.Campo && otra.ObraID == s.ObraID {
+			return []ErrorCampo{{Campo: "campo", Clave: "error.solicitud_repetida"}}
+		}
+	}
+	if pendientes >= MaxSolicitudesDeDesbloqueo {
+		return []ErrorCampo{{Campo: "campo", Clave: "error.demasiadas_solicitudes"}}
+	}
+	return nil
+}
+
+// ValidarRespuestaDeDesbloqueo: negar una solicitud exige decir por qué.
+func ValidarRespuestaDeDesbloqueo(concedida bool, motivo string) []ErrorCampo {
+	if concedida {
+		if utf8.RuneCountInString(motivo) > LongitudMaxMotivo {
+			return []ErrorCampo{{Campo: "motivo", Clave: "error.texto_largo"}}
+		}
+		return nil
+	}
+	return textoRequerido(motivo, "motivo")
+}
+
+// ValidarDictamenDePostulacion valida el dictamen con que termina la revisión
+// de una postulación: validada o descartada (RF-REV-08).
+//
+//   - Durante la revisión documental o la evaluación (AdmiteRevision).
+//   - Descartar exige motivo.
+//   - No se valida una postulación con un documento dictaminado inválido.
+//   - Mientras el postulante tiene una subsanación abierta no se dictamina:
+//     se espera a que reenvíe o a que venza el plazo. Vencida, sí (RF-REV-09).
+//   - Un dictamen ya emitido puede corregirse mientras dure la etapa.
+func ValidarDictamenDePostulacion(c Convocatoria, p Postulacion, dictamen EstadoDePostulacion, motivo string, ahora time.Time) []ErrorCampo {
+	if !AdmiteRevision(c.Estado) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_revision"}}
+	}
+	switch p.Estado {
+	case PostulacionEnviada, PostulacionEnRevision, PostulacionValidada, PostulacionDescartada:
+	case PostulacionEnSubsanacion:
+		if !p.SubsanacionVencida(ahora) {
+			return []ErrorCampo{{Campo: "estado", Clave: "error.subsanacion_en_curso"}}
+		}
+	default:
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_revisable"}}
+	}
+	switch dictamen {
+	case PostulacionValidada:
+		if slices.ContainsFunc(p.Documentos, func(d Documento) bool { return d.Dictamen == "invalido" }) {
+			return []ErrorCampo{{Campo: "dictamen", Clave: "error.documentos_invalidos"}}
+		}
+		if utf8.RuneCountInString(motivo) > LongitudMaxMotivo {
+			return []ErrorCampo{{Campo: "motivo", Clave: "error.texto_largo"}}
+		}
+		return nil
+	case PostulacionDescartada:
+		return textoRequerido(motivo, "motivo")
+	}
+	return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+}
+
+// DiferenciasDeEnvio compara dos envíos de la misma postulación y devuelve lo
+// que cambió entre ellos: es lo que el revisor ve al volver una postulación
+// subsanada (RF-REV-07). Compara los snapshots, que son lo que de verdad se
+// envió cada vez.
+func DiferenciasDeEnvio(anterior, nuevo SnapshotEnvio) []CambioDeEnvio {
+	var cambios []CambioDeEnvio
+	// camposDistintos compara dos mapas de campos y anota las diferencias.
+	camposDistintos := func(antes, despues map[string]string, obraID int64) {
+		rutas := make(map[string]bool)
+		for ruta := range antes {
+			rutas[ruta] = true
+		}
+		for ruta := range despues {
+			rutas[ruta] = true
+		}
+		for _, ruta := range slices.Sorted(maps.Keys(rutas)) {
+			if antes[ruta] != despues[ruta] {
+				cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: ruta, ObraID: obraID, Antes: antes[ruta], Despues: despues[ruta]})
+			}
+		}
+	}
+	camposDistintos(anterior.Campos, nuevo.Campos, 0)
+
+	// Listas: se comparan enteras, como texto.
+	integrantes := func(s SnapshotEnvio) string {
+		var lista []string
+		for _, i := range s.Integrantes {
+			lista = append(lista, i.Nombre+" ("+i.Instrumento+")")
+		}
+		return strings.Join(lista, "; ")
+	}
+	videos := func(s SnapshotEnvio) string {
+		var lista []string
+		for _, v := range s.Videos {
+			lista = append(lista, v.URL)
+		}
+		return strings.Join(lista, " ")
+	}
+	if a, d := integrantes(anterior), integrantes(nuevo); a != d {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoIntegrantes, Antes: a, Despues: d})
+	}
+	if a, d := videos(anterior), videos(nuevo); a != d {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoVideos, Antes: a, Despues: d})
+	}
+
+	// Obras: por su id. Una obra que aparece o desaparece es un cambio del programa.
+	obrasAntes := make(map[int64]SnapshotObra)
+	for _, obra := range anterior.Obras {
+		obrasAntes[obra.ID] = obra
+	}
+	for _, obra := range nuevo.Obras {
+		previa, estaba := obrasAntes[obra.ID]
+		delete(obrasAntes, obra.ID)
+		if !estaba {
+			cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoObras, ObraID: obra.ID, Despues: obra.Campos["obra.titulo"]})
+			continue
+		}
+		camposDistintos(previa.Campos, obra.Campos, obra.ID)
+	}
+	for _, id := range slices.Sorted(maps.Keys(obrasAntes)) {
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaCampo, Campo: CampoObras, ObraID: id, Antes: obrasAntes[id].Campos["obra.titulo"]})
+	}
+
+	// Documentos: por requisito y obra; cambia si cambia la suma del archivo.
+	sumas := func(s SnapshotEnvio) map[string]SnapshotDocumento {
+		porRanura := make(map[string]SnapshotDocumento)
+		for _, d := range s.Documentos {
+			porRanura[claveDeElemento(ProblemaDocumento, d.Clave, d.ObraID)] = d
+		}
+		return porRanura
+	}
+	antes, despues := sumas(anterior), sumas(nuevo)
+	ranuras := make(map[string]bool)
+	for ranura := range antes {
+		ranuras[ranura] = true
+	}
+	for ranura := range despues {
+		ranuras[ranura] = true
+	}
+	for _, ranura := range slices.Sorted(maps.Keys(ranuras)) {
+		a, d := antes[ranura], despues[ranura]
+		if a.SHA256 == d.SHA256 {
+			continue
+		}
+		referencia := d
+		if referencia.Clave == "" {
+			referencia = a
+		}
+		cambios = append(cambios, CambioDeEnvio{Clase: ProblemaDocumento, Campo: referencia.Clave, ObraID: referencia.ObraID,
+			Antes: inicioDeSuma(a.SHA256), Despues: inicioDeSuma(d.SHA256)})
+	}
+	return cambios
+}
+
+// inicioDeSuma devuelve los primeros 12 caracteres de un SHA-256, que bastan
+// para distinguir a la vista un archivo de otro.
+func inicioDeSuma(suma string) string {
+	if len(suma) > 12 {
+		return suma[:12]
+	}
+	return suma
+}
+
+// EstadoParaTitular devuelve el estado de una postulación tal como se le
+// muestra a su titular. El descarte es un estado INTERNO de la revisión
+// (decisión de la CNMO): al postulante no se le muestra, y su postulación
+// sigue apareciéndole «en revisión». Los demás estados se muestran tal cual.
+func EstadoParaTitular(estado EstadoDePostulacion) EstadoDePostulacion {
+	if estado == PostulacionDescartada {
+		return PostulacionEnRevision
+	}
+	return estado
+}
+
+// --- Evaluación por jurado (§5.6) ---------------------------------------------
+
+// EnEvaluacion indica si una postulación está a la vista del jurado: pasó a
+// evaluación o ya fue evaluada por los tres.
+func EnEvaluacion(estado EstadoDePostulacion) bool {
+	return estado == PostulacionEnEvaluacion || estado == PostulacionEvaluada
+}
+
+// PuedeEvaluar indica si la sesión es de un jurado de la convocatoria. El
+// administrador NO puede: no emite ni altera evaluaciones en nombre de un
+// jurado (§2.2).
+func PuedeEvaluar(s *Sesion, convocatoriaID int64) bool {
+	return s != nil && s.TieneAsignacion(convocatoriaID, PerfilJurado)
+}
+
+// UnidadesDeEvaluacion devuelve las unidades que se califican de una
+// postulación, como ids de obra (RN-16): en Intérpretes una sola, la
+// postulación completa (0); en Compositores, cada obra.
+func UnidadesDeEvaluacion(tipo TipoConvocatoria, p Postulacion) []int64 {
+	if tipo == TipoInterpretes {
+		return []int64{0}
+	}
+	unidades := make([]int64, 0, len(p.Obras))
+	for _, obra := range p.Obras {
+		unidades = append(unidades, obra.ID)
+	}
+	return unidades
+}
+
+// ValidarEvaluacion valida lo que un jurado quiere guardar.
+//
+//   - Sólo durante la etapa de evaluación (RN-19): cerrada, queda congelada.
+//   - Sólo sobre postulaciones que pasaron a evaluación (RN-20), y sobre una
+//     unidad que exista en ellas.
+//   - Cada puntaje es de un criterio de la convocatoria y cae en su escala (RN-17).
+//   - Un borrador puede estar incompleto. Para enviarla —o para modificar una
+//     ya enviada— deben estar todos los criterios obligatorios.
+func ValidarEvaluacion(cfg ConfiguracionConvocatoria, p Postulacion, e EntradaEvaluacion, yaEnviada bool) []ErrorCampo {
+	if cfg.Convocatoria.Estado != EstadoEvaluacion {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if !slices.Contains(UnidadesDeEvaluacion(cfg.Convocatoria.Tipo, p), e.ObraID) {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.unidad_inexistente"}}
+	}
+	var errores []ErrorCampo
+	criterios := make(map[string]CriterioEvaluacion)
+	for _, criterio := range cfg.Criterios {
+		criterios[criterio.Clave] = criterio
+	}
+	for _, clave := range slices.Sorted(maps.Keys(e.Puntajes)) {
+		criterio, existe := criterios[clave]
+		switch puntaje := e.Puntajes[clave]; {
+		case !existe:
+			errores = append(errores, ErrorCampo{Campo: clave, Clave: "error.criterio_inexistente"})
+		case puntaje < criterio.EscalaMin || puntaje > criterio.EscalaMax:
+			errores = append(errores, ErrorCampo{Campo: clave, Clave: "error.puntaje_fuera_de_escala"})
+		}
+	}
+	if e.Enviar || yaEnviada {
+		for _, criterio := range cfg.Criterios {
+			if _, calificado := e.Puntajes[criterio.Clave]; criterio.Obligatorio && !calificado {
+				errores = append(errores, ErrorCampo{Campo: criterio.Clave, Clave: "error.puntaje_requerido"})
+			}
+		}
+	}
+	if utf8.RuneCountInString(e.Observaciones) > LongitudMaxMotivo {
+		errores = append(errores, ErrorCampo{Campo: "observaciones", Clave: "error.texto_largo"})
+	}
+	return errores
+}
+
+// ValidarDictamenFinal valida el resultado que el administrador registra para
+// una postulación. Sólo sobre postulaciones que llegaron a evaluación, y con
+// la evaluación en curso o ya cerrada; en el archivo, no (RF-ARCH-03).
+func ValidarDictamenFinal(c Convocatoria, p Postulacion, dictamen string) []ErrorCampo {
+	if c.Estado != EstadoEvaluacion && c.Estado != EstadoCerrada {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if dictamen != "" && dictamen != DictamenSeleccionada && dictamen != DictamenNoSeleccionada && dictamen != DictamenListaDeEspera {
+		return []ErrorCampo{{Campo: "dictamen", Clave: "error.opcion_invalida"}}
+	}
+	return nil
+}
+
+// --- Excusa por conflicto de interés (RF-EVA-12) ------------------------------
+
+// UnidadesParaExcusa devuelve las unidades de las que un jurado se excusa. En
+// Intérpretes, la postulación. En Compositores, la obra indicada o, si no se
+// indica ninguna, todas las de la postulación: el conflicto suele ser con la
+// persona, no con una obra.
+func UnidadesParaExcusa(tipo TipoConvocatoria, p Postulacion, obraID int64) []int64 {
+	unidades := UnidadesDeEvaluacion(tipo, p)
+	if tipo == TipoCompositores && obraID == 0 {
+		return unidades
+	}
+	if slices.Contains(unidades, obraID) {
+		return []int64{obraID}
+	}
+	return nil
+}
+
+// ValidarExcusa valida que un jurado se excuse de evaluar: durante la etapa
+// de evaluación, sobre una postulación a su vista, de una unidad que exista,
+// y diciendo por qué.
+func ValidarExcusa(cfg ConfiguracionConvocatoria, p Postulacion, obraID int64, motivo string) []ErrorCampo {
+	if cfg.Convocatoria.Estado != EstadoEvaluacion {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.fuera_de_evaluacion"}}
+	}
+	if !EnEvaluacion(p.Estado) {
+		return []ErrorCampo{{Campo: "estado", Clave: "error.no_esta_en_evaluacion"}}
+	}
+	if len(UnidadesParaExcusa(cfg.Convocatoria.Tipo, p, obraID)) == 0 {
+		return []ErrorCampo{{Campo: "obra_id", Clave: "error.unidad_inexistente"}}
+	}
+	return textoRequerido(motivo, "motivo")
+}
+
+// ValidarSinExcusa impide calificar una unidad de la que el jurado se excusó:
+// primero debe retirar la excusa. Evita que una calificación se cuele por
+// descuido donde se declaró un conflicto de interés.
+func ValidarSinExcusa(previa Evaluacion) []ErrorCampo {
+	if previa.Excusado {
+		return []ErrorCampo{{Campo: "excusa", Clave: "error.excusa_vigente"}}
+	}
+	return nil
+}
+
+// PuntajeComparable convierte la suma de una unidad en un puntaje que puede
+// compararse entre unidades aunque no las hayan calificado los mismos
+// jurados: el promedio por jurado, llevado a la cuota de tres.
+//
+// Es lo que hace que una excusa no perjudique a nadie (decisión de la CNMO):
+// si un jurado se excusa, la suma de los otros dos sería menor que la de tres
+// sin que la propuesta sea peor. Con dos jurados que suman 16, el puntaje
+// comparable es 24: lo que habrían sumado tres con el mismo criterio.
+func PuntajeComparable(total, juradosQueEvaluaron int) float64 {
+	if juradosQueEvaluaron == 0 {
+		return 0
+	}
+	return math.Round(float64(total)*float64(CuotaJurados)/float64(juradosQueEvaluaron)*100) / 100
+}
+
+// --- Archivo histórico, búsqueda y descargas (§5.12) --------------------------
+
+const (
+	// TamanoDePaginaPorOmision y TamanoDePaginaMax acotan la paginación del
+	// listado del archivo (RF-ARCH-16).
+	TamanoDePaginaPorOmision = 50
+	TamanoDePaginaMax        = 200
+	// VigenciaDeExportacion es cuánto vive el enlace de una descarga masiva
+	// ya armada (RF-ARCH-35).
+	VigenciaDeExportacion = 7 * 24 * time.Hour
+	// MaxVistasGuardadas acota las vistas guardadas por cuenta.
+	MaxVistasGuardadas = 50
+	// MaxSeleccion acota cuántas postulaciones pueden marcarse a mano.
+	MaxSeleccion = 500
+)
+
+// OrdenesDeListado son las columnas por las que puede ordenarse el listado
+// (RF-ARCH-15). El puntaje no está aquí: cruza a los jurados y sólo existe en
+// la matriz de resultados, que es de supervisión.
+var OrdenesDeListado = []string{"folio", "nombre", "enviada", "estado", "obras", "duracion"}
+
+// AlcanceDe calcula qué puede ver una sesión en el archivo. El postulante no
+// lo consulta: tiene su propia lista.
+func AlcanceDe(s *Sesion) AlcanceDeConsulta {
+	var alcance AlcanceDeConsulta
+	if s == nil {
+		return alcance
+	}
+	alcance.Todo = PuedeSupervisar(s)
+	for _, asignacion := range s.Asignaciones {
+		switch asignacion.Perfil {
+		case PerfilRevisorDocumental:
+			alcance.ComoRevisor = append(alcance.ComoRevisor, asignacion.ConvocatoriaID)
+		case PerfilJurado:
+			alcance.ComoJurado = append(alcance.ComoJurado, asignacion.ConvocatoriaID)
+		}
+	}
+	return alcance
+}
+
+// PuedeDescargarEnMasa indica si la sesión puede pedir un ZIP de documentos
+// de varias postulaciones: administrador, observador y revisores (§2.2). El
+// jurado no; el postulante sólo baja lo suyo.
+func PuedeDescargarEnMasa(s *Sesion) bool {
+	alcance := AlcanceDe(s)
+	return alcance.Todo || len(alcance.ComoRevisor) > 0
+}
+
+// ValidarFiltroDeListado comprueba los valores del listado que no son texto
+// libre, y fija los que faltan: orden por folio y página de 50.
+func ValidarFiltroDeListado(f *FiltroDeListado) []ErrorCampo {
+	var errores []ErrorCampo
+	invalido := func(campo string) {
+		errores = append(errores, ErrorCampo{Campo: campo, Clave: "error.filtro_invalido"})
+	}
+	if f.Orden == "" {
+		f.Orden = "folio"
+	}
+	if !slices.Contains(OrdenesDeListado, f.Orden) {
+		invalido("orden")
+	}
+	if f.Pagina < 0 {
+		invalido("pagina")
+	}
+	if f.Pagina > 0 && f.Tamano == 0 {
+		f.Tamano = TamanoDePaginaPorOmision
+	}
+	if f.Tamano < 0 || f.Tamano > TamanoDePaginaMax {
+		invalido("tamano")
+	}
+	for campo, valor := range map[string]string{"con_subsanaciones": f.ConSubsanaciones, "documentos_pendientes": f.DocumentosPendientes, "ligas_con_problema": f.LigasConProblema} {
+		if valor != "" && valor != "si" && valor != "no" {
+			invalido(campo)
+		}
+	}
+	if f.Tipo != "" && !f.Tipo.Valido() {
+		invalido("tipo")
+	}
+	if !f.EnviadaDesde.IsZero() && !f.EnviadaHasta.IsZero() && f.EnviadaHasta.Before(f.EnviadaDesde) {
+		invalido("enviada_hasta")
+	}
+	if len(f.IDs) > MaxSeleccion {
+		invalido("ids")
+	}
+	return errores
+}
+
+// TextoDeBusqueda reúne lo que se indexa de una postulación para el buscador
+// global (RF-ARCH-10): folio, nombres, nombre artístico, ensamble y sus
+// integrantes, títulos de obra, compositores y correos.
+func TextoDeBusqueda(p Postulacion, titular Usuario) string {
+	partes := []string{p.Folio, titular.Nombre, titular.Apellidos, titular.Email}
+	for _, ruta := range []string{"datos.nombre_completo", "datos.nombre_artistico", "datos.nombre_ensamble", "datos.representante", "datos.email_contacto"} {
+		partes = append(partes, p.Campos[ruta])
+	}
+	for _, integrante := range p.Integrantes {
+		partes = append(partes, integrante.Nombre)
+	}
+	for _, obra := range p.Obras {
+		partes = append(partes, obra.Campos["obra.titulo"], obra.Campos["obra.compositor"])
+	}
+	return strings.Join(slices.DeleteFunc(partes, func(parte string) bool { return strings.TrimSpace(parte) == "" }), " ")
+}
+
+// palabrasDeBusqueda parte lo que escribió quien busca en palabras: sólo
+// letras y dígitos. Todo lo demás —comillas, asteriscos, paréntesis— se
+// descarta, de modo que nada de lo escrito se interpreta como sintaxis del
+// buscador.
+func palabrasDeBusqueda(texto string) []string {
+	return strings.FieldsFunc(strings.ToLower(texto), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// ConsultasDeBusqueda convierte lo que se escribió en las dos consultas del
+// buscador (RF-ARCH-11):
+//
+//   - porPalabras: todas las palabras, cada una como inicio de palabra, sin
+//     distinguir acentos ni mayúsculas («nunez carr» encuentra «Núñez Carrillo»).
+//   - porSubcadena: todas las palabras como fragmento en cualquier lugar, para
+//     el nombre mal recordado («arteto» encuentra «Cuarteto»). Los fragmentos
+//     de menos de tres letras no pueden buscarse así y se omiten.
+//
+// Si no queda nada que buscar devuelve cadenas vacías.
+func ConsultasDeBusqueda(texto string) (porPalabras, porSubcadena string) {
+	var prefijos, fragmentos []string
+	for _, palabra := range palabrasDeBusqueda(texto) {
+		prefijos = append(prefijos, `"`+palabra+`"*`)
+		if utf8.RuneCountInString(palabra) >= 3 {
+			fragmentos = append(fragmentos, `"`+palabra+`"`)
+		}
+	}
+	return strings.Join(prefijos, " "), strings.Join(fragmentos, " ")
+}
+
+// sinAcentos son las letras con diacrítico habituales en nombres y títulos,
+// con la letra básica que les corresponde en un nombre de archivo.
+var sinAcentos = strings.NewReplacer(
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n", "ç", "c",
+	"Á", "A", "É", "E", "Í", "I", "Ó", "O", "Ú", "U", "Ü", "U", "Ñ", "N", "Ç", "C",
+	"à", "a", "è", "e", "ì", "i", "ò", "o", "ù", "u", "â", "a", "ê", "e", "î", "i", "ô", "o", "û", "u",
+	"ä", "a", "ë", "e", "ï", "i", "ö", "o", "ã", "a", "õ", "o", "å", "a", "ø", "o", "ß", "ss",
+)
+
+// NombreParaArchivo normaliza un texto para usarlo como nombre de archivo o
+// de carpeta dentro de un ZIP (RF-ARCH-33): sin acentos, sin espacios y sin
+// ningún carácter que Windows, macOS o Linux rechacen. Lo que no es letra,
+// dígito, guion o punto se vuelve guion bajo. Se acota a 60 caracteres.
+func NombreParaArchivo(texto string) string {
+	var limpio strings.Builder
+	for _, r := range sinAcentos.Replace(strings.TrimSpace(texto)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			limpio.WriteRune(r)
+		default:
+			limpio.WriteByte('_')
+		}
+	}
+	nombre := strings.Trim(regexp.MustCompile(`_+`).ReplaceAllString(limpio.String(), "_"), "_")
+	if len(nombre) > 60 {
+		nombre = strings.TrimRight(nombre[:60], "_")
+	}
+	if nombre == "" {
+		return "sin_nombre"
+	}
+	return nombre
+}
+
+// RutaEnZIP da el lugar de un documento dentro de una descarga masiva:
+//
+//	FIM49-COM-0007_Maria_Nunez/fotografia.jpg
+//	FIM49-COM-0007_Maria_Nunez/obra-02_Rapsodia/partitura.pdf
+//
+// Una carpeta por postulación y, dentro, una por obra: un ZIP con trescientos
+// archivos llamados «partitura.pdf» sería inservible. Si un requisito admite
+// varios archivos, del segundo en adelante llevan su número.
+func RutaEnZIP(d DocumentoEnZIP, repetido int) string {
+	ruta := NombreParaArchivo(d.Folio+"_"+d.Nombre) + "/"
+	if d.Documento.ObraID != 0 {
+		ruta += fmt.Sprintf("obra-%02d_%s/", d.OrdenDeObra, NombreParaArchivo(d.Obra))
+	}
+	nombre := NombreParaArchivo(d.Documento.Clave)
+	if repetido > 1 {
+		nombre += fmt.Sprintf("-%d", repetido)
+	}
+	return ruta + nombre + ExtensionDeMIME(d.Documento.Archivo.MIME)
+}
+
+// ValidarVistaGuardada valida una vista guardada: un nombre, y una ruta del
+// propio sitio (nunca una dirección externa a la que alguien pudiera ser
+// llevado al abrirla).
+func ValidarVistaGuardada(nombre, ruta string, existentes int) []ErrorCampo {
+	var errores []ErrorCampo
+	if largo := utf8.RuneCountInString(strings.TrimSpace(nombre)); largo == 0 || largo > 100 {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.nombre_de_vista"})
+	}
+	if !strings.HasPrefix(ruta, "/") || strings.HasPrefix(ruta, "//") || strings.ContainsAny(ruta, "\\\r\n") || len(ruta) > 2000 {
+		errores = append(errores, ErrorCampo{Campo: "ruta", Clave: "error.ruta_de_vista"})
+	}
+	if existentes >= MaxVistasGuardadas {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.demasiadas_vistas"})
+	}
+	return errores
+}
+
+// --- Expediente en PDF (§5.12.4) ----------------------------------------------
+
+// RecorteDelExpediente dice si la sesión puede pedir el expediente de una
+// postulación y, si puede, qué partes reservadas lleva (RF-ARCH-41):
+//
+//   - Lo pide quien puede ver la postulación: su titular, la supervisión, los
+//     revisores de la convocatoria y, si pasó a evaluación, sus jurados.
+//   - La revisión documental, para revisores y supervisión.
+//   - La evaluación propia, para el jurado. Nunca la de otro jurado.
+//   - Todas las evaluaciones, la suma y el resultado, sólo para la supervisión.
+func RecorteDelExpediente(s *Sesion, p Postulacion) (RecorteDeExpediente, bool) {
+	if !PuedeVerPostulacion(s, p) {
+		return RecorteDeExpediente{}, false
+	}
+	return RecorteDeExpediente{
+		Revision:         PuedeVerRevision(s, p.ConvocatoriaID),
+		EvaluacionPropia: PuedeEvaluar(s, p.ConvocatoriaID) && EnEvaluacion(p.Estado),
+		Supervision:      PuedeSupervisar(s),
+	}, true
+}
+
+// RecortarExpediente quita del expediente todo lo que su recorte no permite
+// (RN-26). Es la última palabra antes de que el contenido llegue a la vista:
+// aunque quien lo armó haya cargado de más, lo que aquí se borra no se
+// imprime. La vista no decide nada; pinta lo que recibe.
+func RecortarExpediente(x *Expediente) {
+	p := &x.Postulacion
+	if !x.Recorte.Revision {
+		x.Revision = Revision{}
+		p.MotivoDescarte, p.Subsanaciones = "", nil
+		// Los documentos van sin su dictamen. Se copian antes de tocarlos:
+		// la postulación puede venir de otra parte que aún la usa.
+		p.Documentos = slices.Clone(p.Documentos)
+		for i := range p.Documentos {
+			p.Documentos[i].Dictamen = ""
+		}
+		if !x.Recorte.Supervision {
+			// Para su titular el descarte no existe (decisión de la CNMO).
+			p.Estado = EstadoParaTitular(p.Estado)
+		}
+	}
+	if !x.Recorte.EvaluacionPropia {
+		x.Propias = nil
+	}
+	if !x.Recorte.Supervision {
+		p.DictamenFinal = ""
+		x.Jurados, x.Resultados = nil, nil
+	}
+}
+
+// --- Reportes (§5.7 y §9) -----------------------------------------------------
+
+// MaxCamposDeReporte acota cuántas columnas puede pedir un reporte.
+const MaxCamposDeReporte = 120
+
+// PuedeGenerarReportes indica si la sesión puede usar el generador de
+// reportes: administrador y observador (§2.2).
+func PuedeGenerarReportes(s *Sesion) bool {
+	return PuedeSupervisar(s)
+}
+
+// CatalogoDeReporte devuelve los campos que puede llevar un reporte de una
+// convocatoria (RF-REP-02), en el orden en que conviene ofrecerlos.
+//
+// No es una lista aparte que haya que mantener: los campos de la postulación
+// y de la obra salen de la definición del formulario, con sus mismas rutas
+// («datos.genero», «obra.titulo»), de modo que un campo nuevo del formulario
+// queda disponible en los reportes sin tocar nada aquí. A ellos se suman los
+// calculados (edad, totales, listas concatenadas), los de la revisión y los
+// de la evaluación: un puntaje por jurado y criterio, y los agregados.
+func CatalogoDeReporte(cfg ConfiguracionConvocatoria) []CampoDeReporte {
+	tipo := cfg.Convocatoria.Tipo
+	catalogo := []CampoDeReporte{
+		{Clave: "folio", Nivel: NivelPostulacion},
+		{Clave: "estado", Nivel: NivelPostulacion, Tipo: CampoEstado},
+		{Clave: "envios", Nivel: NivelPostulacion},
+		{Clave: "primera_enviada_at", Nivel: NivelPostulacion, Tipo: CampoMarca},
+		{Clave: "enviada_at", Nivel: NivelPostulacion, Tipo: CampoMarca},
+	}
+	subcategorias := []Subcategoria{""}
+	if tipo == TipoInterpretes {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "subcategoria", Nivel: NivelPostulacion, Tipo: CampoSubcategoria})
+		subcategorias = []Subcategoria{SubcategoriaSolista, SubcategoriaEnsamble}
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "usuario.nombre", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "usuario.email", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "usuario.idioma", Nivel: NivelPostulacion})
+
+	// Campos del formulario. En Intérpretes, los del solista y los del
+	// ensamble: cada postulación llena los de su subcategoría.
+	vistos := make(map[string]bool)
+	tieneIntegrantes, tieneVideos := false, false
+	for _, sub := range subcategorias {
+		formulario := FormularioDe(tipo, sub)
+		tieneIntegrantes, tieneVideos = tieneIntegrantes || formulario.TieneIntegrantes, tieneVideos || formulario.TieneVideos
+		for _, def := range formulario.Campos {
+			if vistos[def.Ruta] {
+				continue
+			}
+			vistos[def.Ruta] = true
+			catalogo = append(catalogo, CampoDeReporte{Clave: def.Ruta, Nivel: NivelPostulacion, Tipo: def.Tipo})
+			if def.Tipo == CampoFechaNacimiento {
+				catalogo = append(catalogo, CampoDeReporte{Clave: "datos.edad", Nivel: NivelPostulacion})
+			}
+		}
+	}
+	if tieneIntegrantes {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "integrantes", Nivel: NivelPostulacion},
+			CampoDeReporte{Clave: "integrantes.count", Nivel: NivelPostulacion})
+	}
+	if tieneVideos {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "videos", Nivel: NivelPostulacion})
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "obras.count", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obras.duracion_total", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obras.titulos", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obra.orden", Nivel: NivelObra})
+	for _, def := range FormularioDe(tipo, subcategorias[0]).CamposObra {
+		catalogo = append(catalogo, CampoDeReporte{Clave: def.Ruta, Nivel: NivelObra, Tipo: def.Tipo})
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "revision.estado", Nivel: NivelPostulacion, Tipo: CampoRevision},
+		CampoDeReporte{Clave: "revision.motivo_descarte", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "revision.observaciones", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "revision.subsanaciones", Nivel: NivelPostulacion})
+
+	// Evaluación: por cada jurado, sus puntajes y sus observaciones; después
+	// los agregados.
+	for jurado := 1; jurado <= CuotaJurados; jurado++ {
+		for i := range cfg.Criterios {
+			catalogo = append(catalogo, CampoDeReporte{Clave: fmt.Sprintf("eval.j%d.%s", jurado, cfg.Criterios[i].Clave),
+				Nivel: NivelEvaluacion, Jurado: jurado, Criterio: &cfg.Criterios[i]})
+		}
+		catalogo = append(catalogo, CampoDeReporte{Clave: fmt.Sprintf("eval.j%d.observaciones", jurado), Nivel: NivelEvaluacion, Jurado: jurado})
+	}
+	for _, clave := range []string{"eval.jurados", "eval.total", "eval.promedio", "eval.puntaje", "eval.lugar"} {
+		catalogo = append(catalogo, CampoDeReporte{Clave: clave, Nivel: NivelEvaluacion})
+	}
+	return append(catalogo, CampoDeReporte{Clave: "dictamen", Nivel: NivelPostulacion, Tipo: CampoResultado})
+}
+
+// GranularidadDeEvaluacion es la granularidad que debe tener un reporte para
+// llevar campos de la evaluación: la de la unidad que califica el jurado
+// (RN-16). En Intérpretes, la postulación; en Compositores, la obra.
+func GranularidadDeEvaluacion(tipo TipoConvocatoria) string {
+	if tipo == TipoCompositores {
+		return GranularidadObra
+	}
+	return GranularidadPostulacion
+}
+
+// ValidarReporte valida la definición de un reporte contra el catálogo de su
+// convocatoria, fija los valores que faltan y devuelve los campos pedidos, en
+// el orden en que se pidieron.
+//
+//   - Un campo de obra sólo cabe en un reporte por obra: en uno por
+//     postulación no hay UNA obra de la que tomarlo.
+//   - Los campos de la evaluación piden la granularidad de la unidad que se
+//     califica. La suma de una obra no es un dato de la postulación entera.
+func ValidarReporte(def *DefinicionDeReporte, cfg ConfiguracionConvocatoria) ([]CampoDeReporte, []ErrorCampo) {
+	var errores []ErrorCampo
+	falla := func(campo, clave string) { errores = append(errores, ErrorCampo{Campo: campo, Clave: clave}) }
+	if def.Granularidad == "" {
+		def.Granularidad = GranularidadPostulacion
+	}
+	if def.Granularidad != GranularidadPostulacion && def.Granularidad != GranularidadObra {
+		falla("granularidad", "error.opcion_invalida")
+	}
+	if def.Separador == "" {
+		def.Separador = "coma"
+	}
+	if def.Separador != "coma" && def.Separador != "punto_y_coma" {
+		falla("separador", "error.opcion_invalida")
+	}
+	if def.PuntajeMin != nil && def.PuntajeMax != nil && *def.PuntajeMax < *def.PuntajeMin {
+		falla("puntaje_max", "error.filtro_invalido")
+	}
+	if len(def.Campos) == 0 || len(def.Campos) > MaxCamposDeReporte {
+		falla("campos", "error.campos_de_reporte")
+		return nil, errores
+	}
+	porClave := make(map[string]CampoDeReporte)
+	for _, campo := range CatalogoDeReporte(cfg) {
+		porClave[campo.Clave] = campo
+	}
+	deEvaluacion := def.PuntajeMin != nil || def.PuntajeMax != nil || def.PorPuntaje
+	pedidos := make([]CampoDeReporte, 0, len(def.Campos))
+	repetidos := make(map[string]bool)
+	for _, clave := range def.Campos {
+		campo, existe := porClave[clave]
+		if !existe || repetidos[clave] {
+			falla("campos", "error.campos_de_reporte")
+			return nil, errores
+		}
+		repetidos[clave] = true
+		pedidos = append(pedidos, campo)
+		if campo.Nivel == NivelObra && def.Granularidad != GranularidadObra {
+			falla("granularidad", "error.reporte_por_obra")
+			return nil, errores
+		}
+		deEvaluacion = deEvaluacion || campo.Nivel == NivelEvaluacion
+	}
+	if deEvaluacion && def.Granularidad != GranularidadDeEvaluacion(cfg.Convocatoria.Tipo) {
+		falla("granularidad", "error.reporte_por_unidad")
+	}
+	return pedidos, errores
+}
+
+// EdadEn calcula los años cumplidos a una fecha de referencia a partir de una
+// fecha de nacimiento AAAA-MM-DD. El segundo valor es false si la fecha no
+// puede leerse o es posterior a la referencia.
+func EdadEn(fechaDeNacimiento string, referencia time.Time) (int, bool) {
+	nacimiento, err := time.Parse("2006-01-02", fechaDeNacimiento)
+	if err != nil || nacimiento.After(referencia) {
+		return 0, false
+	}
+	edad := referencia.Year() - nacimiento.Year()
+	if referencia.Month() < nacimiento.Month() || (referencia.Month() == nacimiento.Month() && referencia.Day() < nacimiento.Day()) {
+		edad--
+	}
+	return edad, true
+}
+
+// CierreDePostulacion devuelve el fin de la etapa de postulación de una
+// convocatoria; el valor cero si no tiene calendario.
+func CierreDePostulacion(c Convocatoria) time.Time {
+	for _, etapa := range c.Etapas {
+		if etapa.Clave == EtapaPostulacion {
+			return etapa.TerminaAt
+		}
+	}
+	return time.Time{}
+}
+
+// ResultadoDeRevision resume en qué quedó la revisión documental de una
+// postulación: «validada», «descartada», «en_revision» o vacío si aún es un
+// borrador.
+func ResultadoDeRevision(estado EstadoDePostulacion) string {
+	switch estado {
+	case PostulacionBorrador:
+		return ""
+	case PostulacionDescartada:
+		return "descartada"
+	case PostulacionEnviada, PostulacionEnRevision, PostulacionEnSubsanacion:
+		return "en_revision"
+	}
+	return "validada"
+}
+
+// ValorDeReporte devuelve el valor de un campo del catálogo para un renglón.
+// Entrega el dato tal como se guarda (la clave de una opción, la fecha en
+// ISO-8601); traducirlo a la lengua del reporte es asunto de la vista.
+func ValorDeReporte(campo CampoDeReporte, f FilaDeReporte) string {
+	p := f.Postulacion
+	marca := func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.UTC().Format(time.RFC3339)
+	}
+	switch campo.Clave {
+	case "folio":
+		return p.Folio
+	case "estado":
+		return string(p.Estado)
+	case "envios":
+		return strconv.Itoa(p.Envios)
+	case "primera_enviada_at":
+		if len(p.Acuses) == 0 {
+			return ""
+		}
+		return marca(p.Acuses[0].GeneradoAt)
+	case "enviada_at":
+		return marca(p.EnviadaAt)
+	case "subcategoria":
+		return string(p.Subcategoria)
+	case "usuario.nombre":
+		return strings.TrimSpace(f.Titular.Nombre + " " + f.Titular.Apellidos)
+	case "usuario.email":
+		return f.Titular.Email
+	case "usuario.idioma":
+		return f.Titular.Idioma
+	case "datos.edad":
+		referencia := f.Cierre
+		if referencia.IsZero() {
+			referencia = p.EnviadaAt
+		}
+		if edad, ok := EdadEn(p.Campos["datos.fecha_nacimiento"], referencia); ok {
+			return strconv.Itoa(edad)
+		}
+		return ""
+	case "integrantes":
+		lista := make([]string, 0, len(p.Integrantes))
+		for _, integrante := range p.Integrantes {
+			lista = append(lista, integrante.Nombre+" – "+integrante.Instrumento)
+		}
+		return strings.Join(lista, "; ")
+	case "integrantes.count":
+		return strconv.Itoa(len(p.Integrantes))
+	case "videos":
+		lista := make([]string, 0, len(p.Videos))
+		for _, video := range p.Videos {
+			lista = append(lista, video.URL)
+		}
+		return strings.Join(lista, " ")
+	case "obras.count":
+		return strconv.Itoa(len(p.Obras))
+	case "obras.duracion_total":
+		total := 0
+		for _, obra := range p.Obras {
+			minutos, _ := strconv.Atoi(obra.Campos["obra.duracion_min"]) // vacío cuenta como 0
+			total += minutos
+		}
+		return strconv.Itoa(total)
+	case "obras.titulos":
+		lista := make([]string, 0, len(p.Obras))
+		for _, obra := range p.Obras {
+			lista = append(lista, obra.Campos["obra.titulo"])
+		}
+		return strings.Join(lista, "; ")
+	case "obra.orden":
+		if f.Obra == nil {
+			return ""
+		}
+		return strconv.Itoa(f.Obra.Orden)
+	case "revision.estado":
+		return ResultadoDeRevision(p.Estado)
+	case "revision.motivo_descarte":
+		return p.MotivoDescarte
+	case "revision.observaciones":
+		lista := make([]string, 0, len(f.Observaciones))
+		for _, observacion := range f.Observaciones {
+			lista = append(lista, observacion.Texto)
+		}
+		return strings.Join(lista, " | ")
+	case "revision.subsanaciones":
+		return strconv.Itoa(len(p.Subsanaciones))
+	case "dictamen":
+		return p.DictamenFinal
+	}
+	switch {
+	case campo.Nivel == NivelEvaluacion:
+		return valorDeEvaluacion(campo, f)
+	case campo.Nivel == NivelObra:
+		if f.Obra == nil {
+			return ""
+		}
+		valor := f.Obra.Campos[campo.Clave]
+		if campo.Tipo == CampoDotacion {
+			// La dotación se guarda por id; al reporte va su nombre.
+			for _, dotacion := range f.Dotaciones {
+				if strconv.FormatInt(dotacion.ID, 10) == valor {
+					return dotacion.NombreES
+				}
+			}
+		}
+		return valor
+	}
+	return p.Campos[campo.Clave]
+}
+
+// valorDeEvaluacion devuelve un campo de la evaluación. Vacío si la unidad
+// no llegó a evaluación o si ese jurado no la ha enviado.
+func valorDeEvaluacion(campo CampoDeReporte, f FilaDeReporte) string {
+	r := f.Resultado
+	if r == nil {
+		return ""
+	}
+	if campo.Jurado > 0 {
+		if campo.Jurado > len(f.Jurados) {
+			return ""
+		}
+		juradoID := f.Jurados[campo.Jurado-1].ID
+		if _, excusado := r.Excusas[juradoID]; excusado {
+			if campo.Criterio == nil {
+				return ""
+			}
+			return "excusa"
+		}
+		evaluacion, enviada := r.PorJurado[juradoID]
+		switch {
+		case !enviada:
+			return ""
+		case campo.Criterio == nil:
+			return evaluacion.Observaciones
+		}
+		if puntaje, calificado := evaluacion.Puntajes[campo.Criterio.Clave]; calificado {
+			return strconv.Itoa(puntaje)
+		}
+		return ""
+	}
+	if r.JuradosQueEvaluaron == 0 && campo.Clave != "eval.jurados" {
+		return ""
+	}
+	decimal := func(n float64) string { return strconv.FormatFloat(n, 'f', -1, 64) }
+	switch campo.Clave {
+	case "eval.jurados":
+		return strconv.Itoa(r.JuradosQueEvaluaron)
+	case "eval.total":
+		return strconv.Itoa(r.Total)
+	case "eval.promedio":
+		return decimal(r.Promedio)
+	case "eval.puntaje":
+		return decimal(r.Comparable)
+	case "eval.lugar":
+		if f.Lugar > 0 {
+			return strconv.Itoa(f.Lugar)
+		}
+	}
+	return ""
+}
+
+// LugaresDeLaMatriz da el lugar de cada fila de la matriz de resultados, que
+// ya viene ordenada de mayor a menor puntaje. Los empates quedan a la vista
+// (RF-REP-08): dos unidades con el mismo puntaje comparten lugar y el
+// siguiente se salta (1, 2, 2, 4). Una unidad que nadie ha calificado no
+// tiene lugar (0).
+func LugaresDeLaMatriz(filas []FilaDeResultado) []int {
+	lugares := make([]int, len(filas))
+	for i, fila := range filas {
+		switch {
+		case fila.JuradosQueEvaluaron == 0:
+			lugares[i] = 0
+		case i > 0 && filas[i-1].JuradosQueEvaluaron > 0 && filas[i-1].Comparable == fila.Comparable:
+			lugares[i] = lugares[i-1]
+		default:
+			lugares[i] = i + 1
+		}
+	}
+	return lugares
+}
+
+// ValidarPlantillaDeReporte valida una plantilla que se quiere guardar: un
+// nombre, el tipo de convocatoria al que aplica y la definición, que no debe
+// fijar la convocatoria (para eso es reutilizable).
+func ValidarPlantillaDeReporte(p PlantillaDeReporte) []ErrorCampo {
+	var errores []ErrorCampo
+	if largo := utf8.RuneCountInString(strings.TrimSpace(p.Nombre)); largo == 0 || largo > 100 {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.nombre_de_vista"})
+	}
+	if !p.Tipo.Valido() {
+		errores = append(errores, ErrorCampo{Campo: "tipo", Clave: "error.opcion_invalida"})
+	}
+	valores, err := url.ParseQuery(p.Consulta)
+	if err != nil || len(p.Consulta) > 4000 || valores.Get("campos") == "" || valores.Has("convocatoria") || valores.Has("plantilla") {
+		errores = append(errores, ErrorCampo{Campo: "consulta", Clave: "error.consulta_de_plantilla"})
+	}
+	return errores
+}
+
+// --- Tableros y estadísticas (§5.13) ------------------------------------------
+
+// DiasPorVencer es el margen con que una subsanación abierta se cuenta como
+// «por vencer» en el tablero.
+const DiasPorVencer = 3
+
+// RangosDeEdad son los tramos de la distribución por edad, en orden.
+var RangosDeEdad = []string{"menos_de_18", "18_a_25", "26_a_35", "36_a_45", "46_a_60", "mas_de_60"}
+
+// RangoDeEdad devuelve el tramo al que pertenece una edad.
+func RangoDeEdad(edad int) string {
+	switch {
+	case edad < 18:
+		return RangosDeEdad[0]
+	case edad <= 25:
+		return RangosDeEdad[1]
+	case edad <= 35:
+		return RangosDeEdad[2]
+	case edad <= 45:
+		return RangosDeEdad[3]
+	case edad <= 60:
+		return RangosDeEdad[4]
+	}
+	return RangosDeEdad[5]
+}
+
+// JuradosDe devuelve los jurados activos de una convocatoria, en el orden de
+// su asignación: es el orden en que la matriz y los reportes los numeran.
+func JuradosDe(cfg ConfiguracionConvocatoria) []JuradoEnMatriz {
+	var jurados []JuradoEnMatriz
+	for _, a := range cfg.Asignaciones {
+		if a.Activo && a.Perfil == PerfilJurado {
+			jurados = append(jurados, JuradoEnMatriz{ID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos)})
+		}
+	}
+	return jurados
+}
+
+// --- Interoperabilidad con el portal público (§5.16) --------------------------
+
+// PuedePublicarNomina indica si la nómina de seleccionados de una
+// convocatoria puede publicarse hacia el portal: sólo después del cierre
+// (RF-PUB-04). Que además lo haga un administrador, y por una acción
+// explícita, lo garantiza el controlador: ningún cambio de etapa publica nada.
+func PuedePublicarNomina(c Convocatoria) bool {
+	return c.Estado == EstadoCerrada || c.Estado == EstadoArchivada
+}
+
+// ValidarPublicacionDeNomina valida la acción de publicar (o retirar) la
+// nómina: la convocatoria debe estar cerrada y quien publica debe confirmarlo.
+func ValidarPublicacionDeNomina(c Convocatoria, confirmo bool) []ErrorCampo {
+	if !PuedePublicarNomina(c) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.convocatoria_no_cerrada"}}
+	}
+	if !confirmo {
+		return []ErrorCampo{{Campo: "confirmo", Clave: "error.confirmacion_requerida"}}
+	}
+	return nil
+}
+
+// --- Anonimización ARCO (RF-ARCH-07, RN-28) -----------------------------------
+
+// Límites del fundamento de una anonimización.
+const (
+	fundamentoMinimo = 10
+	fundamentoMaximo = 500
+)
+
+// documentosQueSeConservan son los requisitos documentales que son LA OBRA y
+// por tanto sobreviven a una anonimización. Todo lo demás —la fotografía, la
+// autorización firmada, cualquier requisito que el administrador haya
+// añadido— se purga: ante la duda, un documento se trata como dato personal.
+var documentosQueSeConservan = []string{"partitura", "particellas", "audio"}
+
+// DocumentoSeConserva indica si un documento sobrevive a la anonimización de
+// su postulación.
+func DocumentoSeConserva(clave string) bool {
+	return slices.Contains(documentosQueSeConservan, clave)
+}
+
+// ValidarAnonimizacion valida la solicitud de anonimizar una postulación:
+//
+//   - Sólo sobre postulaciones enviadas (con folio) y no anonimizadas ya.
+//   - Sólo cuando su proceso terminó: la convocatoria está cerrada o
+//     archivada, o la postulación fue descartada. Anonimizar a mitad de la
+//     evaluación dejaría al jurado calificando a nadie.
+//   - Con confirmación doble: marcar que se confirma Y escribir de nuevo el
+//     folio, que debe coincidir.
+//   - Con el fundamento de la solicitud, que queda en la bitácora.
+func ValidarAnonimizacion(p Postulacion, c Convocatoria, s SolicitudDeAnonimizacion) []ErrorCampo {
+	switch {
+	case p.Folio == "":
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_admite"}}
+	case !p.AnonimizadaAt.IsZero():
+		return []ErrorCampo{{Campo: "estado", Clave: "error.ya_anonimizada"}}
+	case !PuedePublicarNomina(c) && p.Estado != PostulacionDescartada:
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.proceso_en_curso"}}
+	}
+	var errores []ErrorCampo
+	if !s.Confirmo {
+		errores = append(errores, ErrorCampo{Campo: "confirmo", Clave: "error.confirmacion_requerida"})
+	}
+	if strings.TrimSpace(s.Folio) != p.Folio {
+		errores = append(errores, ErrorCampo{Campo: "folio", Clave: "error.folio_no_coincide"})
+	}
+	if largo := utf8.RuneCountInString(strings.TrimSpace(s.Fundamento)); largo < fundamentoMinimo || largo > fundamentoMaximo {
+		errores = append(errores, ErrorCampo{Campo: "fundamento", Clave: "error.fundamento_requerido"})
+	}
+	return errores
+}
+
+// FechaAnonimizada reduce una fecha de nacimiento AAAA-MM-DD a su año
+// (AAAA-01-01). El día y el mes identifican; el año solo, no, y basta para
+// que las estadísticas por rango de edad no cambien (RN-28). Una fecha vacía
+// o ilegible queda vacía.
+func FechaAnonimizada(fechaDeNacimiento string) string {
+	if nacimiento, err := time.Parse("2006-01-02", fechaDeNacimiento); err == nil {
+		return fmt.Sprintf("%04d-01-01", nacimiento.Year())
+	}
+	return ""
+}
+
+// TitularParaMostrar devuelve la cuenta titular de una postulación tal como
+// puede mostrarse en un expediente o en un reporte. Si la postulación está
+// anonimizada no se muestra quién la envió, aunque su cuenta siga existiendo:
+// la persona pidió que esta postulación deje de identificarla.
+func TitularParaMostrar(p Postulacion, titular Usuario) Usuario {
+	if p.AnonimizadaAt.IsZero() {
+		return titular
+	}
+	return Usuario{ID: titular.ID, Nombre: TextoAnonimizado, Idioma: titular.Idioma}
 }

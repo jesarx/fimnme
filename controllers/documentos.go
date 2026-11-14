@@ -213,7 +213,12 @@ func (a *App) apiSubirDocumento(w http.ResponseWriter, r *http.Request) {
 	}
 	requisito, errores := models.RequisitoParaDocumento(p, cfg, s.campos["clave"], obraID)
 	if len(errores) == 0 {
-		errores = models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, a.ahora())
+		var permiso models.PermisoDeEdicion
+		permiso, errores = models.PermisoDeEdicionDe(p, cfg.Convocatoria, a.ahora())
+		if len(errores) == 0 && !permiso.Documento(s.campos["clave"], obraID) {
+			// En una subsanación sólo se suben los documentos señalados.
+			errores = []models.ErrorCampo{{Campo: "archivo", Clave: "error.elemento_bloqueado"}}
+		}
 	}
 	if len(errores) > 0 {
 		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
@@ -398,11 +403,34 @@ func (a *App) apiEnviarPostulacion(w http.ResponseWriter, r *http.Request) {
 	// Las ligas de video se comprueban en red justo antes de enviar (RN-08).
 	// Va fuera de la transacción: una consulta a Internet no debe retener la
 	// única conexión de escritura de la base.
-	if p.Estado == models.PostulacionBorrador {
+	reenvio := p.Estado == models.PostulacionEnSubsanacion
+	if p.Estado == models.PostulacionBorrador || reenvio {
 		a.verificarEnlacesDe(r.Context(), id)
 	}
 
-	plantilla, err := a.datos.PlantillaCorreo(r.Context(), models.PlantillaAcuse, sesion.Usuario.Idioma)
+	// El reenvío de una subsanación lleva su propio texto de acuse y avisa a
+	// los revisores de que la postulación volvió a la bandeja (RF-REV-07).
+	clavePlantilla := models.PlantillaAcuse
+	var revisores []models.Usuario
+	avisos := make(map[string]models.PlantillaCorreo) // por idioma
+	if reenvio {
+		clavePlantilla = models.PlantillaAcuseSubsanacion
+		cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), p.ConvocatoriaID)
+		if a.falloDatos(w, r, err) {
+			return
+		}
+		for _, asignacion := range cfg.Asignaciones {
+			if asignacion.Activo && asignacion.Perfil == models.PerfilRevisorDocumental {
+				revisores = append(revisores, asignacion.Usuario)
+			}
+		}
+		for _, idioma := range []string{models.IdiomaES, models.IdiomaEN} {
+			if avisos[idioma], err = a.datos.PlantillaCorreo(r.Context(), models.PlantillaAvisoSubsanada, idioma); a.falloDatos(w, r, err) {
+				return
+			}
+		}
+	}
+	plantilla, err := a.datos.PlantillaCorreo(r.Context(), clavePlantilla, sesion.Usuario.Idioma)
 	if a.falloDatos(w, r, err) {
 		return
 	}
@@ -430,7 +458,25 @@ func (a *App) apiEnviarPostulacion(w http.ResponseWriter, r *http.Request) {
 			"nombre": s.Titular.Nombre, "folio": s.Folio, "convocatoria": titulo, "edicion": edicion,
 			"liga": a.urlBase + "/postulaciones/" + s.Folio,
 		})
-		return models.AcuseCompuesto{Blob: blob, Correo: correo}, nil
+		compuesto := models.AcuseCompuesto{Blob: blob, Correo: correo}
+		for _, revisor := range revisores {
+			idioma := revisor.Idioma
+			if idioma != models.IdiomaEN {
+				idioma = models.IdiomaES
+			}
+			tituloParaRevisor, edicionParaRevisor := s.Convocatoria.TituloES, s.Edicion.NombreES
+			if idioma == models.IdiomaEN && s.Convocatoria.TituloEN != "" {
+				tituloParaRevisor = s.Convocatoria.TituloEN
+			}
+			if idioma == models.IdiomaEN && s.Edicion.NombreEN != "" {
+				edicionParaRevisor = s.Edicion.NombreEN
+			}
+			compuesto.Avisos = append(compuesto.Avisos, views.RenderCorreo(avisos[idioma], revisor.Email, map[string]string{
+				"nombre": revisor.Nombre, "folio": s.Folio, "convocatoria": tituloParaRevisor, "edicion": edicionParaRevisor,
+				"liga": a.urlBase + "/postulaciones/" + s.Folio,
+			}))
+		}
+		return compuesto, nil
 	}
 	err = a.datos.EnviarPostulacion(r.Context(), a.actorDe(r), sesion.Usuario.ID, id,
 		models.ConfirmacionEnvio{Confirmo: entrada.Confirmo, AceptoBases: entrada.AceptoBases}, componer)
