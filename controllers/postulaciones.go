@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jesarx/fimnme/models"
 	"github.com/jesarx/fimnme/views"
@@ -129,6 +130,9 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 	// jurado ni el revisor (el resultado se comunica fuera del sistema).
 	if models.PuedeSupervisar(sesion) {
 		cuerpo["dictamen_final"] = p.DictamenFinal
+	}
+	if !p.AnonimizadaAt.IsZero() {
+		cuerpo["anonimizada_at"] = p.AnonimizadaAt.UTC().Format(time.RFC3339)
 	}
 	a.responder(w, estado, cuerpo)
 }

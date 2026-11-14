@@ -49,12 +49,13 @@ páginas de manual.
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador, envío y congelación al cierre; avance propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **aislamiento entre jurados probado** con un barrido de todos los endpoints. | ✅ Hecho |
 | 9a | **Archivo, búsqueda y descargas masivas.** Un solo listado para todas las ediciones, con visibilidad que no caduca; búsqueda FTS5 tolerante a acentos y por fragmento; filtros combinables en la URL, orden y paginación; CSV del resultado; vistas guardadas; enlace permanente por folio; ZIP en segundo plano con selección de tipos, nomenclatura predecible y `manifiesto.csv`, registrado y con vigencia de 7 días. | ✅ Hecho |
 | 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con catálogo de campos, granularidad por postulación u obra, filtros, rango de puntaje y plantillas reutilizables; reporte de resultados con empates; expediente PDF individual y por convocatoria, **recortado según quién lo pide**, con fotografía, índice y marcadores; tablero de la convocatoria y estadísticas de la edición, con cifras navegables. | ✅ Hecho |
+| 10a | **Continuidad, portal público y anonimización.** `fimnme-cli verify` del acervo; espejo con `VACUUM INTO`, manifiesto firmado con HMAC-SHA256 y acervo replicado por contenido; alerta de espacio en disco; exportación sanitizada al portal público (lista blanca hecha tipo) con publicación explícita de la nómina; anonimización ARCO con confirmación doble. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
+| 10b | **Importación, extensión de campos y TUI.** Importación asistida en dos fases (Analyze → Commit), por CLI y por API; extensión dinámica de nodos con lista blanca (`schema add` / `drop`); modo interactivo `--tui`; `export-csv` desde una plantilla. | §5.14, §5.14.1, §5.15, RN-29 a 33 | Pendiente |
 
 ### Frontal
 
@@ -96,6 +97,45 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 10a — qué se entregó
+
+El paso 10 se partió en dos: **10a** (esto) y **10b** (importación asistida, extensión
+dinámica de campos y TUI).
+
+**Decisiones:** [ADR 0014](adr/0014-continuidad-portal-publico-y-anonimizacion.md).
+
+- **`fimnme-cli verify`**: compara el acervo con lo que la base registra. Distingue
+  pérdida, alteración, purga pendiente y huérfanos; termina con error si falta o cambió
+  algo. `--rapido` y `--purgar`.
+- **`fimnme-cli mirror`**: `snapshot` copia la base en caliente, replica el acervo por
+  contenido y firma un manifiesto con HMAC-SHA256; `verify` lo comprueba todo sin la base
+  en producción; `nueva-clave` y `list`.
+- **Alerta de espacio en disco** en `fimnme-web`: log y correo diario a los
+  administradores por debajo de `FIMNME_DISCO_MIN_GB`.
+- **Exportación al portal público**: `GET /api/v1/interop/convocatoria.json` y
+  `fimnme-cli export-json`. Bases, calendario y dotaciones en vivo; la **nómina de
+  seleccionados, sólo la que el administrador publicó** tras el cierre, congelada.
+- **Anonimización ARCO**: `fimnme-cli arco anonimizar FOLIO` y
+  `POST /api/v1/postulaciones/{id}/anonimizacion`. Borra los datos personales y los
+  archivos que los llevan; conserva obra, dictamen, evaluaciones y estadísticas.
+- Migración `0007`.
+
+**Verificado.** `make verificar`. Pruebas del modelo (firma y manipulación del manifiesto,
+verificación y réplica del acervo, lista blanca del portal campo por campo, reglas de la
+anonimización), de extremo a extremo (el portal en cada momento del proceso, con una lista
+negra que nunca debe aparecer; la anonimización, con los agregados idénticos antes y
+después; la alerta de disco) y de la herramienta. Una mutación que quita el filtro de
+seleccionadas hace fallar las pruebas. En vivo, con los binarios: migración de una base
+del paso 9b, `verify`, instantánea y su verificación sin base, exportación, y una
+anonimización completa —con sus rechazos— seguida de la retirada de los archivos del
+espejo.
+
+**Sin verificar aquí.** El transporte de la instantánea a otro servidor (rsync, `timer`
+de systemd), que es del paso 14. La verificación completa sobre un acervo de decenas de
+gigas.
+
+**No se hizo:** `export-csv` (prioridad S; va con el 10b).
 
 ## Paso 9b — qué se entregó
 
@@ -584,3 +624,21 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     borradores no.
 50. **Las partituras no se anexan al expediente** por ahora: se bajan con la descarga
     masiva (ADR 0013, §3).
+51. **De la nómina publicada salen el nombre artístico, la subcategoría, la semblanza y
+    los títulos de las obras.** No sale el compositor de cada obra de un programa de
+    Intérpretes: la lista blanca de la especificación no lo menciona (ADR 0014, §4).
+52. **La semblanza que se publica es la que el postulante capturó** en su postulación. Si
+    el portal debe llevar otra, hará falta un campo aparte.
+53. **El resultado se registra por postulación**, también en Compositores, donde el jurado
+    califica cada obra: una postulación seleccionada publica todas sus obras.
+54. **Qué conserva una anonimización**: partitura, particellas y audio (la obra); el año
+    de nacimiento, sin día ni mes; género, nacionalidad, país y entidad. Todo documento
+    que no sea la obra se borra (ADR 0014, §5).
+55. **Una postulación sólo se anonimiza con su proceso terminado**: convocatoria cerrada o
+    archivada, o postulación descartada.
+56. **La cuenta sólo se anonimiza si se pide** y si no tiene otras postulaciones.
+57. **Las instantáneas del espejo se conservan 90 días.** Hasta entonces, las anteriores a
+    una anonimización siguen conteniendo los datos borrados.
+58. **Umbral de la alerta de disco: 10 GB libres**, configurable.
+59. **La nómina se publica desde la API**, no desde la línea de órdenes: el registro exige
+    la cuenta del administrador que la autoriza.

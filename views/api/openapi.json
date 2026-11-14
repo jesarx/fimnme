@@ -1878,6 +1878,186 @@
         ]
       }
     },
+    "/api/v1/convocatorias/{id}/publicacion": {
+      "get": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Vista previa de la nómina y publicaciones anteriores",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lo que se publicaría ahora y lo ya publicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publicacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Publica o retira la nómina de seleccionados",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de la publicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publicacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sólo con la convocatoria cerrada o archivada, y sólo por esta acción explícita: ningún cambio de etapa publica nada. Lo publicado queda congelado; un cambio posterior de dictamen no sale hasta volver a publicar. Queda registrado con su SHA-256.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Debe ser true"
+                  },
+                  "retirar": {
+                    "type": "boolean",
+                    "description": "Con true retira la nómina del portal en vez de publicarla"
+                  }
+                },
+                "required": [
+                  "confirmo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/convocatorias/{id}/reporte": {
       "get": {
         "tags": [
@@ -4707,6 +4887,51 @@
         ]
       }
     },
+    "/api/v1/interop/convocatoria.json": {
+      "get": {
+        "tags": [
+          "Portal público"
+        ],
+        "summary": "Exportación sanitizada para el portal público",
+        "x-perfiles": [
+          "publico"
+        ],
+        "responses": {
+          "200": {
+            "description": "Ediciones con sus convocatorias públicas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InteropPortal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lista blanca: bases y títulos en ambos idiomas, fechas de cada etapa, catálogo de dotaciones y, si el administrador la publicó tras el cierre, la nómina de seleccionados (nombre artístico, semblanza y títulos de obra). Nunca lleva datos de contacto, fechas de nacimiento, documentos, dictámenes ni calificaciones. La nómina no se calcula al exportar: sale la última publicada.",
+        "parameters": [
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición; sin él, todas",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/obras/{id}": {
       "patch": {
         "tags": [
@@ -5180,6 +5405,129 @@
             }
           }
         ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/postulaciones/{id}/anonimizacion": {
+      "post": {
+        "tags": [
+          "Protección de datos"
+        ],
+        "summary": "Anonimiza una postulación (solicitud ARCO)",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Lo que se hizo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Anonimizacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La única operación destructiva del sistema; no se puede deshacer. Borra nombre, contacto, semblanza, ligas, fotografía, autorizaciones y acuses; conserva la obra, el dictamen, las evaluaciones y los datos estadísticos. Sólo cuando la convocatoria cerró o la postulación fue descartada.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "folio": {
+                    "type": "string",
+                    "description": "El folio, escrito de nuevo: es la segunda confirmación"
+                  },
+                  "fundamento": {
+                    "type": "string",
+                    "description": "Referencia de la solicitud, de 10 a 500 caracteres; queda en la bitácora. Sin datos personales"
+                  },
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Debe ser true"
+                  },
+                  "con_cuenta": {
+                    "type": "boolean",
+                    "description": "Anonimiza también la cuenta, si no tiene otras postulaciones sin anonimizar"
+                  }
+                },
+                "required": [
+                  "folio",
+                  "fundamento",
+                  "confirmo"
+                ]
+              }
+            }
+          }
+        },
         "security": [
           {
             "sesion": []
@@ -9688,6 +10036,10 @@
           "dictamen_final": {
             "type": "string",
             "description": "Resultado del proceso; sólo lo recibe la supervisión"
+          },
+          "anonimizada_at": {
+            "type": "string",
+            "description": "Sólo si fue anonimizada por una solicitud ARCO"
           }
         }
       },
@@ -10762,6 +11114,226 @@
           },
           "rangos_de_edad": {
             "type": "string"
+          }
+        }
+      },
+      "InteropPortal": {
+        "type": "object",
+        "properties": {
+          "generado_at": {
+            "type": "string"
+          },
+          "ediciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "numero": {
+                  "type": "integer"
+                },
+                "anio": {
+                  "type": "integer"
+                },
+                "nombre_es": {
+                  "type": "string"
+                },
+                "nombre_en": {
+                  "type": "string"
+                },
+                "convocatorias": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "tipo": {
+                        "type": "string"
+                      },
+                      "estado": {
+                        "type": "string"
+                      },
+                      "titulo_es": {
+                        "type": "string"
+                      },
+                      "titulo_en": {
+                        "type": "string"
+                      },
+                      "bases_md_es": {
+                        "type": "string"
+                      },
+                      "bases_md_en": {
+                        "type": "string"
+                      },
+                      "etapas": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "clave": {
+                              "type": "string"
+                            },
+                            "inicia_at": {
+                              "type": "string"
+                            },
+                            "termina_at": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "dotaciones": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "nombre_es": {
+                              "type": "string"
+                            },
+                            "nombre_en": {
+                              "type": "string"
+                            },
+                            "descripcion_es": {
+                              "type": "string"
+                            },
+                            "descripcion_en": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "nomina": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "publicada_at": {
+                                "type": "string"
+                              },
+                              "seleccionados": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "nombre": {
+                                      "type": "string"
+                                    },
+                                    "subcategoria": {
+                                      "type": "string"
+                                    },
+                                    "semblanza": {
+                                      "type": "string"
+                                    },
+                                    "obras": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "titulo": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "Última nómina publicada; null si no hay o se retiró"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Publicacion": {
+        "type": "object",
+        "properties": {
+          "puede_publicar": {
+            "type": "boolean"
+          },
+          "vista_previa": {
+            "type": "object",
+            "properties": {
+              "seleccionados": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "nombre": {
+                      "type": "string"
+                    },
+                    "subcategoria": {
+                      "type": "string"
+                    },
+                    "semblanza": {
+                      "type": "string"
+                    },
+                    "obras": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "titulo": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "publicaciones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "autorizado_por": {
+                  "type": "string"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Anonimizacion": {
+        "type": "object",
+        "properties": {
+          "postulacion_id": {
+            "type": "integer"
+          },
+          "folio": {
+            "type": "string"
+          },
+          "archivos_purgados": {
+            "type": "integer"
+          },
+          "archivos_por_purgar": {
+            "type": "integer",
+            "description": "Marcados que no pudieron borrarse del disco"
+          },
+          "archivos_conservados": {
+            "type": "integer"
+          },
+          "cuenta_anonimizada": {
+            "type": "boolean"
           }
         }
       }

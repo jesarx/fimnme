@@ -19,8 +19,15 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 9b de 14: reportes, expediente y tableros.** Hoy el sistema tiene:
+**Paso 10a de 14: continuidad operativa, portal público y anonimización.** Hoy el sistema tiene:
 
+- **Continuidad operativa** desde `fimnme-cli`: verificación del acervo de archivos contra
+  la base, **instantáneas firmadas** (HMAC-SHA256) para el servidor espejo y alerta de
+  espacio en disco.
+- **Exportación al portal público**: un JSON que sólo puede llevar lo que la lista blanca
+  permite. La nómina de seleccionados sale únicamente cuando el administrador la publica,
+  después del cierre.
+- **Anonimización ARCO**: la única operación destructiva, con confirmación doble.
 - **Expediente en PDF**, de una postulación o de toda una convocatoria (con índice y
   marcadores), con la fotografía. **Su contenido se recorta según quién lo pide**: un
   jurado nunca recibe la evaluación de otro.
@@ -451,6 +458,33 @@ curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: applicati
 
 Decisiones de este módulo: [ADR 0013](docs/adr/0013-reportes-expediente-y-tableros.md).
 
+### API del portal público y de protección de datos
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/interop/convocatoria.json` | Público | Exportación para el portal: bases, calendario, dotaciones y la nómina publicada. `?edicion=N` |
+| `GET /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | Vista previa de la nómina y publicaciones anteriores |
+| `POST /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | `{"confirmo": true}` publica la nómina; con `"retirar": true` la retira. Sólo con la convocatoria cerrada |
+| `POST /api/v1/postulaciones/{id}/anonimizacion` | `admin_sistema` | Anonimiza: `folio` (escrito de nuevo), `fundamento`, `confirmo` y `con_cuenta` |
+
+**Qué sale al portal, y qué no.** Salen los títulos y las bases en ambos idiomas, las
+fechas de cada etapa, el catálogo de dotaciones y, de cada seleccionado, el nombre
+artístico, la semblanza y los títulos de sus obras. **Nunca** salen datos de contacto,
+fechas de nacimiento, documentos, dictámenes, calificaciones, postulaciones no
+seleccionadas ni borradores. Cerrar una convocatoria **no publica** la nómina: hace falta
+la acción explícita del administrador, y lo publicado queda congelado hasta que vuelva a
+publicar.
+
+```bash
+curl http://127.0.0.1:8080/api/v1/interop/convocatoria.json
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"confirmo":true}' http://127.0.0.1:8080/api/v1/convocatorias/1/publicacion
+```
+
+Decisiones de este módulo: [ADR 0014](docs/adr/0014-continuidad-portal-publico-y-anonimizacion.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -472,11 +506,13 @@ crean sus propias bases SQLite temporales; no tocan `./data`.
 ```
 cmd/
   fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
-  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, sembrar-demo)
+  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, verify, mirror,
+                      export-json, arco, sembrar-demo)
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
   blobs.go            almacén de archivos en disco, direccionado por SHA-256
+  mirror.go           verificación del acervo e instantáneas firmadas del espejo
   catalogos.go        catálogos fijos: países y entidades federativas
   persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
   repository.go       persistencia sobre SQLite: TODO el SQL del sistema
@@ -496,6 +532,8 @@ controllers/        CONTROLADOR
   evaluacion.go       evaluación por jurado y matriz de resultados
   archivo.go          archivo histórico, vistas guardadas y descargas masivas
   expediente.go       expediente en PDF: qué carga para cada quien
+  interop.go          portal público, publicación de la nómina y anonimización
+  disco.go            alerta de espacio en disco
   reportes.go         reportes CSV, plantillas de reporte y tableros
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
@@ -722,6 +760,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | `FIMNME_DATOS` | `--datos` | `data` | Directorio de datos. En el VPS la unidad de systemd lo fija en `/var/lib/fimnme`. |
 | `FIMNME_URL_BASE` | `--url-base` | — | Dirección pública del sitio, sin barra final (`https://dev.fimnme.example`). Con ella se arman los enlaces de los correos. En `desarrollo`, si falta, se usa la dirección local y se avisa en el log; en `produccion` el servicio no arranca sin ella. |
 | `FIMNME_CORREO_POR_MINUTO` | `--correo-por-minuto` | `30` | Máximo de correos que se envían por minuto. |
+| `FIMNME_DISCO_MIN_GB` | `--disco-min-gb` | `10` | Espacio libre mínimo del disco de datos, en GB. Por debajo, el servicio lo registra como error y avisa por correo a los administradores una vez al día. `0` no vigila. |
 
 ### Operación diaria
 
@@ -735,6 +774,9 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Manual de los binarios | `man fimnme-web` · `man fimnme-cli` |
 | Aplicar migraciones a mano | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme migrate` |
 | Ver los correos (no se envían aún) | `journalctl -u fimnme-web \| grep "correo NO enviado"` |
+| Verificar el acervo (rápido) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify --rapido` |
+| Verificar el acervo (completo) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify` |
+| Exportación para el portal | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-json --salida /tmp/convocatoria.json` |
 
 > **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
 > `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
@@ -751,21 +793,90 @@ El directorio `exportaciones/` guarda los ZIP de las descargas masivas y los exp
 por convocatoria durante siete días.
 **No hace falta respaldarlo**: son copias de lo que ya está en `blobs/`.
 
-Los respaldos automatizados y el servidor espejo llegan en los pasos 10 y 14. Mientras
-tanto, para copiar los datos **sin riesgo de corrupción** detenga el servicio y copie el
-directorio completo (el archivo `-wal` puede contener datos aún no integrados):
+#### Instantánea firmada (sin detener el servicio)
+
+`fimnme-cli mirror snapshot` copia la base **en caliente**, replica el acervo y firma el
+resultado. Es la forma de respaldar y de alimentar el servidor espejo.
+
+Una sola vez, genere la clave de firma (fuera del directorio de datos y del destino):
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli mirror nueva-clave --clave /etc/fimnme/espejo.clave
+```
+
+Cada vez:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme mirror snapshot --destino /var/backups/fimnme --clave /etc/fimnme/espejo.clave
+```
+
+En el destino quedan `instantaneas/fimnme-<fecha>.db` con su manifiesto firmado y
+`blobs/` con el acervo. Para comprobar una instantánea —en este servidor o en el espejo,
+donde basta con el destino y la clave—:
+
+```bash
+/opt/fimnme/bin/fimnme-cli mirror verify --destino /var/backups/fimnme --clave /etc/fimnme/espejo.clave
+```
+
+Verifica la firma, que la base sea la del manifiesto, su integridad interna y que estén
+todos los archivos que registra. Las instantáneas se conservan 90 días
+(`--conservar-dias`).
+
+> Llevar el destino a otro servidor (rsync sobre SSH) y programarlo con un `timer` llega
+> con los respaldos automatizados, en el paso 14. La clave debe copiarse al espejo por un
+> canal seguro y **no** guardarse junto a las instantáneas.
+
+#### Restaurar
+
+Con el servicio detenido, copie la instantánea verificada como `fimnme.db` y el acervo
+como `blobs/`, y borre los archivos `-wal` y `-shm` que hubiera:
 
 ```bash
 sudo systemctl stop fimnme-web
 ```
 
 ```bash
-sudo cp -a /var/lib/fimnme /var/lib/fimnme.respaldo-$(date +%Y%m%d)
+sudo -u fimnme cp /var/backups/fimnme/instantaneas/fimnme-<fecha>.db /var/lib/fimnme/fimnme.db
+```
+
+```bash
+sudo -u fimnme rm -f /var/lib/fimnme/fimnme.db-wal /var/lib/fimnme/fimnme.db-shm
+```
+
+```bash
+sudo -u fimnme cp -a /var/backups/fimnme/blobs/. /var/lib/fimnme/blobs/
+```
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify
 ```
 
 ```bash
 sudo systemctl start fimnme-web
 ```
+
+### Anonimizar una postulación (solicitud ARCO)
+
+Es **la única operación que borra datos**, y no se puede deshacer. Sólo procede con el
+proceso terminado (la convocatoria cerrada o archivada, o la postulación descartada).
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme arco anonimizar FIM49-INT-0137 --fundamento "Solicitud ARCO 2031/014"
+```
+
+La herramienta muestra qué va a borrar y pide **dos confirmaciones**: volver a escribir el
+folio y después la palabra `ANONIMIZAR`. Con `--con-cuenta` anonimiza también la cuenta
+del titular, si no tiene otras postulaciones.
+
+- **Se borran:** nombre, nombre artístico, teléfono, correo de contacto, semblanza, el día
+  y el mes de nacimiento, los nombres de los integrantes, las ligas, la fotografía, las
+  autorizaciones, los acuses y el texto de los correos que se le enviaron.
+- **Se conservan:** la obra (títulos, partituras, particellas y audio), el dictamen, las
+  evaluaciones y los datos estadísticos.
+
+En `--fundamento` escriba la referencia de la solicitud, **no datos de la persona**: queda
+en la bitácora. Después tome una instantánea nueva para retirar los archivos del espejo.
+Las instantáneas y los respaldos anteriores conservan los datos hasta que vencen.
 
 ### Volver a una versión anterior
 
@@ -788,9 +899,9 @@ copia antes de desplegar una versión que traiga migraciones.
 ### Pendiente en despliegue
 
 El despliegue conteinerizado que exige la política institucional (`Containerfile`,
-`compose.yaml`, unidades Quadlet) y los respaldos automatizados corresponden al paso 14
-del plan; el servidor espejo, al paso 10. Para el entorno de desarrollo se usa el flujo
-de binarios + systemd descrito aquí.
+`compose.yaml`, unidades Quadlet), los respaldos automatizados y el transporte de las
+instantáneas al servidor espejo corresponden al paso 14 del plan. Para el entorno de
+desarrollo se usa el flujo de binarios + systemd descrito aquí.
 
 ## Dependencias
 

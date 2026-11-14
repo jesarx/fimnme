@@ -177,7 +177,8 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 		if a.falloDatos(w, r, err) {
 			return
 		}
-		base := models.FilaDeReporte{Postulacion: p, Titular: titular.Usuario, Jurados: jurados, Dotaciones: cfg.Dotaciones, Cierre: cierre}
+		base := models.FilaDeReporte{Postulacion: p, Titular: models.TitularParaMostrar(p, titular.Usuario), Jurados: jurados,
+			Dotaciones: cfg.Dotaciones, Cierre: cierre}
 		if conObservaciones {
 			revision, err := a.datos.RevisionDe(r.Context(), p.ID)
 			if a.falloDatos(w, r, err) {

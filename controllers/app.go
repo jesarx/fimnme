@@ -273,6 +273,15 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/convocatorias/{id}/tablero", a.supervisa(a.apiTablero)},
 		{"GET", "/api/v1/ediciones/{id}/estadisticas", a.supervisa(a.apiEstadisticas)},
 
+		// Portal público: exportación sanitizada (pública) y publicación
+		// explícita de la nómina de seleccionados (administrador).
+		{"GET", "/api/v1/interop/convocatoria.json", a.apiInterop},
+		{"GET", "/api/v1/convocatorias/{id}/publicacion", a.administra(a.apiPublicacion)},
+		{"POST", "/api/v1/convocatorias/{id}/publicacion", a.administra(a.apiPublicarNomina)},
+
+		// Anonimización ARCO: la única operación destructiva.
+		{"POST", "/api/v1/postulaciones/{id}/anonimizacion", a.administra(a.apiAnonimizar)},
+
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
 		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},

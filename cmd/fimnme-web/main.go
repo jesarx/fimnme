@@ -85,6 +85,7 @@ func main() {
 		dirDatos       string
 		urlBase        string
 		correoMinuto   int
+		discoMinGB     int
 		mostrarVersion bool
 	)
 	// -s y --serve son la misma bandera, como en los demás sistemas de la CNMO.
@@ -103,6 +104,8 @@ func main() {
 		"dirección pública del sitio, para los enlaces de los correos; p. ej. https://postula.ejemplo.mx (FIMNME_URL_BASE)")
 	flag.IntVar(&correoMinuto, "correo-por-minuto", enteroDeEntorno("FIMNME_CORREO_POR_MINUTO", 30),
 		"máximo de correos que se envían por minuto (FIMNME_CORREO_POR_MINUTO)")
+	flag.IntVar(&discoMinGB, "disco-min-gb", enteroDeEntorno("FIMNME_DISCO_MIN_GB", 10),
+		"espacio libre mínimo del disco de datos, en GB; por debajo se alerta. 0 no vigila (FIMNME_DISCO_MIN_GB)")
 	flag.BoolVar(&mostrarVersion, "version", false, "muestra la versión y termina")
 	flag.Parse()
 
@@ -211,7 +214,11 @@ func main() {
 	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
 	exportaciones := &controllers.TrabajadorExportaciones{Datos: repositorio, Almacen: almacen, Vistas: vistas, Log: log,
 		Directorio: filepath.Join(dirDatos, "exportaciones"), URLBase: urlBase}
-	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar, exportaciones.Ejecutar} {
+	// Vigilante del espacio en disco: alerta antes de que el disco se llene.
+	disco := &controllers.TrabajadorDisco{Datos: repositorio, Vistas: vistas, Log: log, Directorio: dirDatos,
+		MinimoLibre: uint64(max(discoMinGB, 0)) << 30}
+	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar,
+		exportaciones.Ejecutar, disco.Ejecutar} {
 		trabajadores.Go(func() { ejecutar(ctx) })
 	}
 

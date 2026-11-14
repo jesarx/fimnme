@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"net/url"
@@ -2295,15 +2296,15 @@ func (r *Repositorio) ConsultarAuditoria(ctx context.Context, f FiltroAuditoria)
 const sqlPostulacion = `
 SELECT p.id, p.convocatoria_id, p.usuario_id, COALESCE(p.subcategoria, ''), COALESCE(p.folio, ''),
        p.estado, p.envios, p.creado_at, p.actualizado_at, COALESCE(p.enviada_at, ''), COALESCE(p.motivo_descarte, ''),
-       COALESCE(p.dictamen, '')
+       COALESCE(p.dictamen, ''), COALESCE(p.anonimizada_at, '')
 FROM postulacion p`
 
 // leerPostulacion vuelca una fila de sqlPostulacion en la entidad, sin lo capturado.
 func leerPostulacion(f fila) (Postulacion, error) {
 	var p Postulacion
-	var subcategoria, estado, creado, actualizado, enviada string
+	var subcategoria, estado, creado, actualizado, enviada, anonimizada string
 	err := f.Scan(&p.ID, &p.ConvocatoriaID, &p.UsuarioID, &subcategoria, &p.Folio, &estado, &p.Envios, &creado, &actualizado,
-		&enviada, &p.MotivoDescarte, &p.DictamenFinal)
+		&enviada, &p.MotivoDescarte, &p.DictamenFinal, &anonimizada)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Postulacion{}, ErrNoEncontrado
 	}
@@ -2316,6 +2317,11 @@ func leerPostulacion(f fila) (Postulacion, error) {
 	}
 	if p.ActualizadoAt, err = deMarca(actualizado); err != nil {
 		return Postulacion{}, err
+	}
+	if anonimizada != "" {
+		if p.AnonimizadaAt, err = deMarca(anonimizada); err != nil {
+			return Postulacion{}, err
+		}
 	}
 	if enviada != "" {
 		p.EnviadaAt, err = deMarca(enviada)
@@ -3089,8 +3095,16 @@ func acusesDe(ctx context.Context, q consultor, postulacionID int64) ([]Acuse, e
 // SHA-256) devuelve el id existente: es la deduplicación de RF-DOC-02.
 func (r *Repositorio) guardarArchivo(ctx context.Context, tx *sql.Tx, blob Blob, mime, nombreOriginal string) (int64, error) {
 	var id int64
-	err := tx.QueryRowContext(ctx, "SELECT id FROM archivo WHERE sha256 = ?", blob.SHA256).Scan(&id)
+	var purgado sql.NullString
+	err := tx.QueryRowContext(ctx, "SELECT id, purgado_at FROM archivo WHERE sha256 = ?", blob.SHA256).Scan(&id, &purgado)
 	if err == nil {
+		if purgado.Valid {
+			// El contenido se había purgado en una anonimización y alguien
+			// acaba de subirlo otra vez: vuelve a estar en el almacén.
+			if _, err := tx.ExecContext(ctx, "UPDATE archivo SET purgado_at = NULL, nombre_original = ?, mime = ? WHERE id = ?", nombreOriginal, mime, id); err != nil {
+				return 0, fmt.Errorf("restituir archivo purgado: %w", err)
+			}
+		}
 		return id, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -4801,18 +4815,22 @@ func (r *Repositorio) reindexar(ctx context.Context, tx *sql.Tx, postulacionID i
 	p := Postulacion{ID: postulacionID, Campos: make(map[string]string)}
 	var titular Usuario
 	var completoSolista, artisticoSolista, correoSolista, ensamble, representante, correoEnsamble string
-	var completoCompositor, artisticoCompositor, correoCompositor string
+	var completoCompositor, artisticoCompositor, correoCompositor, anonimizada string
 	err := tx.QueryRowContext(ctx, `
-		SELECT COALESCE(p.folio, ''), u.nombre, u.apellidos, u.email,
+		SELECT COALESCE(p.anonimizada_at, ''), COALESCE(p.folio, ''), u.nombre, u.apellidos, u.email,
 		       COALESCE(ds.nombre_completo, ''), COALESCE(ds.nombre_artistico, ''), COALESCE(ds.email_contacto, ''),
 		       COALESCE(de.nombre_ensamble, ''), COALESCE(de.representante, ''), COALESCE(de.email_contacto, ''),
 		       COALESCE(dc.nombre_completo, ''), COALESCE(dc.nombre_artistico, ''), COALESCE(dc.email_contacto, '')
 		FROM postulacion p JOIN usuario u ON u.id = p.usuario_id`+unionesDeDatos+`
-		WHERE p.id = ?`, postulacionID).Scan(&p.Folio, &titular.Nombre, &titular.Apellidos, &titular.Email,
+		WHERE p.id = ?`, postulacionID).Scan(&anonimizada, &p.Folio, &titular.Nombre, &titular.Apellidos, &titular.Email,
 		&completoSolista, &artisticoSolista, &correoSolista, &ensamble, &representante, &correoEnsamble,
 		&completoCompositor, &artisticoCompositor, &correoCompositor)
 	if err != nil {
 		return fmt.Errorf("leer datos para el índice de búsqueda: %w", err)
+	}
+	if anonimizada != "" {
+		// Una postulación anonimizada ya no se encuentra por quien la envió.
+		titular = Usuario{}
 	}
 	p.Campos["datos.nombre_completo"] = completoSolista + completoCompositor
 	p.Campos["datos.nombre_artistico"] = artisticoSolista + artisticoCompositor
@@ -5771,4 +5789,580 @@ func (r *Repositorio) EstadisticasDeEdicion(ctx context.Context, edicionID, conv
 		}
 	}
 	return e, filas.Err()
+}
+
+// =============================================================================
+// 16. Continuidad operativa, portal público y anonimización
+// =============================================================================
+
+// --- Acervo y espejo (§5.17) --------------------------------------------------
+
+// sqlArchivosRegistrados lee todos los archivos que la base registra, con la
+// marca de los que se purgaron.
+const sqlArchivosRegistrados = "SELECT id, sha256, clave, mime, tamano_bytes, COALESCE(purgado_at, '') FROM archivo ORDER BY id"
+
+// archivosRegistrados ejecuta sqlArchivosRegistrados.
+func archivosRegistrados(ctx context.Context, q consultor) ([]Archivo, error) {
+	filas, err := q.QueryContext(ctx, sqlArchivosRegistrados)
+	if err != nil {
+		return nil, fmt.Errorf("leer archivos registrados: %w", err)
+	}
+	defer filas.Close()
+	var archivos []Archivo
+	for filas.Next() {
+		var a Archivo
+		var purgado string
+		if err := filas.Scan(&a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes, &purgado); err != nil {
+			return nil, fmt.Errorf("leer archivos registrados: %w", err)
+		}
+		if purgado != "" {
+			if a.PurgadoAt, err = deMarca(purgado); err != nil {
+				return nil, err
+			}
+		}
+		archivos = append(archivos, a)
+	}
+	return archivos, filas.Err()
+}
+
+// ArchivosRegistrados devuelve todos los archivos que la base registra: es lo
+// que la verificación del acervo compara con el disco (RF-CLI-08).
+func (r *Repositorio) ArchivosRegistrados(ctx context.Context) ([]Archivo, error) {
+	return archivosRegistrados(ctx, r.lectura)
+}
+
+// RegistrarVerificacion deja en la bitácora el resultado de una verificación
+// del acervo: cuántos archivos se revisaron y cuántos problemas hubo.
+func (r *Repositorio) RegistrarVerificacion(ctx context.Context, actor Actor, v VerificacionDeAcervo, rapida bool) error {
+	return r.operacion(ctx, "registrar verificación del acervo", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "acervo.verificar", "archivo", 0, nil, map[string]any{
+			"registrados": v.Registrados, "correctos": v.Correctos, "faltantes": len(v.Faltantes), "alterados": len(v.Alterados),
+			"purgados_presentes": len(v.PurgadosPresentes), "huerfanos": len(v.Huerfanos), "rapida": rapida})
+	})
+}
+
+// InstantaneaEn escribe en la ruta dada una copia completa y consistente de
+// la base, sin detener el servicio (RF-OPS-01). ESPECÍFICO DE SQLITE: es
+// VACUUM INTO, que no puede ejecutarse dentro de una transacción. Con
+// MariaDB el espejo se haría con sus propias herramientas de réplica.
+func (r *Repositorio) InstantaneaEn(ctx context.Context, ruta string) error {
+	if _, err := r.escritura.ExecContext(ctx, "VACUUM INTO ?", ruta); err != nil {
+		return fmt.Errorf("tomar la instantánea de la base: %w", err)
+	}
+	return nil
+}
+
+// RegistrarInstantanea asienta una instantánea del espejo en snapshot_espejo
+// y en la bitácora (RF-OPS-06).
+func (r *Repositorio) RegistrarInstantanea(ctx context.Context, actor Actor, i InstantaneaDeEspejo) error {
+	return r.operacion(ctx, "registrar instantánea", func(tx *sql.Tx) error {
+		estado := "ok"
+		if !i.Correcta {
+			estado = "error"
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO snapshot_espejo (ruta, sha256, hmac_sha256, tamano_bytes, archivos_ok, archivos_faltantes, destino, estado, detalle, creado_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			i.Ruta, i.SHA256, i.HMACSHA256, i.TamanoBytes, i.ArchivosOK, i.ArchivosFaltantes, i.Destino, estado, nuloSiVacio(i.Detalle), r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "espejo.instantanea", "snapshot_espejo", id, nil, map[string]any{
+			"sha256": i.SHA256, "tamano_bytes": i.TamanoBytes, "archivos_ok": i.ArchivosOK, "archivos_faltantes": i.ArchivosFaltantes, "estado": estado})
+	})
+}
+
+// UltimasInstantaneas devuelve las instantáneas registradas más recientes.
+func (r *Repositorio) UltimasInstantaneas(ctx context.Context, limite int) ([]InstantaneaDeEspejo, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT id, ruta, sha256, hmac_sha256, tamano_bytes, COALESCE(archivos_ok, 0), COALESCE(archivos_faltantes, 0),
+		       COALESCE(destino, ''), estado, COALESCE(detalle, ''), creado_at
+		FROM snapshot_espejo ORDER BY id DESC LIMIT ?`, limite)
+	if err != nil {
+		return nil, fmt.Errorf("leer instantáneas: %w", err)
+	}
+	defer filas.Close()
+	var lista []InstantaneaDeEspejo
+	for filas.Next() {
+		var i InstantaneaDeEspejo
+		var estado, creado string
+		if err := filas.Scan(&i.ID, &i.Ruta, &i.SHA256, &i.HMACSHA256, &i.TamanoBytes, &i.ArchivosOK, &i.ArchivosFaltantes,
+			&i.Destino, &estado, &i.Detalle, &creado); err != nil {
+			return nil, fmt.Errorf("leer instantáneas: %w", err)
+		}
+		i.Correcta = estado == "ok"
+		if i.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		lista = append(lista, i)
+	}
+	return lista, filas.Err()
+}
+
+// ArchivosDeInstantanea abre, en sólo lectura, el archivo de base de una
+// instantánea y devuelve los archivos que registra. Antes comprueba la
+// integridad interna de esa base: una copia que no la pasa no sirve para
+// restaurar. No necesita la base en producción. ESPECÍFICO DE SQLITE.
+func ArchivosDeInstantanea(ctx context.Context, rutaDeLaBase string) ([]Archivo, error) {
+	parametros := url.Values{"mode": {"ro"}}
+	parametros.Add("_pragma", "query_only(1)")
+	base, err := sql.Open("sqlite", "file:"+(&url.URL{Path: rutaDeLaBase}).EscapedPath()+"?"+parametros.Encode())
+	if err != nil {
+		return nil, fmt.Errorf("abrir la instantánea: %w", err)
+	}
+	defer base.Close()
+	var integridad string
+	if err := base.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integridad); err != nil {
+		return nil, fmt.Errorf("comprobar la integridad de la instantánea: %w", err)
+	}
+	if integridad != "ok" {
+		return nil, fmt.Errorf("la base de la instantánea está dañada: %s", integridad)
+	}
+	archivos, err := archivosRegistrados(ctx, base)
+	if err != nil {
+		return nil, fmt.Errorf("leer los archivos de la instantánea: %w", err)
+	}
+	return archivos, nil
+}
+
+// AdministradoresActivos devuelve las cuentas activas con perfil de
+// administrador: son a quienes se avisa de un problema de operación.
+func (r *Repositorio) AdministradoresActivos(ctx context.Context) ([]Usuario, error) {
+	cuentas, _, err := r.cuentas(ctx, `WHERE u.activo = 1 AND u.id IN (SELECT usuario_id FROM usuario_perfil WHERE perfil = ?)`,
+		[]any{string(PerfilAdminSistema)}, 1, 100)
+	if err != nil {
+		return nil, err
+	}
+	var usuarios []Usuario
+	for _, cuenta := range cuentas {
+		if cuenta.Activada {
+			usuarios = append(usuarios, cuenta.Usuario)
+		}
+	}
+	return usuarios, nil
+}
+
+// EncolarAviso deja un correo de aviso en la bandeja de salida.
+func (r *Repositorio) EncolarAviso(ctx context.Context, correo CorreoSaliente) error {
+	return r.operacion(ctx, "encolar aviso", func(tx *sql.Tx) error {
+		return r.encolarCorreo(ctx, tx, correo)
+	})
+}
+
+// --- Portal público (§5.16) ---------------------------------------------------
+
+// seleccionadosDe lee la nómina de seleccionados de una convocatoria.
+//
+// Es la única consulta que saca datos de postulaciones hacia el portal
+// público, y sólo pide las columnas de la lista blanca (RF-PUB-02): el nombre
+// con que se anuncia, la subcategoría, la semblanza y los títulos de las
+// obras. No lee correos, teléfonos, fechas de nacimiento, documentos,
+// dictámenes de revisión ni evaluaciones; sólo postulaciones con dictamen
+// «seleccionada», y nunca una anonimizada.
+func seleccionadosDe(ctx context.Context, q consultor, convocatoriaID int64) ([]InteropSeleccionado, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT p.id, COALESCE(p.subcategoria, ''),
+		       COALESCE(NULLIF(ds.nombre_artistico, ''), ds.nombre_completo, de.nombre_ensamble,
+		                NULLIF(dc.nombre_artistico, ''), dc.nombre_completo, '') AS nombre,
+		       COALESCE(ds.semblanza, de.semblanza, dc.semblanza, '')
+		FROM postulacion p`+unionesDeDatos+`
+		WHERE p.convocatoria_id = ? AND p.dictamen = 'seleccionada' AND p.anonimizada_at IS NULL
+		ORDER BY nombre, p.id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("leer seleccionados: %w", err)
+	}
+	seleccionados := []InteropSeleccionado{}
+	var ids []int64
+	posicion := make(map[int64]int)
+	for filas.Next() {
+		var id int64
+		s := InteropSeleccionado{Obras: []InteropObra{}}
+		if err := filas.Scan(&id, &s.Subcategoria, &s.Nombre, &s.Semblanza); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("leer seleccionados: %w", err)
+		}
+		posicion[id] = len(seleccionados)
+		ids = append(ids, id)
+		seleccionados = append(seleccionados, s)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil || len(ids) == 0 {
+		return seleccionados, err
+	}
+	lista, args := marcadores(ids)
+	filas, err = q.QueryContext(ctx, "SELECT postulacion_id, COALESCE(titulo, '') FROM obra WHERE postulacion_id IN ("+lista+") ORDER BY postulacion_id, orden", args...)
+	if err != nil {
+		return nil, fmt.Errorf("leer obras de los seleccionados: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var id int64
+		var obra InteropObra
+		if err := filas.Scan(&id, &obra.Titulo); err != nil {
+			return nil, fmt.Errorf("leer obras de los seleccionados: %w", err)
+		}
+		seleccionados[posicion[id]].Obras = append(seleccionados[posicion[id]].Obras, obra)
+	}
+	return seleccionados, filas.Err()
+}
+
+// SeleccionadosDe devuelve la nómina de seleccionados de una convocatoria tal
+// como está HOY. Sirve para la vista previa y para publicarla; lo que sale al
+// portal es siempre la última publicada, no ésta.
+func (r *Repositorio) SeleccionadosDe(ctx context.Context, convocatoriaID int64) ([]InteropSeleccionado, error) {
+	return seleccionadosDe(ctx, r.lectura, convocatoriaID)
+}
+
+// PublicarNomina registra la publicación de una nómina hacia el portal
+// público (RF-PUB-04 y 05): el JSON, que ya está en el almacén, su SHA-256 y
+// quién la autorizó. Aplica en la misma transacción la regla: sólo con la
+// convocatoria cerrada, y sólo con confirmación. seleccionados es cuántos
+// lleva; 0 si es una retirada.
+func (r *Repositorio) PublicarNomina(ctx context.Context, actor Actor, convocatoriaID int64, blob Blob, seleccionados int, confirmo bool) error {
+	return r.operacion(ctx, "publicar nómina", func(tx *sql.Tx) error {
+		c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoEncontrado
+		}
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarPublicacionDeNomina(c, confirmo)); err != nil {
+			return err
+		}
+		archivoID, err := r.guardarArchivo(ctx, tx, blob, "application/json", fmt.Sprintf("nomina_%d.json", convocatoriaID))
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO exportacion_interop (convocatoria_id, alcance, archivo_id, sha256, autorizado_por, creado_at)
+			VALUES (?, 'seleccionados', ?, ?, ?, ?)`, convocatoriaID, archivoID, blob.SHA256, actor.UsuarioID, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "interop.publicar", "convocatoria", convocatoriaID, nil,
+			map[string]any{"exportacion_id": id, "alcance": "seleccionados", "sha256": blob.SHA256, "seleccionados": seleccionados})
+	})
+}
+
+// PublicacionesDe devuelve las publicaciones de nómina de una convocatoria,
+// de la más reciente a la más antigua, con el archivo de cada una.
+func (r *Repositorio) PublicacionesDe(ctx context.Context, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error) {
+	return publicacionesDe(ctx, r.lectura, convocatoriaID)
+}
+
+// publicacionesDe ejecuta la consulta de PublicacionesDe.
+func publicacionesDe(ctx context.Context, q consultor, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT x.id, x.alcance, COALESCE(x.sha256, ''), u.nombre, u.apellidos, x.creado_at,
+		       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+		FROM exportacion_interop x
+		JOIN usuario u ON u.id = x.autorizado_por
+		JOIN archivo a ON a.id = x.archivo_id
+		WHERE x.convocatoria_id = ? AND x.alcance = 'seleccionados'
+		ORDER BY x.id DESC`, convocatoriaID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("leer publicaciones: %w", err)
+	}
+	defer filas.Close()
+	var publicaciones []PublicacionInterop
+	var archivos []Archivo
+	for filas.Next() {
+		var p PublicacionInterop
+		var a Archivo
+		var nombre, apellidos, creado string
+		if err := filas.Scan(&p.ID, &p.Alcance, &p.SHA256, &nombre, &apellidos, &creado, &a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes); err != nil {
+			return nil, nil, fmt.Errorf("leer publicaciones: %w", err)
+		}
+		p.AutorizadoPor = strings.TrimSpace(nombre + " " + apellidos)
+		if p.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, nil, err
+		}
+		publicaciones, archivos = append(publicaciones, p), append(archivos, a)
+	}
+	return publicaciones, archivos, filas.Err()
+}
+
+// PortalPublico compone la exportación para el portal público (RF-PUB-01):
+// las ediciones con sus convocatorias visibles al público —bases, calendario
+// y catálogo de dotaciones, en vivo— y, de cada una, la última nómina de
+// seleccionados que el administrador publicó, leída del almacén tal como se
+// publicó. Si numeroDeEdicion no es 0, sólo esa edición.
+//
+// No lee ninguna postulación: la nómina viaja congelada en su publicación.
+func (r *Repositorio) PortalPublico(ctx context.Context, almacen BlobStore, numeroDeEdicion int) (InteropPortal, error) {
+	portal := InteropPortal{GeneradoAt: r.ahora().UTC().Format(time.RFC3339), Ediciones: []InteropEdicion{}}
+	condicion, args := "ORDER BY e.numero DESC, c.id", []any{}
+	if numeroDeEdicion != 0 {
+		condicion, args = "WHERE e.numero = ? ORDER BY c.id", []any{numeroDeEdicion}
+	}
+	todas, err := convocatorias(ctx, r.lectura, condicion, args...)
+	if err != nil {
+		return portal, fmt.Errorf("leer convocatorias: %w", err)
+	}
+	for _, c := range todas {
+		if !ConvocatoriaVisibleAlPublico(c) {
+			continue
+		}
+		if ultima := len(portal.Ediciones) - 1; ultima < 0 || portal.Ediciones[ultima].Numero != c.Edicion.Numero {
+			portal.Ediciones = append(portal.Ediciones, InteropEdicion{Numero: c.Edicion.Numero, Anio: c.Edicion.Anio,
+				NombreES: c.Edicion.NombreES, NombreEN: c.Edicion.NombreEN, Convocatorias: []InteropConvocatoria{}})
+		}
+		publica := InteropConvocatoria{Tipo: string(c.Tipo), Estado: string(c.Estado), TituloES: c.TituloES, TituloEN: c.TituloEN,
+			BasesMDES: c.BasesMDES, BasesMDEN: c.BasesMDEN, Etapas: []InteropEtapa{}, Dotaciones: []InteropDotacion{}}
+		for _, etapa := range c.Etapas {
+			publica.Etapas = append(publica.Etapas, InteropEtapa{Clave: string(etapa.Clave),
+				IniciaAt: etapa.IniciaAt.UTC().Format(time.RFC3339), TerminaAt: etapa.TerminaAt.UTC().Format(time.RFC3339)})
+		}
+		dotaciones, err := leerDotaciones(ctx, r.lectura, c.ID)
+		if err != nil {
+			return portal, err
+		}
+		for _, d := range dotaciones {
+			if d.Activa {
+				publica.Dotaciones = append(publica.Dotaciones, InteropDotacion{NombreES: d.NombreES, NombreEN: d.NombreEN,
+					DescripcionES: d.DescripcionES, DescripcionEN: d.DescripcionEN})
+			}
+		}
+		// La nómina sólo acompaña a una convocatoria cerrada: si alguien la
+		// reabriera, lo publicado deja de salir.
+		if PuedePublicarNomina(c) {
+			if publica.Nomina, err = ultimaNomina(ctx, r.lectura, almacen, c.ID); err != nil {
+				return portal, err
+			}
+		}
+		ultima := len(portal.Ediciones) - 1
+		portal.Ediciones[ultima].Convocatorias = append(portal.Ediciones[ultima].Convocatorias, publica)
+	}
+	return portal, nil
+}
+
+// ultimaNomina lee del almacén la última nómina publicada de una
+// convocatoria. Devuelve nil si no hay ninguna o si la última fue una
+// retirada (una nómina vacía).
+func ultimaNomina(ctx context.Context, q consultor, almacen BlobStore, convocatoriaID int64) (*InteropNomina, error) {
+	_, archivos, err := publicacionesDe(ctx, q, convocatoriaID)
+	if err != nil || len(archivos) == 0 {
+		return nil, err
+	}
+	contenido, err := almacen.Abrir(archivos[0].Clave)
+	if err != nil {
+		return nil, fmt.Errorf("abrir la nómina publicada: %w", err)
+	}
+	defer contenido.Close()
+	var nomina InteropNomina
+	if err := json.NewDecoder(io.LimitReader(contenido, 16<<20)).Decode(&nomina); err != nil {
+		return nil, fmt.Errorf("la nómina publicada no es JSON válido: %w", err)
+	}
+	if len(nomina.Seleccionados) == 0 {
+		return nil, nil
+	}
+	return &nomina, nil
+}
+
+// RegistrarExportacionInterop deja en la bitácora que se generó una
+// exportación para el portal desde la línea de órdenes, con su SHA-256.
+func (r *Repositorio) RegistrarExportacionInterop(ctx context.Context, actor Actor, sha256 string, ediciones int) error {
+	return r.operacion(ctx, "registrar exportación al portal", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "interop.exportar", "edicion", 0, nil, map[string]any{"sha256": sha256, "ediciones": ediciones})
+	})
+}
+
+// --- Anonimización ARCO (RF-ARCH-07, RN-28) -----------------------------------
+
+// AnonimizarPostulacion borra los datos personales de una postulación
+// conservando obra, dictamen y estadísticas. Es la ÚNICA operación
+// destructiva del sistema. En una sola transacción:
+//
+//  1. valida la solicitud (confirmación doble, fundamento, proceso terminado);
+//  2. borra nombre, nombre artístico, teléfono, correo de contacto y
+//     semblanza; de la fecha de nacimiento deja sólo el año; borra los
+//     nombres de los integrantes, las ligas de video y las ligas de las obras;
+//  3. marca como purgados los archivos con datos personales —todo documento
+//     que no sea la obra, y los acuses— si ninguna otra postulación los usa;
+//  4. vacía el snapshot de los acuses, el texto de las subsanaciones y los
+//     correos que se le enviaron;
+//  5. si se pidió, anonimiza también la cuenta, siempre que no tenga otras
+//     postulaciones sin anonimizar;
+//  6. rehace el índice de búsqueda y lo deja en la bitácora, con el
+//     fundamento.
+//
+// No toca género, nacionalidad, país ni entidad, ni el estado, el dictamen o
+// las evaluaciones: los conteos y los resultados agregados no cambian.
+//
+// Devuelve los archivos que quedan por borrar del disco. Borrarlos es tarea
+// de quien llama, DESPUÉS de esta transacción: si ese borrado se interrumpe,
+// la verificación del acervo los señala y la purga puede terminarse.
+func (r *Repositorio) AnonimizarPostulacion(ctx context.Context, actor Actor, postulacionID int64, solicitud SolicitudDeAnonimizacion) (ResultadoDeAnonimizacion, error) {
+	var resultado ResultadoDeAnonimizacion
+	err := r.operacion(ctx, "anonimizar postulación", func(tx *sql.Tx) error {
+		p, err := leerPostulacion(tx.QueryRowContext(ctx, sqlPostulacion+" WHERE p.id = ?", postulacionID))
+		if err != nil {
+			return err
+		}
+		c, err := convocatoriaPorID(ctx, tx, p.ConvocatoriaID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarAnonimizacion(p, c, solicitud)); err != nil {
+			return err
+		}
+		if solicitud.ConCuenta {
+			if otras, err := existe(ctx, tx, "SELECT COUNT(*) FROM postulacion WHERE usuario_id = ? AND id <> ? AND anonimizada_at IS NULL", p.UsuarioID, p.ID); err != nil {
+				return err
+			} else if otras {
+				return &ErrorValidacion{Errores: []ErrorCampo{{Campo: "con_cuenta", Clave: "error.cuenta_con_postulaciones"}}}
+			}
+		}
+		resultado = ResultadoDeAnonimizacion{PostulacionID: p.ID, Folio: p.Folio}
+		ahora := r.marca()
+
+		// 2. Datos de la persona. La fecha de nacimiento se reduce a su año
+		//    aquí, en Go: concatenar texto en SQL no es igual en MariaDB.
+		for _, tabla := range []string{"datos_solista", "datos_compositor"} {
+			var nacimiento sql.NullString
+			err := tx.QueryRowContext(ctx, "SELECT fecha_nacimiento FROM "+tabla+" WHERE postulacion_id = ?", p.ID).Scan(&nacimiento)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE "+tabla+` SET nombre_completo = ?, nombre_artistico = NULL, telefono = NULL,
+				email_contacto = NULL, semblanza = NULL, fecha_nacimiento = ? WHERE postulacion_id = ?`,
+				TextoAnonimizado, nuloSiVacio(FechaAnonimizada(nacimiento.String)), p.ID); err != nil {
+				return err
+			}
+		}
+		for _, sentencia := range []struct {
+			sql  string
+			args []any
+		}{
+			{`UPDATE datos_ensamble SET nombre_ensamble = ?, representante = ?, telefono = NULL, email_contacto = NULL, semblanza = NULL
+			  WHERE postulacion_id = ?`, []any{TextoAnonimizado, TextoAnonimizado, p.ID}},
+			{"UPDATE integrante SET nombre = ? WHERE postulacion_id = ?", []any{TextoAnonimizado, p.ID}},
+			{"DELETE FROM enlace_video WHERE postulacion_id = ?", []any{p.ID}},
+			{"UPDATE obra SET liga_media = NULL, liga_media_estado = 'pendiente', campos_extra = '{}' WHERE postulacion_id = ?", []any{p.ID}},
+			// 4. Lo que repite sus datos: acuses, subsanaciones y correos.
+			{`UPDATE acuse SET snapshot = '{"anonimizado":true}' WHERE postulacion_id = ?`, []any{p.ID}},
+			{"UPDATE subsanacion SET mensaje = ? WHERE postulacion_id = ?", []any{TextoAnonimizado, p.ID}},
+			{`UPDATE email_outbox SET destinatario = 'anonimizado@anonimizado.invalid', asunto = ?, cuerpo_html = '', cuerpo_texto = '',
+			  adjuntos = '[]', estado = CASE WHEN estado = 'pendiente' THEN 'error' ELSE estado END, ultimo_error = NULL
+			  WHERE postulacion_id = ?`, []any{TextoAnonimizado, p.ID}},
+			{"UPDATE postulacion SET anonimizada_at = ?, campos_extra = '{}', actualizado_at = ? WHERE id = ?", []any{ahora, ahora, p.ID}},
+		} {
+			if _, err := tx.ExecContext(ctx, sentencia.sql, sentencia.args...); err != nil {
+				return fmt.Errorf("borrar datos personales: %w", err)
+			}
+		}
+
+		// 3. Archivos. Todas las versiones de sus documentos, no sólo las
+		//    vigentes, y sus acuses.
+		filas, err := tx.QueryContext(ctx, `
+			SELECT a.id, a.sha256, a.clave, a.mime, a.tamano_bytes, rq.clave
+			FROM documento d JOIN archivo a ON a.id = d.archivo_id JOIN requisito_documental rq ON rq.id = d.requisito_id
+			WHERE d.postulacion_id = ? AND a.purgado_at IS NULL
+			UNION
+			SELECT a.id, a.sha256, a.clave, a.mime, a.tamano_bytes, 'acuse'
+			FROM acuse ac JOIN archivo a ON a.id = ac.archivo_id
+			WHERE ac.postulacion_id = ? AND a.purgado_at IS NULL`, p.ID, p.ID)
+		if err != nil {
+			return fmt.Errorf("leer archivos de la postulación: %w", err)
+		}
+		type candidato struct {
+			archivo Archivo
+			clave   string
+		}
+		var candidatos []candidato
+		for filas.Next() {
+			var c candidato
+			if err := filas.Scan(&c.archivo.ID, &c.archivo.SHA256, &c.archivo.Clave, &c.archivo.MIME, &c.archivo.TamanoBytes, &c.clave); err != nil {
+				filas.Close()
+				return fmt.Errorf("leer archivos de la postulación: %w", err)
+			}
+			candidatos = append(candidatos, c)
+		}
+		filas.Close()
+		if err := filas.Err(); err != nil {
+			return err
+		}
+		purgados := make(map[int64]bool)
+		for _, c := range candidatos {
+			if DocumentoSeConserva(c.clave) {
+				resultado.ArchivosConservados++
+				// Se conserva el contenido, pero no el nombre con que se
+				// subió, que suele llevar el de la persona.
+				if _, err := tx.ExecContext(ctx, "UPDATE archivo SET nombre_original = ? WHERE id = ?", TextoAnonimizado, c.archivo.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			if purgados[c.archivo.ID] {
+				continue
+			}
+			// El almacén guarda cada contenido una sola vez: si otra
+			// postulación —o una convocatoria— usa el mismo archivo, no se
+			// borra.
+			compartido, err := existe(ctx, tx, `
+				SELECT (SELECT COUNT(*) FROM documento WHERE archivo_id = ? AND postulacion_id <> ?)
+				     + (SELECT COUNT(*) FROM acuse WHERE archivo_id = ? AND postulacion_id <> ?)
+				     + (SELECT COUNT(*) FROM convocatoria WHERE bases_pdf_es_id = ? OR bases_pdf_en_id = ? OR imagen_id = ?)`,
+				c.archivo.ID, p.ID, c.archivo.ID, p.ID, c.archivo.ID, c.archivo.ID, c.archivo.ID)
+			if err != nil {
+				return err
+			}
+			if compartido {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE archivo SET purgado_at = ?, nombre_original = ? WHERE id = ?", ahora, TextoAnonimizado, c.archivo.ID); err != nil {
+				return err
+			}
+			purgados[c.archivo.ID] = true
+			resultado.ArchivosPorPurgar = append(resultado.ArchivosPorPurgar, c.archivo)
+		}
+
+		// 5. La cuenta.
+		if solicitud.ConCuenta {
+			var correo string
+			if err := tx.QueryRowContext(ctx, "SELECT email FROM usuario WHERE id = ?", p.UsuarioID).Scan(&correo); err != nil {
+				return err
+			}
+			for _, sentencia := range []struct {
+				sql  string
+				args []any
+			}{
+				{`UPDATE usuario SET email = ?, nombre = ?, apellidos = '', password_hash = ?, totp_secret = NULL, activo = 0,
+				  anonimizado_at = ?, actualizado_at = ? WHERE id = ?`,
+					[]any{fmt.Sprintf("anonimizado-%d@anonimizado.invalid", p.UsuarioID), TextoAnonimizado, PasswordSinDefinir, ahora, ahora, p.UsuarioID}},
+				{"DELETE FROM sesion WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{"DELETE FROM token WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{"DELETE FROM vista_guardada WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{`UPDATE email_outbox SET destinatario = 'anonimizado@anonimizado.invalid', asunto = ?, cuerpo_html = '', cuerpo_texto = '',
+				  adjuntos = '[]', estado = CASE WHEN estado = 'pendiente' THEN 'error' ELSE estado END, ultimo_error = NULL
+				  WHERE destinatario = ?`, []any{TextoAnonimizado, correo}},
+			} {
+				if _, err := tx.ExecContext(ctx, sentencia.sql, sentencia.args...); err != nil {
+					return fmt.Errorf("anonimizar la cuenta: %w", err)
+				}
+			}
+			resultado.CuentaAnonimizada = true
+		}
+
+		// 6. Índice de búsqueda y bitácora.
+		if err := r.reindexar(ctx, tx, p.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "arco.anonimizar", "postulacion", p.ID, nil, map[string]any{
+			"fundamento": strings.TrimSpace(solicitud.Fundamento), "archivos_purgados": len(resultado.ArchivosPorPurgar),
+			"archivos_conservados": resultado.ArchivosConservados, "cuenta": resultado.CuentaAnonimizada})
+	})
+	return resultado, err
 }

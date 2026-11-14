@@ -499,5 +499,13 @@
   "error.reporte_por_unidad": "Evaluation fields and filters require the granularity of what the jury scores: by application for Performers, by work for Composers.",
   "error.consulta_de_plantilla": "The template must include the report fields and must not fix the call.",
   "error.plantilla_de_otro_tipo": "The template belongs to another type of call.",
-  "error.convocatoria_requerida": "Specify the call."
+  "error.convocatoria_requerida": "Specify the call.",
+  "error.convocatoria_no_cerrada": "The list can only be published once the call is closed or archived.",
+  "error.confirmacion_requerida": "This action requires explicit confirmation.",
+  "error.estado_no_admite": "The status of the application does not allow this action.",
+  "error.ya_anonimizada": "The application has already been anonymised.",
+  "error.proceso_en_curso": "The application is still in process: it can only be anonymised once its call closes, or if it was discarded.",
+  "error.folio_no_coincide": "The reference number typed to confirm does not match the application's.",
+  "error.fundamento_requerido": "State the grounds of the request (between 10 and 500 characters), without personal data.",
+  "error.cuenta_con_postulaciones": "The account has other applications that have not been anonymised."
 }

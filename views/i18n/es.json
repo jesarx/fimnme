@@ -499,5 +499,13 @@
   "error.reporte_por_unidad": "Los campos y filtros de la evaluación piden la granularidad de lo que califica el jurado: por postulación en Intérpretes, por obra en Compositores.",
   "error.consulta_de_plantilla": "La plantilla debe llevar los campos del reporte y no fijar la convocatoria.",
   "error.plantilla_de_otro_tipo": "La plantilla es de otro tipo de convocatoria.",
-  "error.convocatoria_requerida": "Indica la convocatoria."
+  "error.convocatoria_requerida": "Indica la convocatoria.",
+  "error.convocatoria_no_cerrada": "La nómina sólo puede publicarse cuando la convocatoria está cerrada o archivada.",
+  "error.confirmacion_requerida": "Esta acción exige confirmación expresa.",
+  "error.estado_no_admite": "El estado de la postulación no admite esta acción.",
+  "error.ya_anonimizada": "La postulación ya fue anonimizada.",
+  "error.proceso_en_curso": "La postulación sigue en proceso: sólo puede anonimizarse cuando su convocatoria cierre, o si fue descartada.",
+  "error.folio_no_coincide": "El folio escrito para confirmar no coincide con el de la postulación.",
+  "error.fundamento_requerido": "Indica el fundamento de la solicitud (entre 10 y 500 caracteres), sin datos personales.",
+  "error.cuenta_con_postulaciones": "La cuenta tiene otras postulaciones sin anonimizar."
 }

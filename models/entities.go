@@ -340,6 +340,7 @@ const (
 	PlantillaAcuseSubsanacion = "acuse_subsanacion" // al postulante: acuse del reenvío
 	PlantillaAvisoSubsanada   = "aviso_subsanada"   // a los revisores: una postulación volvió
 	PlantillaExportacionLista = "exportacion_lista" // a quien pidió una descarga o un expediente: ya puede bajarlo
+	PlantillaAlertaDisco      = "alerta_disco"      // a los administradores: queda poco espacio en disco
 )
 
 // PlantillaCorreo es la versión activa de una plantilla editable (RF-NOT).
@@ -609,6 +610,9 @@ type Archivo struct {
 	Clave       string // clave de almacenamiento, para BlobStore.Abrir
 	MIME        string // detectado por la firma del archivo, no por su extensión
 	TamanoBytes int64
+	// PurgadoAt indica que el contenido se borró del disco al anonimizar una
+	// postulación (ARCO). La fila queda como constancia de que existió.
+	PurgadoAt time.Time
 }
 
 // Documento es un archivo entregado para cumplir un requisito documental.
@@ -825,6 +829,11 @@ type Postulacion struct {
 	Obras       []Obra
 	Documentos  []Documento // sólo los vigentes
 	Acuses      []Acuse     // uno por envío
+
+	// AnonimizadaAt indica que sus datos personales se borraron por una
+	// solicitud ARCO; cero si no. Una postulación anonimizada conserva obra,
+	// dictamen y estadísticas (RN-28).
+	AnonimizadaAt time.Time
 
 	// DictamenFinal es el resultado del proceso: seleccionada,
 	// no_seleccionada o lista_espera; vacío mientras no se registra. Lo
@@ -1442,4 +1451,142 @@ type EstadisticasDeEdicion struct {
 	PorDotacion      []Cifra // clave: id de la dotación; cuenta obras
 	PorEstreno       []Cifra // cuenta obras
 	DuracionMediaMin float64 // de las obras
+}
+
+// ---------------------------------------------------------------------------
+// Interoperabilidad con el portal público (§5.16)
+// ---------------------------------------------------------------------------
+
+// Lo que sale hacia el portal público es EXACTAMENTE lo que estos tipos
+// pueden contener (RF-PUB-02, RN-34). Son la lista blanca hecha estructura:
+// no tienen dónde llevar un correo, un teléfono, una fecha de nacimiento, un
+// documento, un dictamen ni una calificación. Añadir un campo aquí es ampliar
+// lo que se publica, y debe pensarse como tal.
+
+// InteropPortal es la exportación completa.
+type InteropPortal struct {
+	GeneradoAt string           `json:"generado_at"` // UTC, ISO-8601
+	Ediciones  []InteropEdicion `json:"ediciones"`
+}
+
+// InteropEdicion es una edición del Foro con sus convocatorias públicas.
+type InteropEdicion struct {
+	Numero        int                   `json:"numero"`
+	Anio          int                   `json:"anio"`
+	NombreES      string                `json:"nombre_es"`
+	NombreEN      string                `json:"nombre_en"`
+	Convocatorias []InteropConvocatoria `json:"convocatorias"`
+}
+
+// InteropConvocatoria son las bases, el calendario y el catálogo de
+// dotaciones de una convocatoria, y su nómina de seleccionados si ya se
+// publicó.
+type InteropConvocatoria struct {
+	Tipo       string            `json:"tipo"`
+	Estado     string            `json:"estado"`
+	TituloES   string            `json:"titulo_es"`
+	TituloEN   string            `json:"titulo_en"`
+	BasesMDES  string            `json:"bases_md_es"`
+	BasesMDEN  string            `json:"bases_md_en"`
+	Etapas     []InteropEtapa    `json:"etapas"`
+	Dotaciones []InteropDotacion `json:"dotaciones"`
+	// Nomina es la última nómina de seleccionados que el administrador
+	// publicó; nil si no ha publicado ninguna o si la retiró. NUNCA se
+	// calcula al exportar: sale tal como se publicó (RF-PUB-04).
+	Nomina *InteropNomina `json:"nomina"`
+}
+
+// InteropEtapa es una etapa del calendario.
+type InteropEtapa struct {
+	Clave     string `json:"clave"`
+	IniciaAt  string `json:"inicia_at"`
+	TerminaAt string `json:"termina_at"`
+}
+
+// InteropDotacion es una dotación del catálogo de la convocatoria.
+type InteropDotacion struct {
+	NombreES      string `json:"nombre_es"`
+	NombreEN      string `json:"nombre_en"`
+	DescripcionES string `json:"descripcion_es"`
+	DescripcionEN string `json:"descripcion_en"`
+}
+
+// InteropNomina es la nómina de seleccionados de una convocatoria, tal como
+// se publicó.
+type InteropNomina struct {
+	PublicadaAt   string                `json:"publicada_at"`
+	Seleccionados []InteropSeleccionado `json:"seleccionados"`
+}
+
+// InteropSeleccionado es una postulación seleccionada: el nombre con que se
+// anuncia, su semblanza y los títulos de sus obras. Nada más.
+type InteropSeleccionado struct {
+	Nombre       string        `json:"nombre"` // nombre artístico; si no tiene, el nombre completo o el del ensamble
+	Subcategoria string        `json:"subcategoria,omitempty"`
+	Semblanza    string        `json:"semblanza"`
+	Obras        []InteropObra `json:"obras"`
+}
+
+// InteropObra es el título de una obra seleccionada.
+type InteropObra struct {
+	Titulo string `json:"titulo"`
+}
+
+// PublicacionInterop es una publicación de la nómina hacia el portal, tal
+// como queda registrada (RF-PUB-05).
+type PublicacionInterop struct {
+	ID            int64
+	Alcance       string
+	SHA256        string
+	AutorizadoPor string // nombre de quien la autorizó
+	CreadoAt      time.Time
+	// Seleccionados es cuántos lleva; 0 si fue una retirada.
+	Seleccionados int
+}
+
+// ---------------------------------------------------------------------------
+// Anonimización ARCO (RF-ARCH-07, RN-28)
+// ---------------------------------------------------------------------------
+
+// TextoAnonimizado sustituye a los datos personales que no pueden quedar
+// vacíos (el nombre) en una postulación anonimizada.
+const TextoAnonimizado = "[anonimizado]"
+
+// SolicitudDeAnonimizacion es lo que el administrador confirma para
+// anonimizar una postulación. La confirmación es doble: marcar que confirma
+// Y volver a escribir el folio.
+type SolicitudDeAnonimizacion struct {
+	Folio      string // el folio, escrito de nuevo por quien confirma
+	Fundamento string // referencia de la solicitud ARCO; no debe llevar datos personales
+	Confirmo   bool
+	// ConCuenta anonimiza además la cuenta del titular, si no tiene otras
+	// postulaciones sin anonimizar.
+	ConCuenta bool
+}
+
+// ResultadoDeAnonimizacion dice qué se hizo. Los archivos por purgar ya están
+// marcados en la base; falta borrarlos del disco, que es lo que hace quien
+// llamó, una vez confirmada la transacción.
+type ResultadoDeAnonimizacion struct {
+	PostulacionID       int64
+	Folio               string
+	ArchivosPorPurgar   []Archivo
+	ArchivosConservados int // partituras, particellas y audio: la obra se conserva
+	CuentaAnonimizada   bool
+}
+
+// InstantaneaDeEspejo es el registro de una instantánea del espejo
+// (RF-OPS-06).
+type InstantaneaDeEspejo struct {
+	ID                int64
+	Ruta              string
+	SHA256            string
+	HMACSHA256        string
+	TamanoBytes       int64
+	ArchivosOK        int
+	ArchivosFaltantes int
+	Destino           string
+	Correcta          bool
+	Detalle           string
+	CreadoAt          time.Time
 }

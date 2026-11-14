@@ -123,7 +123,7 @@ func (ar *armadorDeExpedientes) armar(ctx context.Context, p models.Postulacion,
 	if err != nil {
 		return x, nil, true, err
 	}
-	x = models.Expediente{Postulacion: p, Configuracion: cfg, Titular: titular.Usuario, Recorte: recorte}
+	x = models.Expediente{Postulacion: p, Configuracion: cfg, Titular: models.TitularParaMostrar(p, titular.Usuario), Recorte: recorte}
 	if recorte.Revision {
 		if x.Revision, err = ar.datos.RevisionDe(ctx, p.ID); err != nil {
 			return x, nil, true, err

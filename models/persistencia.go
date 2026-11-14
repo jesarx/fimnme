@@ -167,6 +167,15 @@ type Persistencia interface {
 	TableroDeConvocatoria(ctx context.Context, convocatoriaID int64) (TableroDeConvocatoria, error)
 	EstadisticasDeEdicion(ctx context.Context, edicionID, convocatoriaID int64) (EstadisticasDeEdicion, error)
 
+	// Continuidad operativa, portal público y anonimización.
+	AdministradoresActivos(ctx context.Context) ([]Usuario, error)
+	EncolarAviso(ctx context.Context, correo CorreoSaliente) error
+	SeleccionadosDe(ctx context.Context, convocatoriaID int64) ([]InteropSeleccionado, error)
+	PublicarNomina(ctx context.Context, actor Actor, convocatoriaID int64, blob Blob, seleccionados int, confirmo bool) error
+	PublicacionesDe(ctx context.Context, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error)
+	PortalPublico(ctx context.Context, almacen BlobStore, numeroDeEdicion int) (InteropPortal, error)
+	AnonimizarPostulacion(ctx context.Context, actor Actor, postulacionID int64, solicitud SolicitudDeAnonimizacion) (ResultadoDeAnonimizacion, error)
+
 	// Comprobación en red de las ligas de video.
 	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)
 	EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error)

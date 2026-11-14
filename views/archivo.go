@@ -111,3 +111,23 @@ func ManifiestoCSV(documentos []models.DocumentoEnZIP, rutas []string) ([]byte, 
 	escritor.Flush()
 	return salida.Bytes(), escritor.Error()
 }
+
+// PublicacionJSON describe la publicación de la nómina hacia el portal
+// público: si puede publicarse, lo que se publicaría ahora mismo y lo que ya
+// se publicó (RF-PUB-07).
+func PublicacionJSON(puedePublicar bool, vistaPrevia []models.InteropSeleccionado, publicaciones []models.PublicacionInterop) any {
+	historial := make([]map[string]any, 0, len(publicaciones))
+	for _, p := range publicaciones {
+		historial = append(historial, map[string]any{"id": p.ID, "sha256": p.SHA256, "autorizado_por": p.AutorizadoPor, "creado_at": marcaJSON(p.CreadoAt)})
+	}
+	return map[string]any{"puede_publicar": puedePublicar, "vista_previa": map[string]any{"seleccionados": vistaPrevia}, "publicaciones": historial}
+}
+
+// AnonimizacionJSON describe lo que hizo una anonimización. pendientes es
+// cuántos archivos marcados como purgados no pudieron borrarse del disco.
+func AnonimizacionJSON(r models.ResultadoDeAnonimizacion, pendientes int) any {
+	return map[string]any{
+		"postulacion_id": r.PostulacionID, "folio": r.Folio, "archivos_purgados": len(r.ArchivosPorPurgar) - pendientes,
+		"archivos_por_purgar": pendientes, "archivos_conservados": r.ArchivosConservados, "cuenta_anonimizada": r.CuentaAnonimizada,
+	}
+}

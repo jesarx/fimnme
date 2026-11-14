@@ -3066,3 +3066,98 @@ func JuradosDe(cfg ConfiguracionConvocatoria) []JuradoEnMatriz {
 	}
 	return jurados
 }
+
+// --- Interoperabilidad con el portal público (§5.16) --------------------------
+
+// PuedePublicarNomina indica si la nómina de seleccionados de una
+// convocatoria puede publicarse hacia el portal: sólo después del cierre
+// (RF-PUB-04). Que además lo haga un administrador, y por una acción
+// explícita, lo garantiza el controlador: ningún cambio de etapa publica nada.
+func PuedePublicarNomina(c Convocatoria) bool {
+	return c.Estado == EstadoCerrada || c.Estado == EstadoArchivada
+}
+
+// ValidarPublicacionDeNomina valida la acción de publicar (o retirar) la
+// nómina: la convocatoria debe estar cerrada y quien publica debe confirmarlo.
+func ValidarPublicacionDeNomina(c Convocatoria, confirmo bool) []ErrorCampo {
+	if !PuedePublicarNomina(c) {
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.convocatoria_no_cerrada"}}
+	}
+	if !confirmo {
+		return []ErrorCampo{{Campo: "confirmo", Clave: "error.confirmacion_requerida"}}
+	}
+	return nil
+}
+
+// --- Anonimización ARCO (RF-ARCH-07, RN-28) -----------------------------------
+
+// Límites del fundamento de una anonimización.
+const (
+	fundamentoMinimo = 10
+	fundamentoMaximo = 500
+)
+
+// documentosQueSeConservan son los requisitos documentales que son LA OBRA y
+// por tanto sobreviven a una anonimización. Todo lo demás —la fotografía, la
+// autorización firmada, cualquier requisito que el administrador haya
+// añadido— se purga: ante la duda, un documento se trata como dato personal.
+var documentosQueSeConservan = []string{"partitura", "particellas", "audio"}
+
+// DocumentoSeConserva indica si un documento sobrevive a la anonimización de
+// su postulación.
+func DocumentoSeConserva(clave string) bool {
+	return slices.Contains(documentosQueSeConservan, clave)
+}
+
+// ValidarAnonimizacion valida la solicitud de anonimizar una postulación:
+//
+//   - Sólo sobre postulaciones enviadas (con folio) y no anonimizadas ya.
+//   - Sólo cuando su proceso terminó: la convocatoria está cerrada o
+//     archivada, o la postulación fue descartada. Anonimizar a mitad de la
+//     evaluación dejaría al jurado calificando a nadie.
+//   - Con confirmación doble: marcar que se confirma Y escribir de nuevo el
+//     folio, que debe coincidir.
+//   - Con el fundamento de la solicitud, que queda en la bitácora.
+func ValidarAnonimizacion(p Postulacion, c Convocatoria, s SolicitudDeAnonimizacion) []ErrorCampo {
+	switch {
+	case p.Folio == "":
+		return []ErrorCampo{{Campo: "estado", Clave: "error.estado_no_admite"}}
+	case !p.AnonimizadaAt.IsZero():
+		return []ErrorCampo{{Campo: "estado", Clave: "error.ya_anonimizada"}}
+	case !PuedePublicarNomina(c) && p.Estado != PostulacionDescartada:
+		return []ErrorCampo{{Campo: "convocatoria", Clave: "error.proceso_en_curso"}}
+	}
+	var errores []ErrorCampo
+	if !s.Confirmo {
+		errores = append(errores, ErrorCampo{Campo: "confirmo", Clave: "error.confirmacion_requerida"})
+	}
+	if strings.TrimSpace(s.Folio) != p.Folio {
+		errores = append(errores, ErrorCampo{Campo: "folio", Clave: "error.folio_no_coincide"})
+	}
+	if largo := utf8.RuneCountInString(strings.TrimSpace(s.Fundamento)); largo < fundamentoMinimo || largo > fundamentoMaximo {
+		errores = append(errores, ErrorCampo{Campo: "fundamento", Clave: "error.fundamento_requerido"})
+	}
+	return errores
+}
+
+// FechaAnonimizada reduce una fecha de nacimiento AAAA-MM-DD a su año
+// (AAAA-01-01). El día y el mes identifican; el año solo, no, y basta para
+// que las estadísticas por rango de edad no cambien (RN-28). Una fecha vacía
+// o ilegible queda vacía.
+func FechaAnonimizada(fechaDeNacimiento string) string {
+	if nacimiento, err := time.Parse("2006-01-02", fechaDeNacimiento); err == nil {
+		return fmt.Sprintf("%04d-01-01", nacimiento.Year())
+	}
+	return ""
+}
+
+// TitularParaMostrar devuelve la cuenta titular de una postulación tal como
+// puede mostrarse en un expediente o en un reporte. Si la postulación está
+// anonimizada no se muestra quién la envió, aunque su cuenta siga existiendo:
+// la persona pidió que esta postulación deje de identificarla.
+func TitularParaMostrar(p Postulacion, titular Usuario) Usuario {
+	if p.AnonimizadaAt.IsZero() {
+		return titular
+	}
+	return Usuario{ID: titular.ID, Nombre: TextoAnonimizado, Idioma: titular.Idioma}
+}
