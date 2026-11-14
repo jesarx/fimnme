@@ -15,7 +15,7 @@ Manuel Enríquez: sirve las páginas, la API REST
 y ejecuta los trabajadores internos (envío del correo saliente, limpieza de
 sesiones vencidas, avance de etapa por calendario, comprobación de las ligas
 de video, recordatorios de borrador sin enviar y armado de las descargas
-masivas en ZIP).
+masivas en ZIP y de los expedientes por convocatoria en PDF).
 .PP
 Es un servicio público. Escucha por omisión en
 .B 127.0.0.1:8080
@@ -91,7 +91,8 @@ uno en una ruta derivada del SHA-256 de su contenido. Un respaldo de la base
 sin este directorio no sirve, y a la inversa.
 .TP
 .I /var/lib/fimnme/exportaciones/
-Descargas masivas en ZIP ya armadas. Cada una se borra a los siete días. No
+Descargas masivas en ZIP y expedientes en PDF ya armados. Cada uno se borra a
+los siete días. No
 hace falta respaldarlo: son copias de lo que está en
 .IR blobs/ .
 .SH RED

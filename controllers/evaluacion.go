@@ -19,6 +19,7 @@
 package controllers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/jesarx/fimnme/models"
@@ -199,11 +200,25 @@ func (a *App) apiResultados(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	matriz, err := a.datos.Supervision().Matriz(r.Context(), a.actorDe(r), convocatoriaID)
+	matriz, err := matrizDeSupervision(r.Context(), a.datos, sesionDe(r), a.actorDe(r), convocatoriaID)
 	if a.falloDatos(w, r, err) {
 		return
 	}
-	a.responder(w, http.StatusOK, views.MatrizJSON(matriz))
+	if r.URL.Query().Get("formato") != "csv" {
+		a.responder(w, http.StatusOK, views.MatrizJSON(matriz))
+		return
+	}
+	// Reporte de resultados (RF-REP-08): la matriz en CSV, con los empates a
+	// la vista.
+	separador := r.URL.Query().Get("separador")
+	if separador != "" && separador != "coma" && separador != "punto_y_coma" {
+		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "separador", Clave: "error.opcion_invalida"}}})
+		return
+	}
+	encabezados, filas := a.vistas.ResultadosCSV(idiomaDelReporte(r), matriz)
+	if err := views.CSVConSeparador(w, fmt.Sprintf("fimnme_resultados_%d.csv", convocatoriaID), separador, encabezados, filas); err != nil {
+		a.log.Error("no se pudo escribir el reporte de resultados", "error", err)
+	}
 }
 
 // PUT /api/v1/postulaciones/{id}/dictamen-final   — resultado de la postulación

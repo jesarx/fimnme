@@ -48,7 +48,8 @@ type evaluacionDePrueba struct {
 	rutaLuis, rutaAna         string     // Intérpretes: validada y descartada
 	rutaEva                   string     // Compositores, con dos obras
 	obrasDeEva                []int64
-	revisora                  *cliente
+	revisora                  *cliente // de Intérpretes
+	revisorCom                *cliente // de Compositores
 }
 
 // compositorCompleto crea una postulación de Compositores con dos obras para
@@ -80,6 +81,15 @@ func (e *entornoPrueba) compositorCompleto(c *cliente, convocatoriaID, dotacionI
 // etapa de evaluación.
 func hastaEvaluacion(t *testing.T) *evaluacionDePrueba {
 	t.Helper()
+	x := hastaRevision(t)
+	x.dictaminar()
+	return x
+}
+
+// hastaRevision prepara el entorno hasta la etapa de revisión documental,
+// con las postulaciones enviadas y aún sin dictaminar.
+func hastaRevision(t *testing.T) *evaluacionDePrueba {
+	t.Helper()
 	e := nuevoEntorno(t)
 	admin, interpretes, compositores, cuarteto, _ := e.convocatoriasAbiertas()
 	x := &evaluacionDePrueba{e: e, admin: admin, interpretes: interpretes, compositores: compositores}
@@ -94,7 +104,7 @@ func hastaEvaluacion(t *testing.T) *evaluacionDePrueba {
 	}
 
 	x.revisora = e.revisor(admin, interpretes, "rita@ejemplo.mx")
-	revisorCom := e.revisor(admin, compositores, "raul@ejemplo.mx")
+	x.revisorCom = e.revisor(admin, compositores, "raul@ejemplo.mx")
 	x.observador = e.activarCuentaInterna("observador@ejemplo.mx", models.PerfilCoordinacionNacional)
 	for i := 1; i <= 3; i++ {
 		c, usuarioID := e.asignado(admin, interpretes, fmt.Sprintf("jurado-int-%d@ejemplo.mx", i), "jurado")
@@ -104,11 +114,16 @@ func hastaEvaluacion(t *testing.T) *evaluacionDePrueba {
 	}
 	admin.estado(interpretes, "revision_documental", "Inicio de la revisión, en la prueba")
 	admin.estado(compositores, "revision_documental", "Inicio de la revisión, en la prueba")
+	return x
+}
 
+// dictaminar termina la revisión documental: valida a Luis y a Eva, y
+// descarta a Ana.
+func (x *evaluacionDePrueba) dictaminar() {
+	x.e.t.Helper()
 	x.revisora.exige(http.StatusOK, "POST", x.rutaLuis+"/dictamen", obj{"dictamen": "validada"})
 	x.revisora.exige(http.StatusOK, "POST", x.rutaAna+"/dictamen", obj{"dictamen": "descartada", "motivo": "No cumple las bases."})
-	revisorCom.exige(http.StatusOK, "POST", x.rutaEva+"/dictamen", obj{"dictamen": "validada"})
-	return x
+	x.revisorCom.exige(http.StatusOK, "POST", x.rutaEva+"/dictamen", obj{"dictamen": "validada"})
 }
 
 // evaluar guarda la evaluación de un jurado y exige que se acepte.
@@ -523,16 +538,18 @@ func TestAislamientoEntreJurados(t *testing.T) {
 // e2eRutas devuelve la tabla de operaciones de la API del servidor de prueba.
 func e2eRutas(e *entornoPrueba) []rutaAPI { return e.rutas }
 
-// TestSupervisionSoloDesdeResultados comprueba, leyendo el código de los
-// controladores, que la matriz de resultados —lo único que cruza jurados— se
-// pida en un solo lugar, y que ese lugar esté protegido por a.supervisa.
-func TestSupervisionSoloDesdeResultados(t *testing.T) {
+// La matriz de resultados y el avance de los jurados son lo único que cruza a
+// los jurados. Los controladores sólo llegan a ellos por dos funciones,
+// matrizDeSupervision y avanceDeJurados, y cada una comprueba ella misma que
+// quien pide sea de la supervisión. Así un camino nuevo —un reporte, un
+// expediente— no puede olvidar la comprobación: no tiene otra puerta.
+func TestSupervisionSoloTrasComprobar(t *testing.T) {
 	archivos := token.NewFileSet()
 	paquetes, err := parser.ParseDir(archivos, ".", func(info fs.FileInfo) bool { return !strings.HasSuffix(info.Name(), "_test.go") }, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	usos := 0
+	puertas := map[string]bool{"matrizDeSupervision": false, "avanceDeJurados": false}
 	for _, paquete := range paquetes {
 		for _, archivo := range paquete.Files {
 			for _, declaracion := range archivo.Decls {
@@ -540,28 +557,53 @@ func TestSupervisionSoloDesdeResultados(t *testing.T) {
 				if !esFuncion {
 					continue
 				}
+				usa, comprueba := false, false
 				ast.Inspect(funcion, func(nodo ast.Node) bool {
-					selector, ok := nodo.(*ast.SelectorExpr)
-					if ok && selector.Sel.Name == "Supervision" {
-						usos++
-						if funcion.Name.Name != "apiResultados" {
-							t.Errorf("%s: %s usa Supervision(); sólo apiResultados puede", archivos.Position(selector.Pos()), funcion.Name.Name)
+					// Sólo cuentan las LLAMADAS: «recorte.Supervision» es un
+					// campo, no el acceso a los resultados.
+					if llamada, ok := nodo.(*ast.CallExpr); ok {
+						if selector, ok := llamada.Fun.(*ast.SelectorExpr); ok {
+							usa = usa || selector.Sel.Name == "Supervision"
+							comprueba = comprueba || selector.Sel.Name == "PuedeSupervisar"
 						}
 					}
 					return true
 				})
+				if !usa {
+					continue
+				}
+				nombre := funcion.Name.Name
+				if _, esPuerta := puertas[nombre]; !esPuerta {
+					t.Errorf("%s: %s usa Supervision(); sólo pueden matrizDeSupervision y avanceDeJurados", archivos.Position(funcion.Pos()), nombre)
+					continue
+				}
+				puertas[nombre] = true
+				// La comprobación debe ser lo primero que hace la función.
+				primera, esSi := funcion.Body.List[0].(*ast.IfStmt)
+				if !comprueba || !esSi || !strings.Contains(fmt.Sprint(primera.Cond.(*ast.UnaryExpr).X.(*ast.CallExpr).Fun.(*ast.SelectorExpr).Sel.Name), "PuedeSupervisar") {
+					t.Errorf("%s debe empezar por comprobar models.PuedeSupervisar", nombre)
+				}
 			}
 		}
 	}
-	if usos != 1 {
-		t.Errorf("Supervision() debe usarse exactamente una vez en los controladores: %d", usos)
+	for nombre, encontrada := range puertas {
+		if !encontrada {
+			t.Errorf("no se encontró %s: ¿cambió de nombre?", nombre)
+		}
 	}
+	// Además, las rutas de supervisión siguen envueltas en a.supervisa.
 	fuente, err := os.ReadFile("app.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(fuente), `"/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)`) || strings.Count(string(fuente), "apiResultados") != 1 {
-		t.Error("la ruta de resultados debe ir envuelta en a.supervisa, y ser la única que llega a apiResultados")
+	for _, ruta := range []string{
+		`"/api/v1/convocatorias/{id}/resultados", a.supervisa(a.apiResultados)`,
+		`"/api/v1/convocatorias/{id}/reporte", a.supervisa(a.apiReporte)`,
+		`"/api/v1/convocatorias/{id}/tablero", a.supervisa(a.apiTablero)`,
+	} {
+		if !strings.Contains(string(fuente), ruta) {
+			t.Errorf("falta la ruta protegida %s", ruta)
+		}
 	}
 }
 

@@ -32,6 +32,10 @@ pasar la postulación a «evaluada». No lee puntajes ni observaciones y no devu
 2. `TestSupervisionSoloDesdeResultados` analiza los controladores y falla si
    `Supervision()` se usa en otro lugar que `apiResultados`, o si esa ruta deja de ir
    envuelta en `a.supervisa`.
+   *Actualización (paso 9b):* los reportes y el expediente también necesitan la matriz.
+   La prueba se llama ahora `TestSupervisionSoloTrasComprobar` y la regla es más fuerte:
+   `Supervision()` sólo se alcanza por dos funciones que comprueban ellas mismas que
+   quien pide supervise ([ADR 0013](0013-reportes-expediente-y-tableros.md), §2).
 3. `TestAislamientoEntreJurados` es **la prueba obligatoria de §8.4**. Cada jurado deja
    una marca única en sus observaciones. Con la sesión de cada uno recorre **todas** las
    operaciones de la API —probando cada identificador y variantes como `?jurado_id=`— y

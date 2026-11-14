@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1863,43 +1864,68 @@ func (r *Repositorio) SesionPorID(ctx context.Context, idResumen string) (*Sesio
 		return nil, err
 	}
 
+	return s, r.cargarPermisos(ctx, s)
+}
+
+// cargarPermisos pone en la sesión los perfiles globales de su cuenta y sus
+// asignaciones activas.
+func (r *Repositorio) cargarPermisos(ctx context.Context, s *Sesion) error {
 	filas, err := r.lectura.QueryContext(ctx,
-		"SELECT perfil FROM usuario_perfil WHERE usuario_id = ? ORDER BY perfil", usuario.ID)
+		"SELECT perfil FROM usuario_perfil WHERE usuario_id = ? ORDER BY perfil", s.Usuario.ID)
 	if err != nil {
-		return nil, fmt.Errorf("leer perfiles: %w", err)
+		return fmt.Errorf("leer perfiles: %w", err)
 	}
 	for filas.Next() {
 		var perfil string
 		if err := filas.Scan(&perfil); err != nil {
 			filas.Close()
-			return nil, fmt.Errorf("leer perfiles: %w", err)
+			return fmt.Errorf("leer perfiles: %w", err)
 		}
 		s.Perfiles = append(s.Perfiles, Perfil(perfil))
 	}
 	filas.Close()
 	if err := filas.Err(); err != nil {
-		return nil, fmt.Errorf("leer perfiles: %w", err)
+		return fmt.Errorf("leer perfiles: %w", err)
 	}
 
 	// Sólo las asignaciones ACTIVAS dan acceso: retirar a un jurado surte
 	// efecto en su siguiente petición, sin esperar a que cierre sesión.
 	filas, err = r.lectura.QueryContext(ctx,
 		"SELECT convocatoria_id, perfil FROM asignacion WHERE usuario_id = ? AND activo = 1 ORDER BY convocatoria_id, perfil",
-		usuario.ID)
+		s.Usuario.ID)
 	if err != nil {
-		return nil, fmt.Errorf("leer asignaciones: %w", err)
+		return fmt.Errorf("leer asignaciones: %w", err)
 	}
 	defer filas.Close()
 	for filas.Next() {
 		var a Asignacion
 		var perfil string
 		if err := filas.Scan(&a.ConvocatoriaID, &perfil); err != nil {
-			return nil, fmt.Errorf("leer asignaciones: %w", err)
+			return fmt.Errorf("leer asignaciones: %w", err)
 		}
 		a.Perfil = Perfil(perfil)
 		s.Asignaciones = append(s.Asignaciones, a)
 	}
-	return s, filas.Err()
+	return filas.Err()
+}
+
+// SesionDeUsuario devuelve los permisos que una cuenta tiene AHORA —sus
+// perfiles y asignaciones activas—, sin que haya una sesión de navegador de
+// por medio. La usa el trabajador que genera expedientes en segundo plano: el
+// contenido se decide con los permisos vigentes al generarlo (RN-26), no con
+// los que la persona tenía al pedirlo. Una cuenta desactivada responde
+// ErrNoEncontrado.
+func (r *Repositorio) SesionDeUsuario(ctx context.Context, usuarioID int64) (*Sesion, error) {
+	usuario, err := leerUsuario(r.lectura.QueryRowContext(ctx,
+		"SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ? AND u.activo = 1", usuarioID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoEncontrado
+	}
+	if err != nil {
+		return nil, fmt.Errorf("leer cuenta: %w", err)
+	}
+	s := &Sesion{Usuario: usuario}
+	return s, r.cargarPermisos(ctx, s)
 }
 
 // RenovarSesion prolonga una sesión en uso (expiración por inactividad).
@@ -5178,7 +5204,7 @@ func (r *Repositorio) BorrarVista(ctx context.Context, usuarioID, vistaID int64)
 // descarga masiva: los de las postulaciones que el solicitante puede ver y
 // que pasan su filtro, limitados a los tipos pedidos. Van en el orden en que
 // quedarán en el ZIP.
-func (r *Repositorio) DocumentosParaZIP(ctx context.Context, parametros ParametrosDeZIP) ([]DocumentoEnZIP, error) {
+func (r *Repositorio) DocumentosParaZIP(ctx context.Context, parametros ParametrosDeExportacion) ([]DocumentoEnZIP, error) {
 	filtro := parametros.Filtro
 	filtro.Pagina, filtro.Tamano = 0, 0 // todas, sin paginar
 	renglones, _, err := r.listar(ctx, parametros.Alcance, filtro, parametros.SoloDe)
@@ -5236,7 +5262,7 @@ func (r *Repositorio) DocumentosParaZIP(ctx context.Context, parametros Parametr
 func leerExportacion(f fila) (TareaDeExportacion, error) {
 	var t TareaDeExportacion
 	var parametros, creado, terminado, expira string
-	err := f.Scan(&t.ID, &t.SolicitadoPor, &parametros, &t.Estado, &t.Progreso, &t.MensajeError, &creado, &terminado, &expira, &t.Archivos, &t.Bytes)
+	err := f.Scan(&t.ID, &t.Tipo, &t.SolicitadoPor, &parametros, &t.Estado, &t.Progreso, &t.MensajeError, &creado, &terminado, &expira, &t.Archivos, &t.Bytes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return t, ErrNoEncontrado
 	}
@@ -5260,17 +5286,22 @@ func leerExportacion(f fila) (TareaDeExportacion, error) {
 	return t, nil
 }
 
-// sqlExportacion lee una tarea de descarga masiva. El número de archivos y el
-// tamaño del ZIP se guardan dentro de «parametros», que es JSON (§8.3).
+// sqlExportacion lee una tarea en segundo plano. El número de archivos y el
+// tamaño del resultado se guardan dentro de «parametros», que es JSON (§8.3).
 const sqlExportacion = `
-SELECT id, solicitado_por, parametros, estado, progreso, COALESCE(mensaje_error, ''), creado_at,
+SELECT id, tipo, solicitado_por, parametros, estado, progreso, COALESCE(mensaje_error, ''), creado_at,
        COALESCE(terminado_at, ''), COALESCE(expira_at, ''),
        COALESCE(json_extract(parametros, '$.archivos'), 0), COALESCE(json_extract(parametros, '$.bytes'), 0)
 FROM tarea_exportacion`
 
-// EncolarExportacion registra una descarga masiva para armarla en segundo
-// plano (RF-ARCH-35) y devuelve su id. Queda en la bitácora quién la pidió.
-func (r *Repositorio) EncolarExportacion(ctx context.Context, actor Actor, parametros ParametrosDeZIP) (int64, error) {
+// tiposDeTarea son los tipos de tarea que arma el trabajador de
+// exportaciones, como lista SQL.
+const tiposDeTarea = "('" + TareaZIP + "', '" + TareaExpediente + "')"
+
+// EncolarExportacion registra una tarea —descarga masiva o expediente por
+// convocatoria— para armarla en segundo plano (RF-ARCH-35 y 45) y devuelve su
+// id. Queda en la bitácora quién la pidió.
+func (r *Repositorio) EncolarExportacion(ctx context.Context, actor Actor, tipo string, parametros ParametrosDeExportacion) (int64, error) {
 	var id int64
 	err := r.operacion(ctx, "encolar exportación", func(tx *sql.Tx) error {
 		texto, err := json.Marshal(parametros)
@@ -5279,8 +5310,8 @@ func (r *Repositorio) EncolarExportacion(ctx context.Context, actor Actor, param
 		}
 		res, err := tx.ExecContext(ctx, `
 			INSERT INTO tarea_exportacion (tipo, solicitado_por, convocatoria_id, parametros, creado_at)
-			VALUES ('zip_documentos', ?, ?, ?, ?)`,
-			actor.UsuarioID, nuloSiCero(parametros.Filtro.ConvocatoriaID), string(texto), r.marca())
+			VALUES (?, ?, ?, ?, ?)`,
+			tipo, actor.UsuarioID, nuloSiCero(parametros.Filtro.ConvocatoriaID), string(texto), r.marca())
 		if err != nil {
 			return err
 		}
@@ -5288,14 +5319,14 @@ func (r *Repositorio) EncolarExportacion(ctx context.Context, actor Actor, param
 			return err
 		}
 		return r.auditar(ctx, tx, actor, "exportacion.solicitar", "tarea_exportacion", id, nil,
-			map[string]any{"convocatoria_id": parametros.Filtro.ConvocatoriaID, "tipos": parametros.Claves})
+			map[string]any{"tipo": tipo, "convocatoria_id": parametros.Filtro.ConvocatoriaID, "tipos": parametros.Claves})
 	})
 	return id, err
 }
 
 // ExportacionPorID devuelve una tarea de descarga masiva, o ErrNoEncontrado.
 func (r *Repositorio) ExportacionPorID(ctx context.Context, id int64) (TareaDeExportacion, error) {
-	t, err := leerExportacion(r.lectura.QueryRowContext(ctx, sqlExportacion+" WHERE id = ? AND tipo = 'zip_documentos'", id))
+	t, err := leerExportacion(r.lectura.QueryRowContext(ctx, sqlExportacion+" WHERE id = ? AND tipo IN "+tiposDeTarea, id))
 	if err != nil && !errors.Is(err, ErrNoEncontrado) {
 		return t, fmt.Errorf("leer exportación: %w", err)
 	}
@@ -5306,7 +5337,7 @@ func (r *Repositorio) ExportacionPorID(ctx context.Context, id int64) (TareaDeEx
 // marca como «procesando». hay es false si no queda ninguna.
 func (r *Repositorio) TomarExportacion(ctx context.Context) (tarea TareaDeExportacion, hay bool, err error) {
 	err = r.operacion(ctx, "tomar exportación", func(tx *sql.Tx) error {
-		t, err := leerExportacion(tx.QueryRowContext(ctx, sqlExportacion+" WHERE estado = 'encolado' AND tipo = 'zip_documentos' ORDER BY id LIMIT 1"))
+		t, err := leerExportacion(tx.QueryRowContext(ctx, sqlExportacion+" WHERE estado = 'encolado' AND tipo IN "+tiposDeTarea+" ORDER BY id LIMIT 1"))
 		if errors.Is(err, ErrNoEncontrado) {
 			return nil
 		}
@@ -5327,7 +5358,7 @@ func (r *Repositorio) TomarExportacion(ctx context.Context) (tarea TareaDeExport
 func (r *Repositorio) ReencolarExportacionesInterrumpidas(ctx context.Context) (int, error) {
 	var reencoladas int64
 	err := r.operacion(ctx, "reencolar exportaciones", func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, "UPDATE tarea_exportacion SET estado = 'encolado' WHERE estado = 'procesando' AND tipo = 'zip_documentos'")
+		res, err := tx.ExecContext(ctx, "UPDATE tarea_exportacion SET estado = 'encolado' WHERE estado = 'procesando' AND tipo IN "+tiposDeTarea)
 		if err != nil {
 			return err
 		}
@@ -5337,21 +5368,28 @@ func (r *Repositorio) ReencolarExportacionesInterrumpidas(ctx context.Context) (
 	return int(reencoladas), err
 }
 
-// TerminarExportacion anota el resultado de una descarga masiva: lista, con
-// cuántos archivos y de qué tamaño, o con error. El enlace vive siete días.
-func (r *Repositorio) TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string) error {
+// TerminarExportacion anota el resultado de una tarea: lista, con cuántos
+// archivos y de qué tamaño, o con error. El enlace vive siete días. Si se da
+// un aviso, queda en la bandeja de correo en la misma transacción: quien la
+// pidió se entera de que ya puede bajarla (RF-ARCH-45).
+func (r *Repositorio) TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string, aviso *CorreoSaliente) error {
 	return r.operacion(ctx, "terminar exportación", func(tx *sql.Tx) error {
 		estado := ExportacionLista
 		if mensajeDeError != "" {
 			estado = ExportacionConError
 		}
-		_, err := tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE tarea_exportacion
 			SET estado = ?, progreso = 100, mensaje_error = ?, terminado_at = ?, expira_at = ?,
 			    parametros = json_set(parametros, '$.archivos', ?, '$.bytes', ?)
 			WHERE id = ?`,
-			estado, nuloSiVacio(mensajeDeError), r.marca(), aMarca(r.ahora().Add(VigenciaDeExportacion)), archivos, bytes, id)
-		return err
+			estado, nuloSiVacio(mensajeDeError), r.marca(), aMarca(r.ahora().Add(VigenciaDeExportacion)), archivos, bytes, id); err != nil {
+			return err
+		}
+		if aviso == nil || mensajeDeError != "" {
+			return nil
+		}
+		return r.encolarCorreo(ctx, tx, *aviso)
 	})
 }
 
@@ -5364,6 +5402,373 @@ func (r *Repositorio) RegistrarDescargaDeExportacion(ctx context.Context, actor 
 			return err
 		}
 		return r.auditar(ctx, tx, actor, "exportacion.descargar", "tarea_exportacion", tarea.ID, nil,
-			map[string]any{"archivos": tarea.Archivos, "bytes": tarea.Bytes})
+			map[string]any{"tipo": tarea.Tipo, "archivos": tarea.Archivos, "bytes": tarea.Bytes})
 	})
+}
+
+// =============================================================================
+// 15. Expediente, reportes y tableros
+// =============================================================================
+
+// RegistrarExpediente deja constancia de que una cuenta generó el expediente
+// en PDF de una postulación (RN-27): en «descarga» y en la bitácora. El
+// expediente lleva datos personales y material inédito, igual que un
+// documento.
+func (r *Repositorio) RegistrarExpediente(ctx context.Context, actor Actor, postulacionID int64) error {
+	return r.operacion(ctx, "registrar expediente", func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO descarga (usuario_id, postulacion_id, ip, creado_at) VALUES (?, ?, ?, ?)",
+			actor.UsuarioID, postulacionID, nuloSiVacio(actor.IP), r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "expediente.generar", "postulacion", postulacionID, nil, nil)
+	})
+}
+
+// RegistrarReporte deja en la bitácora que una cuenta generó un reporte: de
+// qué convocatoria, con qué campos y cuántos renglones. No guarda ningún
+// valor del reporte.
+func (r *Repositorio) RegistrarReporte(ctx context.Context, actor Actor, convocatoriaID int64, campos []string, renglones int) error {
+	return r.operacion(ctx, "registrar reporte", func(tx *sql.Tx) error {
+		return r.auditar(ctx, tx, actor, "reporte.generar", "convocatoria", convocatoriaID, nil,
+			map[string]any{"campos": campos, "renglones": renglones})
+	})
+}
+
+// --- Plantillas de reporte (RF-REP-04) ----------------------------------------
+
+// leerPlantillaDeReporte vuelca una fila de plantilla_reporte en la entidad.
+func leerPlantillaDeReporte(f fila) (PlantillaDeReporte, error) {
+	var p PlantillaDeReporte
+	var tipo, creado string
+	if err := f.Scan(&p.ID, &p.Nombre, &tipo, &p.Consulta, &p.CreadoPor, &creado); err != nil {
+		return p, err
+	}
+	p.Tipo = TipoConvocatoria(tipo)
+	var err error
+	p.CreadoAt, err = deMarca(creado)
+	return p, err
+}
+
+// sqlPlantillaDeReporte lee las plantillas de reporte.
+const sqlPlantillaDeReporte = "SELECT id, nombre, tipo, consulta, creado_por, creado_at FROM plantilla_reporte"
+
+// PlantillasDeReporte devuelve las plantillas de reporte guardadas, por
+// nombre. Las comparten quienes generan reportes.
+func (r *Repositorio) PlantillasDeReporte(ctx context.Context) ([]PlantillaDeReporte, error) {
+	filas, err := r.lectura.QueryContext(ctx, sqlPlantillaDeReporte+" ORDER BY nombre")
+	if err != nil {
+		return nil, fmt.Errorf("leer plantillas de reporte: %w", err)
+	}
+	defer filas.Close()
+	plantillas := []PlantillaDeReporte{}
+	for filas.Next() {
+		plantilla, err := leerPlantillaDeReporte(filas)
+		if err != nil {
+			return nil, fmt.Errorf("leer plantillas de reporte: %w", err)
+		}
+		plantillas = append(plantillas, plantilla)
+	}
+	return plantillas, filas.Err()
+}
+
+// PlantillaDeReportePorID devuelve una plantilla de reporte, o ErrNoEncontrado.
+func (r *Repositorio) PlantillaDeReportePorID(ctx context.Context, id int64) (PlantillaDeReporte, error) {
+	plantilla, err := leerPlantillaDeReporte(r.lectura.QueryRowContext(ctx, sqlPlantillaDeReporte+" WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return plantilla, ErrNoEncontrado
+	}
+	if err != nil {
+		return plantilla, fmt.Errorf("leer plantilla de reporte: %w", err)
+	}
+	return plantilla, nil
+}
+
+// GuardarPlantillaDeReporte guarda con nombre la definición de un reporte.
+// Devuelve ErrDuplicado si ya hay una plantilla con ese nombre.
+func (r *Repositorio) GuardarPlantillaDeReporte(ctx context.Context, actor Actor, p PlantillaDeReporte) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "guardar plantilla de reporte", func(tx *sql.Tx) error {
+		p.Nombre = strings.TrimSpace(p.Nombre)
+		if err := validacion(ValidarPlantillaDeReporte(p)); err != nil {
+			return err
+		}
+		if repetida, err := existe(ctx, tx, "SELECT COUNT(*) FROM plantilla_reporte WHERE nombre = ?", p.Nombre); err != nil {
+			return err
+		} else if repetida {
+			return ErrDuplicado
+		}
+		res, err := tx.ExecContext(ctx, "INSERT INTO plantilla_reporte (nombre, tipo, consulta, creado_por, creado_at) VALUES (?, ?, ?, ?, ?)",
+			p.Nombre, string(p.Tipo), p.Consulta, actor.UsuarioID, r.marca())
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "plantilla_reporte.crear", "plantilla_reporte", id, nil, map[string]any{"nombre": p.Nombre, "tipo": string(p.Tipo)})
+	})
+	return id, err
+}
+
+// BorrarPlantillaDeReporte borra una plantilla de reporte. Si soloDe no es 0,
+// sólo la borra si esa cuenta la creó; la de otra persona responde
+// ErrNoEncontrado.
+func (r *Repositorio) BorrarPlantillaDeReporte(ctx context.Context, actor Actor, id, soloDe int64) error {
+	return r.operacion(ctx, "borrar plantilla de reporte", func(tx *sql.Tx) error {
+		consulta, args := "DELETE FROM plantilla_reporte WHERE id = ?", []any{id}
+		if soloDe != 0 {
+			consulta, args = consulta+" AND creado_por = ?", append(args, soloDe)
+		}
+		res, err := tx.ExecContext(ctx, consulta, args...)
+		if err != nil {
+			return err
+		}
+		if borradas, err := res.RowsAffected(); err != nil {
+			return err
+		} else if borradas == 0 {
+			return ErrNoEncontrado
+		}
+		return r.auditar(ctx, tx, actor, "plantilla_reporte.borrar", "plantilla_reporte", id, nil, nil)
+	})
+}
+
+// --- Tableros (§5.13) ---------------------------------------------------------
+
+// cifras ejecuta una consulta de dos columnas —clave y cantidad— y devuelve
+// sus renglones. Las claves vacías se omiten: un dato sin capturar no es una
+// categoría.
+func cifras(ctx context.Context, q consultor, consulta string, args ...any) ([]Cifra, error) {
+	filas, err := q.QueryContext(ctx, consulta, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer filas.Close()
+	lista := []Cifra{}
+	for filas.Next() {
+		var c Cifra
+		if err := filas.Scan(&c.Clave, &c.Cantidad); err != nil {
+			return nil, err
+		}
+		if c.Clave != "" {
+			lista = append(lista, c)
+		}
+	}
+	return lista, filas.Err()
+}
+
+// TableroDeConvocatoria devuelve las cifras de una convocatoria en curso
+// (RF-DASH-01): postulaciones por estado, primeros envíos, documentos por
+// dictaminar y subsanaciones abiertas, por vencer y vencidas. No lleva nada
+// de la evaluación.
+func (r *Repositorio) TableroDeConvocatoria(ctx context.Context, convocatoriaID int64) (TableroDeConvocatoria, error) {
+	var t TableroDeConvocatoria
+	var err error
+	q := r.lectura
+	if t.PorEstado, err = cifras(ctx, q, "SELECT estado, COUNT(*) FROM postulacion WHERE convocatoria_id = ? GROUP BY estado ORDER BY estado", convocatoriaID); err != nil {
+		return t, fmt.Errorf("contar postulaciones por estado: %w", err)
+	}
+	filas, err := q.QueryContext(ctx, `
+		SELECT a.generado_at FROM acuse a JOIN postulacion p ON p.id = a.postulacion_id
+		WHERE p.convocatoria_id = ? AND a.version = 1 ORDER BY a.generado_at`, convocatoriaID)
+	if err != nil {
+		return t, fmt.Errorf("leer primeros envíos: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var marca string
+		if err := filas.Scan(&marca); err != nil {
+			return t, fmt.Errorf("leer primeros envíos: %w", err)
+		}
+		momento, err := deMarca(marca)
+		if err != nil {
+			return t, err
+		}
+		t.PrimerosEnvios = append(t.PrimerosEnvios, momento)
+	}
+	if err := filas.Err(); err != nil {
+		return t, fmt.Errorf("leer primeros envíos: %w", err)
+	}
+	if err := q.QueryRowContext(ctx, `
+		SELECT COUNT(*), COUNT(DISTINCT d.postulacion_id)
+		FROM documento d JOIN postulacion p ON p.id = d.postulacion_id
+		WHERE p.convocatoria_id = ? AND p.estado <> 'borrador' AND d.vigente = 1 AND d.dictamen = 'pendiente'`,
+		convocatoriaID).Scan(&t.DocumentosPendientes, &t.PostulacionesConPendientes); err != nil {
+		return t, fmt.Errorf("contar documentos pendientes: %w", err)
+	}
+	// Subsanaciones que siguen esperando al postulante, según su plazo.
+	ahora := r.ahora()
+	pendientes := `
+		SELECT COUNT(*) FROM subsanacion s JOIN postulacion p ON p.id = s.postulacion_id
+		WHERE p.convocatoria_id = ? AND p.estado = 'en_subsanacion' AND s.atendida_at IS NULL AND s.cerrada_at IS NULL AND `
+	for _, cuenta := range []struct {
+		condicion string
+		args      []any
+		destino   *int
+	}{
+		{"s.fecha_limite >= ?", []any{aMarca(ahora)}, &t.SubsanacionesAbiertas},
+		{"s.fecha_limite >= ? AND s.fecha_limite < ?", []any{aMarca(ahora), aMarca(ahora.AddDate(0, 0, DiasPorVencer))}, &t.SubsanacionesPorVencer},
+		{"s.fecha_limite < ?", []any{aMarca(ahora)}, &t.SubsanacionesVencidas},
+	} {
+		if err := q.QueryRowContext(ctx, pendientes+cuenta.condicion, append([]any{convocatoriaID}, cuenta.args...)...).Scan(cuenta.destino); err != nil {
+			return t, fmt.Errorf("contar subsanaciones: %w", err)
+		}
+	}
+	return t, nil
+}
+
+// Avance devuelve cuánto lleva cada jurado de una convocatoria (RF-DASH-02):
+// cuántas unidades ha enviado y de cuántas se excusó, de cuántas. Cruza a los
+// jurados —por eso vive aquí—, pero sólo CUENTA: no lee ningún puntaje ni
+// ninguna observación.
+func (s SupervisionRepo) Avance(ctx context.Context, convocatoriaID int64) ([]AvanceDeJurado, error) {
+	cfg, err := configuracion(ctx, s.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	unidades, err := leerUnidades(ctx, s.r.lectura, convocatoriaID)
+	if err != nil {
+		return nil, err
+	}
+	filas, err := s.r.lectura.QueryContext(ctx, `
+		SELECT e.jurado_id, COALESCE(SUM(e.enviada), 0), COALESCE(SUM(e.excusado), 0)
+		FROM evaluacion e
+		JOIN postulacion p ON p.id = e.postulacion_id
+		WHERE e.convocatoria_id = ? AND p.estado IN ('en_evaluacion', 'evaluada')
+		GROUP BY e.jurado_id`, convocatoriaID)
+	if err != nil {
+		return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+	}
+	defer filas.Close()
+	type cuenta struct{ enviadas, excusadas int }
+	cuentas := make(map[int64]cuenta)
+	for filas.Next() {
+		var juradoID int64
+		var c cuenta
+		if err := filas.Scan(&juradoID, &c.enviadas, &c.excusadas); err != nil {
+			return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+		}
+		cuentas[juradoID] = c
+	}
+	if err := filas.Err(); err != nil {
+		return nil, fmt.Errorf("contar el avance de los jurados: %w", err)
+	}
+	avances := []AvanceDeJurado{}
+	for _, a := range cfg.Asignaciones {
+		if !a.Activo || a.Perfil != PerfilJurado {
+			continue
+		}
+		c := cuentas[a.Usuario.ID]
+		avances = append(avances, AvanceDeJurado{JuradoID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos),
+			Enviadas: c.enviadas, Excusadas: c.excusadas, Total: len(unidades)})
+	}
+	return avances, nil
+}
+
+// EstadisticasDeEdicion devuelve las distribuciones descriptivas de las
+// postulaciones ENVIADAS de una edición (RF-DASH-03): por entidad, país,
+// nacionalidad, género, rango de edad, dotación y tipo de estreno, y la
+// duración media de las obras. Los borradores no cuentan. Si convocatoriaID
+// no es 0, se limita a esa convocatoria.
+//
+// La edad se calcula al cierre de la etapa de postulación de cada
+// convocatoria, igual que en los reportes.
+func (r *Repositorio) EstadisticasDeEdicion(ctx context.Context, edicionID, convocatoriaID int64) (EstadisticasDeEdicion, error) {
+	var e EstadisticasDeEdicion
+	q := r.lectura
+	desde := `
+		FROM postulacion p
+		JOIN convocatoria c ON c.id = p.convocatoria_id` + unionesDeDatos
+	donde, args := "\n\t\tWHERE c.edicion_id = ? AND p.estado <> 'borrador'", []any{edicionID}
+	if convocatoriaID != 0 {
+		donde, args = donde+" AND c.id = ?", append(args, convocatoriaID)
+	}
+	if err := q.QueryRowContext(ctx, "SELECT COUNT(*)"+desde+donde, args...).Scan(&e.Postulaciones); err != nil {
+		return e, fmt.Errorf("contar postulaciones de la edición: %w", err)
+	}
+	// Distribuciones de la postulación: una consulta por dimensión.
+	for _, dimension := range []struct {
+		columna string
+		destino *[]Cifra
+	}{
+		{"c.tipo", &e.PorConvocatoria},
+		{"COALESCE(ds.entidad_residencia, de.entidad_residencia, dc.entidad_residencia, '')", &e.PorEntidad},
+		{"COALESCE(ds.pais_residencia, de.pais_residencia, dc.pais_residencia, '')", &e.PorPais},
+		{"COALESCE(ds.nacionalidad, dc.nacionalidad, '')", &e.PorNacionalidad},
+		{"COALESCE(ds.genero, dc.genero, '')", &e.PorGenero},
+	} {
+		var err error
+		if *dimension.destino, err = cifras(ctx, q, "SELECT "+dimension.columna+" AS clave, COUNT(*) AS cantidad"+desde+donde+
+			"\n\t\tGROUP BY clave ORDER BY cantidad DESC, clave", args...); err != nil {
+			return e, fmt.Errorf("estadísticas de la edición: %w", err)
+		}
+	}
+	// Distribuciones de las obras.
+	obras := `
+		FROM obra o
+		JOIN postulacion p ON p.id = o.postulacion_id
+		JOIN convocatoria c ON c.id = p.convocatoria_id`
+	var media sql.NullFloat64
+	if err := q.QueryRowContext(ctx, "SELECT COUNT(*), AVG(o.duracion_min)"+obras+donde, args...).Scan(&e.Obras, &media); err != nil {
+		return e, fmt.Errorf("estadísticas de las obras: %w", err)
+	}
+	e.DuracionMediaMin = math.Round(media.Float64*10) / 10
+	var err error
+	if e.PorEstreno, err = cifras(ctx, q, "SELECT COALESCE(o.estreno, '') AS clave, COUNT(*) AS cantidad"+obras+donde+
+		"\n\t\tGROUP BY clave ORDER BY cantidad DESC, clave", args...); err != nil {
+		return e, fmt.Errorf("estadísticas de las obras: %w", err)
+	}
+	filas, err := q.QueryContext(ctx, "SELECT d.id, d.nombre_es, COUNT(*) AS cantidad"+obras+
+		"\n\t\tJOIN dotacion d ON d.id = o.dotacion_id"+donde+"\n\t\tGROUP BY d.id, d.nombre_es ORDER BY cantidad DESC, d.nombre_es", args...)
+	if err != nil {
+		return e, fmt.Errorf("estadísticas por dotación: %w", err)
+	}
+	e.PorDotacion = []Cifra{}
+	for filas.Next() {
+		var id int64
+		var c Cifra
+		if err := filas.Scan(&id, &c.Nombre, &c.Cantidad); err != nil {
+			filas.Close()
+			return e, fmt.Errorf("estadísticas por dotación: %w", err)
+		}
+		c.Clave = strconv.FormatInt(id, 10)
+		e.PorDotacion = append(e.PorDotacion, c)
+	}
+	filas.Close()
+	if err := filas.Err(); err != nil {
+		return e, fmt.Errorf("estadísticas por dotación: %w", err)
+	}
+
+	// Edades: se leen las fechas de nacimiento y se cuentan aquí por rango,
+	// porque la aritmética de fechas no es igual en SQLite y en MariaDB.
+	filas, err = q.QueryContext(ctx, `
+		SELECT COALESCE(ds.fecha_nacimiento, dc.fecha_nacimiento, ''), COALESCE(et.termina_at, p.enviada_at, '')`+desde+`
+		LEFT JOIN etapa et ON et.convocatoria_id = c.id AND et.clave = 'postulacion'`+donde, args...)
+	if err != nil {
+		return e, fmt.Errorf("estadísticas por edad: %w", err)
+	}
+	defer filas.Close()
+	porRango := make(map[string]int)
+	for filas.Next() {
+		var nacimiento, referencia string
+		if err := filas.Scan(&nacimiento, &referencia); err != nil {
+			return e, fmt.Errorf("estadísticas por edad: %w", err)
+		}
+		if nacimiento == "" || referencia == "" {
+			continue // un ensamble no tiene fecha de nacimiento
+		}
+		cierre, err := deMarca(referencia)
+		if err != nil {
+			return e, err
+		}
+		if edad, ok := EdadEn(nacimiento, cierre); ok {
+			porRango[RangoDeEdad(edad)]++
+		}
+	}
+	e.PorEdad = []Cifra{}
+	for _, rango := range RangosDeEdad {
+		if porRango[rango] > 0 {
+			e.PorEdad = append(e.PorEdad, Cifra{Clave: rango, Cantidad: porRango[rango]})
+		}
+	}
+	return e, filas.Err()
 }

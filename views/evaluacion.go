@@ -96,6 +96,9 @@ func MatrizJSON(m models.MatrizDeResultados) any {
 		jurados = append(jurados, map[string]any{"id": j.ID, "nombre": j.Nombre})
 	}
 	filas := make([]map[string]any, 0, len(m.Filas))
+	// Los empates comparten lugar (RF-REP-08); lo que nadie ha calificado
+	// aún no tiene.
+	lugares := models.LugaresDeLaMatriz(m.Filas)
 	for i, f := range m.Filas {
 		evaluaciones := make([]map[string]any, 0, len(m.Jurados))
 		for _, j := range m.Jurados {
@@ -116,7 +119,7 @@ func MatrizJSON(m models.MatrizDeResultados) any {
 			})
 		}
 		fila := unidadJSON(f.Unidad)
-		fila["lugar"] = i + 1
+		fila["lugar"] = ceroANulo(int64(lugares[i]))
 		fila["estado"], fila["dictamen_final"] = string(f.Estado), textoONulo(f.DictamenFinal)
 		fila["evaluaciones"] = evaluaciones
 		fila["jurados_que_evaluaron"], fila["total"], fila["promedio"] = f.JuradosQueEvaluaron, f.Total, f.Promedio

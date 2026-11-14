@@ -339,6 +339,7 @@ const (
 	PlantillaSubsanacion      = "subsanacion"       // al postulante: qué corregir y hasta cuándo
 	PlantillaAcuseSubsanacion = "acuse_subsanacion" // al postulante: acuse del reenvío
 	PlantillaAvisoSubsanada   = "aviso_subsanada"   // a los revisores: una postulación volvió
+	PlantillaExportacionLista = "exportacion_lista" // a quien pidió una descarga o un expediente: ya puede bajarlo
 )
 
 // PlantillaCorreo es la versión activa de una plantilla editable (RF-NOT).
@@ -1218,33 +1219,48 @@ const (
 	ExportacionConError   = "error"
 )
 
-// ParametrosDeZIP es lo que se pide en una descarga masiva (RF-ARCH-31 y 32):
-// de qué postulaciones —el filtro— y qué tipos de documento. Se guarda como
-// JSON en la tarea, junto con el alcance de quien la pidió: el trabajador que
-// arma el ZIP aplica los permisos de esa persona, no los suyos.
-type ParametrosDeZIP struct {
-	Filtro  FiltroDeListado   `json:"filtro"`
-	Claves  []string          `json:"claves"` // requisitos a incluir; vacío = todos
+// Tipos de tarea que se arman en segundo plano.
+const (
+	TareaZIP        = "zip_documentos" // descarga masiva de documentos
+	TareaExpediente = "expediente_pdf" // expediente de varias postulaciones en un PDF
+)
+
+// ParametrosDeExportacion es lo que se pide en una tarea en segundo plano: una
+// descarga masiva en ZIP (RF-ARCH-31 y 32) o un expediente por convocatoria
+// (RF-ARCH-42). Dice de qué postulaciones —el filtro— y con qué opciones. Se
+// guarda como JSON en la tarea.
+type ParametrosDeExportacion struct {
+	Filtro FiltroDeListado `json:"filtro"`
+	// Claves son los requisitos a incluir en un ZIP; vacío = todos.
+	Claves []string `json:"claves"`
+	// Alcance es el de quien pidió el ZIP: el trabajador aplica los permisos
+	// de esa persona, no los suyos. El expediente no lo usa: su contenido se
+	// decide con los permisos que la persona tenga AL GENERARLO (RN-26).
 	Alcance AlcanceDeConsulta `json:"alcance"`
 	// SoloDe limita el ZIP a las postulaciones de esta cuenta: es la
 	// descarga de «lo propio» de un postulante.
 	SoloDe int64 `json:"solo_de,omitempty"`
+	// Opciones del expediente (RF-ARCH-43, 44 y 46).
+	Idioma             string `json:"idioma,omitempty"`
+	SinFotografia      bool   `json:"sin_fotografia,omitempty"`
+	HojaDeCalificacion bool   `json:"hoja_de_calificacion,omitempty"`
 	// Archivos y Bytes los anota el trabajador al terminar.
 	Archivos int   `json:"archivos,omitempty"`
 	Bytes    int64 `json:"bytes,omitempty"`
 }
 
-// TareaDeExportacion es una descarga masiva que se arma en segundo plano
-// (RF-ARCH-35).
+// TareaDeExportacion es un archivo que se arma en segundo plano: una descarga
+// masiva (RF-ARCH-35) o un expediente por convocatoria (RF-ARCH-45).
 type TareaDeExportacion struct {
 	ID            int64
+	Tipo          string // TareaZIP o TareaExpediente
 	SolicitadoPor int64
-	Parametros    ParametrosDeZIP
+	Parametros    ParametrosDeExportacion
 	Estado        string
 	Progreso      int // 0 a 100
 	MensajeError  string
-	Archivos      int   // documentos incluidos
-	Bytes         int64 // tamaño del ZIP
+	Archivos      int   // documentos del ZIP, o postulaciones del expediente
+	Bytes         int64 // tamaño del archivo
 	ExpiraAt      time.Time
 	CreadoAt      time.Time
 	TerminadoAt   time.Time
@@ -1258,4 +1274,172 @@ type DocumentoEnZIP struct {
 	Nombre      string // postulante o ensamble
 	OrdenDeObra int
 	Obra        string // título
+}
+
+// ---------------------------------------------------------------------------
+// Expediente en PDF (§5.12.4)
+// ---------------------------------------------------------------------------
+
+// RecorteDeExpediente dice qué partes reservadas de un expediente puede ver
+// quien lo pide (RF-ARCH-41, RN-26). Se calcula al generarlo: el PDF sale del
+// sistema y después ya no hay forma de controlarlo.
+type RecorteDeExpediente struct {
+	// Revision: observaciones, dictámenes de documentos, subsanaciones y
+	// motivo de descarte. Revisores y supervisión.
+	Revision bool
+	// EvaluacionPropia: quien lo pide es jurado de la convocatoria y ve SU
+	// evaluación. Nunca la de otro, ni la suma.
+	EvaluacionPropia bool
+	// Supervision: las evaluaciones de todos los jurados, la suma y el
+	// resultado del proceso. Administrador y observador.
+	Supervision bool
+}
+
+// Expediente es todo lo que el expediente en PDF de una postulación muestra a
+// quien lo pidió. Lo que esa persona no puede ver no está: RecortarExpediente
+// lo quita antes de que llegue a la vista.
+type Expediente struct {
+	Postulacion   Postulacion
+	Configuracion ConfiguracionConvocatoria
+	Titular       Usuario
+	Recorte       RecorteDeExpediente
+	Revision      Revision          // sólo con Recorte.Revision
+	Propias       []Evaluacion      // sólo con Recorte.EvaluacionPropia: una por unidad
+	Jurados       []JuradoEnMatriz  // sólo con Recorte.Supervision
+	Resultados    []FilaDeResultado // sólo con Recorte.Supervision: una por unidad
+}
+
+// ---------------------------------------------------------------------------
+// Reportes (§5.7)
+// ---------------------------------------------------------------------------
+
+// Granularidad de un reporte (RF-REP-03).
+const (
+	GranularidadPostulacion = "postulacion" // una fila por postulación
+	GranularidadObra        = "obra"        // una fila por obra, con los datos de la postulación repetidos
+)
+
+// Nivel de un campo del catálogo de reportes: a qué se refiere su valor.
+const (
+	NivelPostulacion = "postulacion"
+	NivelObra        = "obra"
+	// NivelEvaluacion: la unidad que califica el jurado, que es la
+	// postulación en Intérpretes y la obra en Compositores.
+	NivelEvaluacion = "evaluacion"
+)
+
+// Presentaciones de un campo de reporte que no vienen del formulario: le
+// dicen a la vista cómo escribir el valor.
+const (
+	CampoEstado       TipoCampo = "estado"       // estado de la postulación
+	CampoResultado    TipoCampo = "resultado"    // dictamen final
+	CampoRevision     TipoCampo = "revision"     // resultado de la revisión documental
+	CampoSubcategoria TipoCampo = "subcategoria" //
+	CampoMarca        TipoCampo = "marca"        // instante, en hora de la Ciudad de México
+)
+
+// CampoDeReporte es un campo del catálogo del generador de reportes (§9).
+type CampoDeReporte struct {
+	Clave string // «folio», «datos.genero», «obra.titulo», «eval.j1.realizacion»
+	Nivel string
+	Tipo  TipoCampo // cómo presentar el valor
+	// Jurado y Criterio sólo van en los puntajes por jurado: el número de
+	// jurado (desde 1) y el criterio que califica.
+	Jurado   int
+	Criterio *CriterioEvaluacion
+}
+
+// DefinicionDeReporte es lo que se pide al generador (RF-REP-01).
+type DefinicionDeReporte struct {
+	Campos       []string
+	Granularidad string
+	Separador    string // «coma» o «punto_y_coma»
+	// PuntajeMin y PuntajeMax acotan por puntaje comparable; nil = sin cota.
+	PuntajeMin, PuntajeMax *float64
+	// PorPuntaje ordena por puntaje en vez de por el orden del filtro.
+	PorPuntaje bool
+	Filtro     FiltroDeListado
+}
+
+// FilaDeReporte es lo que se sabe de un renglón del reporte: de ahí sale el
+// valor de cada campo.
+type FilaDeReporte struct {
+	Postulacion   Postulacion
+	Titular       Usuario
+	Obra          *Obra // nil en un reporte por postulación
+	Observaciones []ObservacionRevision
+	Resultado     *FilaDeResultado // nil si la unidad no llegó a evaluación
+	Lugar         int              // lugar en la matriz; 0 si no tiene
+	Jurados       []JuradoEnMatriz
+	Dotaciones    []Dotacion
+	// Cierre es el fin de la etapa de postulación: a esa fecha se calcula la
+	// edad.
+	Cierre time.Time
+}
+
+// PlantillaDeReporte es una definición de reporte guardada con nombre para
+// reutilizarla en ediciones posteriores (RF-REP-04). Consulta son los
+// parámetros del reporte, sin la convocatoria.
+type PlantillaDeReporte struct {
+	ID        int64
+	Nombre    string
+	Tipo      TipoConvocatoria
+	Consulta  string
+	CreadoPor int64
+	CreadoAt  time.Time
+}
+
+// ---------------------------------------------------------------------------
+// Tableros y estadísticas (§5.13)
+// ---------------------------------------------------------------------------
+
+// Cifra es un número de un tablero con la clave de lo que cuenta: un estado,
+// una entidad, un día.
+type Cifra struct {
+	Clave    string
+	Nombre   string // sólo cuando la clave es un id (dotaciones)
+	Cantidad int
+}
+
+// TableroDeConvocatoria es el estado de una convocatoria en curso
+// (RF-DASH-01).
+type TableroDeConvocatoria struct {
+	PorEstado []Cifra // postulaciones por estado, borradores incluidos
+	// PrimerosEnvios es el instante del primer envío de cada postulación,
+	// en orden: de ahí sale el ritmo de envíos por día.
+	PrimerosEnvios []time.Time
+	// DocumentosPendientes: documentos vigentes sin dictaminar, y en cuántas
+	// postulaciones están.
+	DocumentosPendientes       int
+	PostulacionesConPendientes int
+	// Subsanaciones que siguen esperando al postulante.
+	SubsanacionesAbiertas  int // dentro de plazo
+	SubsanacionesPorVencer int // de las abiertas, las que vencen en menos de DiasPorVencer
+	SubsanacionesVencidas  int
+}
+
+// AvanceDeJurado es cuánto lleva un jurado de su lista (RF-DASH-02). No
+// lleva ningún puntaje.
+type AvanceDeJurado struct {
+	JuradoID  int64
+	Nombre    string
+	Enviadas  int
+	Excusadas int
+	Total     int // unidades por evaluar en la convocatoria
+}
+
+// EstadisticasDeEdicion son las distribuciones descriptivas de las
+// postulaciones enviadas de una edición (RF-DASH-03).
+type EstadisticasDeEdicion struct {
+	Postulaciones    int
+	Obras            int
+	PorConvocatoria  []Cifra // clave: tipo de convocatoria
+	PorEntidad       []Cifra
+	PorPais          []Cifra
+	PorNacionalidad  []Cifra
+	PorGenero        []Cifra
+	PorEdad          []Cifra // clave: rango de edad
+	PorDotacion      []Cifra // clave: id de la dotación; cuenta obras
+	PorEstreno       []Cifra // cuenta obras
+	DuracionMediaMin float64 // de las obras
 }

@@ -26,6 +26,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,7 +47,12 @@ import (
 // Son los mismos para consultar, para exportar a CSV y para pedir un ZIP: así
 // «el resultado de esta búsqueda» es siempre la misma dirección (RF-ARCH-14).
 func filtroDeLaPeticion(r *http.Request) (models.FiltroDeListado, []models.ErrorCampo) {
-	consulta := r.URL.Query()
+	return filtroDeLaConsulta(r.URL.Query())
+}
+
+// filtroDeLaConsulta lee los filtros del listado de unos parámetros ya
+// separados. Los reportes la usan con los de una plantilla guardada.
+func filtroDeLaConsulta(consulta url.Values) (models.FiltroDeListado, []models.ErrorCampo) {
 	f := models.FiltroDeListado{
 		Texto: consulta.Get("q"), Tipo: models.TipoConvocatoria(consulta.Get("tipo")),
 		Subcategoria: models.Subcategoria(consulta.Get("subcategoria")), Estado: models.EstadoDePostulacion(consulta.Get("estado")),
@@ -201,7 +207,7 @@ func (a *App) apiPedirExportacion(w http.ResponseWriter, r *http.Request) {
 		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
 		return
 	}
-	parametros := models.ParametrosDeZIP{Filtro: filtro, Alcance: models.AlcanceDe(sesion),
+	parametros := models.ParametrosDeExportacion{Filtro: filtro, Alcance: models.AlcanceDe(sesion),
 		Claves: strings.FieldsFunc(r.URL.Query().Get("tipos"), func(r rune) bool { return r == ',' })}
 	if !models.PuedeDescargarEnMasa(sesion) {
 		// Quien no puede descargar en masa sólo baja lo suyo: una
@@ -222,7 +228,7 @@ func (a *App) apiPedirExportacion(w http.ResponseWriter, r *http.Request) {
 		// Un revisor que además es jurado descarga como revisor, no como jurado.
 		parametros.Alcance.ComoJurado = nil
 	}
-	id, err := a.datos.EncolarExportacion(r.Context(), a.actorDe(r), parametros)
+	id, err := a.datos.EncolarExportacion(r.Context(), a.actorDe(r), models.TareaZIP, parametros)
 	if a.falloDatos(w, r, err) {
 		return
 	}
@@ -254,7 +260,7 @@ func (a *App) apiExportacion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /api/v1/exportaciones/{id}/archivo   — baja el ZIP
+// GET /api/v1/exportaciones/{id}/archivo   — baja el ZIP o el expediente
 //
 // Sólo quien lo pidió, y durante siete días. Se sirve desde disco, por
 // trozos: no se carga en memoria. Queda registrado (RF-ARCH-37).
@@ -271,7 +277,7 @@ func (a *App) apiDescargarExportacion(w http.ResponseWriter, r *http.Request) {
 		a.errorAPI(w, r, http.StatusGone, "exportacion_vencida")
 		return
 	}
-	archivo, err := os.Open(rutaDeExportacion(a.exportaciones, tarea.ID))
+	archivo, err := os.Open(rutaDeExportacion(a.exportaciones, tarea))
 	if err != nil {
 		a.log.Error("falta el archivo de una descarga masiva lista", "tarea", tarea.ID, "error", err)
 		a.errorAPI(w, r, http.StatusGone, "exportacion_vencida")
@@ -284,16 +290,28 @@ func (a *App) apiDescargarExportacion(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cabeceras := w.Header()
-	cabeceras.Set("Content-Type", "application/zip")
-	cabeceras.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="fimnme_documentos_%d.zip"`, tarea.ID))
+	tipo, nombre := "application/zip", "documentos"
+	if tarea.Tipo == models.TareaExpediente {
+		tipo, nombre = "application/pdf", "expediente"
+	}
+	cabeceras.Set("Content-Type", tipo)
+	cabeceras.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="fimnme_%s_%d%s"`, nombre, tarea.ID, extensionDeTarea(tarea.Tipo)))
 	cabeceras.Set("Cache-Control", "private, no-store")
 	a.ampliarPlazos(w) // un ZIP de varios gigas tarda en bajar
 	http.ServeContent(w, r, "", time.Time{}, archivo)
 }
 
-// rutaDeExportacion es el archivo en disco de una descarga masiva.
-func rutaDeExportacion(directorio string, tareaID int64) string {
-	return filepath.Join(directorio, strconv.FormatInt(tareaID, 10)+".zip")
+// extensionDeTarea es la extensión del archivo que produce un tipo de tarea.
+func extensionDeTarea(tipo string) string {
+	if tipo == models.TareaExpediente {
+		return ".pdf"
+	}
+	return ".zip"
+}
+
+// rutaDeExportacion es el archivo en disco del resultado de una tarea.
+func rutaDeExportacion(directorio string, tarea models.TareaDeExportacion) string {
+	return filepath.Join(directorio, strconv.FormatInt(tarea.ID, 10)+extensionDeTarea(tarea.Tipo))
 }
 
 // --- Trabajador de descargas masivas ------------------------------------------
@@ -302,19 +320,55 @@ func rutaDeExportacion(directorio string, tareaID int64) string {
 const intervaloExportaciones = 5 * time.Second
 
 // TrabajadorExportaciones arma en segundo plano los ZIP de las descargas
-// masivas (RF-ARCH-35) y borra los que ya vencieron.
+// masivas (RF-ARCH-35) y los expedientes por convocatoria (RF-ARCH-45), avisa
+// por correo a quien los pidió y borra los que ya vencieron.
 //
-// Los ZIP no entran al acervo: son copias temporales que viven siete días en
-// su propio directorio. Cada archivo se copia del almacén al ZIP por trozos,
-// sin comprimir —partituras y audio ya vienen comprimidos— y sin cargarlo en
-// memoria.
+// Lo que arma no entra al acervo: son copias temporales que viven siete días
+// en su propio directorio. En un ZIP, cada archivo se copia del almacén por
+// trozos, sin comprimir —partituras y audio ya vienen comprimidos— y sin
+// cargarlo en memoria.
 type TrabajadorExportaciones struct {
 	Datos      models.Persistencia
 	Almacen    models.BlobStore
+	Vistas     *views.Motor
 	Directorio string
 	Log        *slog.Logger
+	// URLBase es la dirección pública del sitio, para el enlace del aviso.
+	URLBase string
 	// Ahora es el reloj; nil usa el del sistema.
 	Ahora func() time.Time
+}
+
+// ahora devuelve la hora del reloj del trabajador.
+func (t *TrabajadorExportaciones) ahora() time.Time {
+	if t.Ahora != nil {
+		return t.Ahora()
+	}
+	return time.Now()
+}
+
+// aviso compone el correo que avisa a quien pidió una tarea de que ya puede
+// bajarla. Devuelve nil si no puede componerse: el aviso es una cortesía y
+// su falta no debe echar a perder una descarga que sí se armó.
+func (t *TrabajadorExportaciones) aviso(ctx context.Context, tarea models.TareaDeExportacion) *models.CorreoSaliente {
+	cuenta, err := t.Datos.UsuarioPorID(ctx, tarea.SolicitadoPor)
+	if err != nil {
+		t.Log.Error("leer a quien pidió la descarga", "tarea", tarea.ID, "error", err)
+		return nil
+	}
+	idioma := cuenta.Usuario.Idioma
+	plantilla, err := t.Datos.PlantillaCorreo(ctx, models.PlantillaExportacionLista, idioma)
+	if err != nil {
+		t.Log.Error("leer plantilla del aviso de descarga", "error", err)
+		return nil
+	}
+	correo := views.RenderCorreo(plantilla, cuenta.Usuario.Email, map[string]string{
+		"nombre": cuenta.Usuario.Nombre,
+		"numero": strconv.FormatInt(tarea.ID, 10),
+		"liga":   fmt.Sprintf("%s/api/v1/exportaciones/%d/archivo", t.URLBase, tarea.ID),
+		"vence":  t.Vistas.FechaHora(idioma, t.ahora().Add(models.VigenciaDeExportacion)),
+	})
+	return &correo
 }
 
 // Ejecutar trabaja hasta que se cancele el contexto. Antes de empezar
@@ -364,7 +418,11 @@ func (t *TrabajadorExportaciones) Procesar(ctx context.Context) int {
 			t.Log.Error("armar descarga masiva", "tarea", tarea.ID, "error", err)
 			mensaje = "no_se_pudo_armar"
 		}
-		if err := t.Datos.TerminarExportacion(ctx, tarea.ID, archivos, tamano, mensaje); err != nil {
+		var aviso *models.CorreoSaliente
+		if mensaje == "" {
+			aviso = t.aviso(ctx, tarea)
+		}
+		if err := t.Datos.TerminarExportacion(ctx, tarea.ID, archivos, tamano, mensaje, aviso); err != nil {
 			t.Log.Error("anotar descarga masiva", "tarea", tarea.ID, "error", err)
 			continue
 		}
@@ -376,15 +434,10 @@ func (t *TrabajadorExportaciones) Procesar(ctx context.Context) int {
 	return armadas
 }
 
-// armar escribe el ZIP de una tarea: cada documento en su carpeta y, al
-// final, el manifiesto. Escribe en un temporal y lo renombra al terminar,
-// para que nunca pueda bajarse un ZIP a medias.
+// armar produce el archivo de una tarea —el ZIP o el PDF— y devuelve cuántos
+// elementos lleva y cuánto pesa. Escribe en un temporal y lo renombra al
+// terminar, para que nunca pueda bajarse un archivo a medias.
 func (t *TrabajadorExportaciones) armar(ctx context.Context, tarea models.TareaDeExportacion) (archivos int, tamano int64, err error) {
-	documentos, err := t.Datos.DocumentosParaZIP(ctx, tarea.Parametros)
-	if err != nil {
-		return 0, 0, err
-	}
-	destino := rutaDeExportacion(t.Directorio, tarea.ID)
 	temporal, err := os.CreateTemp(t.Directorio, "armando-*")
 	if err != nil {
 		return 0, 0, err
@@ -394,44 +447,13 @@ func (t *TrabajadorExportaciones) armar(ctx context.Context, tarea models.TareaD
 			err = errBorrar
 		}
 	}()
-	escritor := zip.NewWriter(temporal)
-	rutas := make([]string, len(documentos))
-	usadas := make(map[string]int)
-	for i, d := range documentos {
-		if ctx.Err() != nil {
-			return 0, 0, ctx.Err() // apagado en curso: la tarea se rehará
+	if tarea.Tipo == models.TareaExpediente {
+		var contenido []byte
+		if contenido, archivos, err = t.expedienteDeTarea(ctx, tarea); err == nil {
+			_, err = temporal.Write(contenido)
 		}
-		// Si un requisito admite varios archivos, del segundo en adelante
-		// llevan su número.
-		base := models.RutaEnZIP(d, 1)
-		usadas[base]++
-		rutas[i] = models.RutaEnZIP(d, usadas[base])
-		entrada, err := escritor.CreateHeader(&zip.FileHeader{Name: rutas[i], Method: zip.Store, Modified: d.Documento.SubidoAt})
-		if err != nil {
-			return 0, 0, err
-		}
-		contenido, err := t.Almacen.Abrir(d.Documento.Archivo.Clave)
-		if err != nil {
-			return 0, 0, fmt.Errorf("documento %d: %w", d.Documento.ID, err)
-		}
-		_, err = io.Copy(entrada, contenido)
-		if errCerrar := contenido.Close(); err == nil {
-			err = errCerrar
-		}
-		if err != nil {
-			return 0, 0, fmt.Errorf("documento %d: %w", d.Documento.ID, err)
-		}
-	}
-	manifiesto, err := views.ManifiestoCSV(documentos, rutas)
-	if err != nil {
-		return 0, 0, err
-	}
-	entrada, err := escritor.Create("manifiesto.csv")
-	if err == nil {
-		_, err = entrada.Write(manifiesto)
-	}
-	if err == nil {
-		err = escritor.Close()
+	} else {
+		archivos, err = t.escribirZIP(ctx, tarea, temporal)
 	}
 	if err == nil {
 		err = temporal.Sync()
@@ -449,16 +471,62 @@ func (t *TrabajadorExportaciones) armar(ctx context.Context, tarea models.TareaD
 	if err := os.Chmod(temporal.Name(), 0o640); err != nil {
 		return 0, 0, err
 	}
-	return len(documentos), info.Size(), os.Rename(temporal.Name(), destino)
+	return archivos, info.Size(), os.Rename(temporal.Name(), rutaDeExportacion(t.Directorio, tarea))
+}
+
+// escribirZIP escribe el ZIP de una descarga masiva: cada documento en su
+// carpeta y, al final, el manifiesto. Devuelve cuántos documentos lleva.
+func (t *TrabajadorExportaciones) escribirZIP(ctx context.Context, tarea models.TareaDeExportacion, salida io.Writer) (int, error) {
+	documentos, err := t.Datos.DocumentosParaZIP(ctx, tarea.Parametros)
+	if err != nil {
+		return 0, err
+	}
+	escritor := zip.NewWriter(salida)
+	rutas := make([]string, len(documentos))
+	usadas := make(map[string]int)
+	for i, d := range documentos {
+		if ctx.Err() != nil {
+			return 0, ctx.Err() // apagado en curso: la tarea se rehará
+		}
+		// Si un requisito admite varios archivos, del segundo en adelante
+		// llevan su número.
+		base := models.RutaEnZIP(d, 1)
+		usadas[base]++
+		rutas[i] = models.RutaEnZIP(d, usadas[base])
+		entrada, err := escritor.CreateHeader(&zip.FileHeader{Name: rutas[i], Method: zip.Store, Modified: d.Documento.SubidoAt})
+		if err != nil {
+			return 0, err
+		}
+		contenido, err := t.Almacen.Abrir(d.Documento.Archivo.Clave)
+		if err != nil {
+			return 0, fmt.Errorf("documento %d: %w", d.Documento.ID, err)
+		}
+		_, err = io.Copy(entrada, contenido)
+		if errCerrar := contenido.Close(); err == nil {
+			err = errCerrar
+		}
+		if err != nil {
+			return 0, fmt.Errorf("documento %d: %w", d.Documento.ID, err)
+		}
+	}
+	manifiesto, err := views.ManifiestoCSV(documentos, rutas)
+	if err != nil {
+		return 0, err
+	}
+	entrada, err := escritor.Create("manifiesto.csv")
+	if err == nil {
+		_, err = entrada.Write(manifiesto)
+	}
+	if err == nil {
+		err = escritor.Close()
+	}
+	return len(documentos), err
 }
 
 // limpiar borra los ZIP cuyo enlace ya venció, y los temporales que un
 // apagado dejó a medias.
 func (t *TrabajadorExportaciones) limpiar(ctx context.Context) {
-	ahora := time.Now()
-	if t.Ahora != nil {
-		ahora = t.Ahora()
-	}
+	ahora := t.ahora()
 	entradas, err := os.ReadDir(t.Directorio)
 	if err != nil {
 		t.Log.Error("leer directorio de descargas masivas", "error", err)
@@ -466,10 +534,10 @@ func (t *TrabajadorExportaciones) limpiar(ctx context.Context) {
 	}
 	for _, entrada := range entradas {
 		ruta := filepath.Join(t.Directorio, entrada.Name())
-		id, err := strconv.ParseInt(strings.TrimSuffix(entrada.Name(), ".zip"), 10, 64)
+		id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimSuffix(entrada.Name(), ".zip"), ".pdf"), 10, 64)
 		vencido := false
 		if err != nil {
-			// No es un ZIP terminado: un temporal. Si lleva más de un día, sobra.
+			// No es un archivo terminado: un temporal. Si lleva más de un día, sobra.
 			info, errInfo := entrada.Info()
 			vencido = errInfo == nil && ahora.Sub(info.ModTime()) > 24*time.Hour
 		} else if tarea, err := t.Datos.ExportacionPorID(ctx, id); err == nil {

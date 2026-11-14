@@ -19,8 +19,16 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 9a de 14: archivo, búsqueda y descargas masivas.** Hoy el sistema tiene:
+**Paso 9b de 14: reportes, expediente y tableros.** Hoy el sistema tiene:
 
+- **Expediente en PDF**, de una postulación o de toda una convocatoria (con índice y
+  marcadores), con la fotografía. **Su contenido se recorta según quién lo pide**: un
+  jurado nunca recibe la evaluación de otro.
+- **Reportes CSV** a la medida: se eligen campos, granularidad, filtros y orden, y la
+  definición se guarda como plantilla para los años siguientes. **Reporte de resultados**
+  con los empates a la vista.
+- **Tablero** de cada convocatoria y **estadísticas** de cada edición, con cifras que
+  llevan al listado que las produce.
 - **Archivo histórico por API**: un solo listado para todas las ediciones, con **búsqueda
   de texto completo** (sin acentos, por inicio de palabra y por fragmento), filtros
   combinables en la URL, orden, paginación, **CSV** del resultado, vistas guardadas y
@@ -390,6 +398,59 @@ curl -b cookies.txt -o documentos.zip http://127.0.0.1:8080/api/v1/exportaciones
 
 Decisiones de este módulo: [ADR 0012](docs/adr/0012-archivo-busqueda-y-descargas-masivas.md).
 
+### API de expediente, reportes y tableros
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/postulaciones/{id}/expediente` | Quien pueda ver la postulación | Expediente en PDF. `idioma=es|en`, `fotografia=no`, `hoja=si` |
+| `POST /api/v1/expedientes` | Supervisión, revisores y jurados (sólo lo suyo) | Expediente de una convocatoria en un solo PDF. `convocatoria` obligatorio; admite los filtros del archivo. Responde `202`; se consulta y se baja en `/api/v1/exportaciones/{id}` |
+| `GET /api/v1/convocatorias/{id}/reporte/campos` | `admin_sistema`, `coordinacion_nacional` | Catálogo de campos para armar un reporte |
+| `GET /api/v1/convocatorias/{id}/reporte` | `admin_sistema`, `coordinacion_nacional` | Reporte CSV |
+| `GET` · `POST /api/v1/reportes/plantillas` | `admin_sistema`, `coordinacion_nacional` | Plantillas de reporte: `nombre`, `tipo` y `consulta` |
+| `DELETE /api/v1/reportes/plantillas/{id}` | El administrador, cualquiera; el observador, las suyas | Borra una plantilla |
+| `GET /api/v1/convocatorias/{id}/resultados?formato=csv` | `admin_sistema`, `coordinacion_nacional` | Reporte de resultados: la matriz en CSV |
+| `GET /api/v1/convocatorias/{id}/tablero` | `admin_sistema`, `coordinacion_nacional` | Postulaciones por estado, envíos por día, documentos y subsanaciones pendientes, avance de cada jurado |
+| `GET /api/v1/ediciones/{id}/estadisticas` | `admin_sistema`, `coordinacion_nacional` | Distribuciones de las postulaciones enviadas. Con `convocatoria`, sólo esa |
+
+**Qué lleva el expediente, según quién lo pide:**
+
+| Quien lo pide | Recibe |
+|---|---|
+| Titular | Su postulación. Nada interno |
+| Jurado | La postulación y **su** evaluación; nunca la de otro jurado ni la suma |
+| Revisor | La postulación y la revisión documental; ninguna evaluación |
+| Administrador y observador | Todo |
+
+Parámetros del reporte, además de los filtros del archivo:
+
+| Parámetro | Qué hace |
+|---|---|
+| `campos` | Claves del catálogo separadas por coma, en el orden de las columnas |
+| `granularidad` | `postulacion` (por omisión) u `obra`: una fila por obra, con los datos de la postulación repetidos |
+| `separador` | `coma` (por omisión) o `punto_y_coma`, que es el que Excel en español espera |
+| `puntaje_min`, `puntaje_max` | Rango de puntaje |
+| `orden` | Los del archivo, o `puntaje` / `-puntaje` |
+| `plantilla` | Id de una plantilla guardada; los demás parámetros mandan sobre ella |
+| `idioma` | `es` o `en`, para encabezados y valores |
+
+Los campos de obra piden `granularidad=obra`. Los de la evaluación (`eval.*`) piden la
+granularidad de lo que califica el jurado: por postulación en Intérpretes, por obra en
+Compositores.
+
+```bash
+curl -b cookies.txt -o expediente.pdf 'http://127.0.0.1:8080/api/v1/postulaciones/1/expediente'
+```
+
+```bash
+curl -b cookies.txt -o reporte.csv 'http://127.0.0.1:8080/api/v1/convocatorias/1/reporte?campos=folio,datos.nombre_completo,datos.entidad_residencia,obras.titulos,eval.total,eval.lugar&orden=-puntaje&separador=punto_y_coma'
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"nombre":"Acta de resultados","tipo":"interpretes","consulta":"campos=folio,datos.nombre_completo,eval.total,eval.lugar&orden=-puntaje"}' http://127.0.0.1:8080/api/v1/reportes/plantillas
+```
+
+Decisiones de este módulo: [ADR 0013](docs/adr/0013-reportes-expediente-y-tableros.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -434,6 +495,8 @@ controllers/        CONTROLADOR
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados
   archivo.go          archivo histórico, vistas guardadas y descargas masivas
+  expediente.go       expediente en PDF: qué carga para cada quien
+  reportes.go         reportes CSV, plantillas de reporte y tableros
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
@@ -448,6 +511,9 @@ views/              VISTA (todo incrustado con //go:embed)
   revision.go         respuestas JSON de la revisión y la subsanación
   evaluacion.go       respuestas JSON del jurado y de la matriz
   archivo.go          listado del archivo, su CSV y el manifiesto de los ZIP
+  expediente.go       composición del expediente en PDF
+  fotografia.go       reducción de la fotografía para el PDF
+  reportes.go         CSV de reportes y respuestas de tableros
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template
   static/             CSS propio, htmx, iconos
@@ -681,7 +747,8 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 acervo de archivos** (`blobs/`): las partituras, el audio, las fotografías y los acuses.
 Una cosa sin la otra no sirve: se respaldan siempre juntas.
 
-El directorio `exportaciones/` guarda los ZIP de las descargas masivas durante siete días.
+El directorio `exportaciones/` guarda los ZIP de las descargas masivas y los expedientes
+por convocatoria durante siete días.
 **No hace falta respaldarlo**: son copias de lo que ya está en `blobs/`.
 
 Los respaldos automatizados y el servidor espejo llegan en los pasos 10 y 14. Mientras

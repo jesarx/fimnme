@@ -209,8 +209,8 @@ func main() {
 	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
 	enlaces := &controllers.TrabajadorEnlaces{Datos: repositorio, Verificador: verificador, Log: log}
 	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
-	exportaciones := &controllers.TrabajadorExportaciones{Datos: repositorio, Almacen: almacen, Log: log,
-		Directorio: filepath.Join(dirDatos, "exportaciones")}
+	exportaciones := &controllers.TrabajadorExportaciones{Datos: repositorio, Almacen: almacen, Vistas: vistas, Log: log,
+		Directorio: filepath.Join(dirDatos, "exportaciones"), URLBase: urlBase}
 	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar, exportaciones.Ejecutar} {
 		trabajadores.Go(func() { ejecutar(ctx) })
 	}

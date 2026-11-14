@@ -48,12 +48,12 @@ páginas de manual.
 | 7 | **Revisión documental y subsanación.** Bandeja con filtros y tablero; toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos, documentos y listas; solicitud de subsanación con su correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | ✅ Hecho |
 | 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador, envío y congelación al cierre; avance propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **aislamiento entre jurados probado** con un barrido de todos los endpoints. | ✅ Hecho |
 | 9a | **Archivo, búsqueda y descargas masivas.** Un solo listado para todas las ediciones, con visibilidad que no caduca; búsqueda FTS5 tolerante a acentos y por fragmento; filtros combinables en la URL, orden y paginación; CSV del resultado; vistas guardadas; enlace permanente por folio; ZIP en segundo plano con selección de tipos, nomenclatura predecible y `manifiesto.csv`, registrado y con vigencia de 7 días. | ✅ Hecho |
+| 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con catálogo de campos, granularidad por postulación u obra, filtros, rango de puntaje y plantillas reutilizables; reporte de resultados con empates; expediente PDF individual y por convocatoria, **recortado según quién lo pide**, con fotografía, índice y marcadores; tablero de la convocatoria y estadísticas de la edición, con cifras navegables. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con plantillas guardadas; reporte de resultados; expediente PDF (individual y por convocatoria) recortado según el perfil de quien lo pide; datos de tableros. | §5.7, §5.13, RN-26 | Pendiente |
 | 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
 
 ### Frontal
@@ -96,6 +96,42 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 9b — qué se entregó
+
+**Decisiones:** [ADR 0013](adr/0013-reportes-expediente-y-tableros.md).
+
+- **Expediente en PDF de una postulación** (`GET /api/v1/postulaciones/{id}/expediente`),
+  con fotografía, en español o inglés. **Cada quien recibe lo suyo**: el titular, su
+  postulación; el jurado, además su propia evaluación; el revisor, la revisión documental;
+  la supervisión, todo. Queda registrado.
+- **Expediente por convocatoria** (`POST /api/v1/expedientes`), en segundo plano: un solo
+  PDF con portada, índice, marcadores y una postulación por sección; con hoja de
+  calificación en blanco si se pide. El contenido se decide con los permisos vigentes
+  **al generarse**. Avisa por correo al terminar.
+- **Generador de reportes CSV**: catálogo de campos que sale del formulario, granularidad
+  por postulación o por obra, los filtros del archivo, rango y orden por puntaje,
+  separador, idioma y **plantillas** que sirven en ediciones posteriores.
+- **Reporte de resultados** en CSV, con los empates a la vista.
+- **Tablero de la convocatoria** y **estadísticas de la edición**; cada cifra trae el
+  filtro del archivo que la produce.
+- Migración `0006`: tabla `plantilla_reporte` y plantilla de correo `exportacion_lista`.
+- El escritor de PDF ganó imágenes JPEG, marcadores, saltos de página e índice; el acuse
+  sigue saliendo igual, byte por byte.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de lo que cada perfil
+recibe en el expediente, del expediente por convocatoria (índice, marcadores, permisos al
+generar), de los reportes y de los tableros. Dos mutaciones del recorte —dar supervisión
+a todos, leer la evaluación de otro jurado— hacen fallar las pruebas. En vivo, con los
+binarios: migración de una base del paso 9a, expediente individual y por convocatoria
+validados con `pdfinfo`, `pdftotext` y `pdfimages`, y revisados a la vista; reporte,
+tablero, estadísticas y aviso por correo.
+
+**Sin verificar aquí.** Un expediente de cientos de postulaciones con fotografías reales
+de teléfono (probado con imágenes generadas, incluida la orientación EXIF).
+
+**No se hizo:** anexar las partituras al expediente (RF-ARCH-44, prioridad S), reportes en
+segundo plano (S), XLSX y comparativa entre ediciones (C).
 
 ## Paso 9a — qué se entregó
 
@@ -531,3 +567,20 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     extensión de SQLite, es decir, una dependencia (ADR 0012, §3).
 41. **El buscador incluye los correos** de la cuenta y de contacto. Como la evaluación no
     es a ciegas, el jurado también puede buscar por ellos.
+42. **El titular puede generar el expediente de su propia postulación** (§2.2), sin nada
+    interno. El pie de cada página lleva el nombre de quien lo generó.
+43. **El jurado puede pedir el expediente de su convocatoria** —su carpeta de trabajo—,
+    con su propia evaluación y ninguna otra (ADR 0013, §1).
+44. **Los campos de la evaluación en un reporte piden la granularidad de lo que se
+    califica**: por postulación en Intérpretes, por obra en Compositores.
+45. **Las claves del catálogo de reportes son las rutas del formulario**
+    (`datos.nombre_ensamble`), no las del extracto de §9 (`ensamble.nombre`).
+46. **Las plantillas de reporte se comparten** entre administrador y observador; el
+    observador puede guardar las suyas y borrar sólo ésas.
+47. **Los empates comparten lugar** en la matriz y en el reporte de resultados (1, 2, 2, 4).
+48. **El rango de puntaje de los reportes usa el puntaje comparable** (el mismo por el que
+    se ordena la matriz).
+49. **Las estadísticas cuentan las postulaciones enviadas**, también las descartadas; los
+    borradores no.
+50. **Las partituras no se anexan al expediente** por ahora: se bajan con la descarga
+    masiva (ADR 0013, §3).

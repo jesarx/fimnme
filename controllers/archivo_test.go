@@ -89,9 +89,15 @@ func nuevoArchivoDePrueba(t *testing.T) *archivoDePrueba {
 	x.revisora.exige(http.StatusOK, "POST", x.rutaLuis+"/dictamen", obj{"dictamen": "validada"})
 	admin.estado(interpretes, "evaluacion", "")
 
-	x.trabajador = &TrabajadorExportaciones{Datos: e.repo, Almacen: e.almacen, Directorio: e.exportaciones,
-		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Ahora: e.reloj.Ahora}
+	x.trabajador = e.trabajadorDeExportaciones()
 	return x
+}
+
+// trabajadorDeExportaciones devuelve el trabajador que arma los ZIP y los
+// expedientes, con el reloj y el acervo de la prueba.
+func (e *entornoPrueba) trabajadorDeExportaciones() *TrabajadorExportaciones {
+	return &TrabajadorExportaciones{Datos: e.repo, Almacen: e.almacen, Vistas: e.vistas(), Directorio: e.exportaciones,
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), URLBase: urlBasePrueba, Ahora: e.reloj.Ahora}
 }
 
 // nombresEn lista, en orden, los nombres de un listado del archivo.
@@ -389,6 +395,11 @@ func TestDescargaMasiva(t *testing.T) {
 		!strings.Contains(manifiesto, fmt.Sprintf("FIM50-INT-0001_Luis_Nunez_Carrillo/obra-01_Preludio_a_Colon/partitura.pdf,FIM50-INT-0001,Luis Núñez Carrillo,1,Preludio a Colón,partitura,1,%d,%s",
 			len(partitura), sumaDe(partitura))) {
 		t.Errorf("manifiesto:\n%s", manifiesto)
+	}
+	// Al terminar se avisa por correo a quien lo pidió, con el enlace.
+	if avisos := x.e.correosDe(models.PlantillaExportacionLista); len(avisos) != 1 || avisos[0].Destinatario != "admin@ejemplo.mx" ||
+		!strings.Contains(avisos[0].Texto, fmt.Sprintf("%s/api/v1/exportaciones/%d/archivo", urlBasePrueba, tareaID)) {
+		t.Errorf("aviso de descarga lista: %v", avisos)
 	}
 	// Bajarlo queda registrado, sin datos personales en la bitácora.
 	if bajadas := x.e.asientos("exportacion.descargar"); len(bajadas) != 1 || bajadas[0].EntidadID != tareaID {

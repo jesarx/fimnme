@@ -259,6 +259,20 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/exportaciones/{id}", a.conSesion(a.apiExportacion)},
 		{"GET", "/api/v1/exportaciones/{id}/archivo", a.conSesion(a.apiDescargarExportacion)},
 
+		// Expediente en PDF: de una postulación, al momento; de una
+		// convocatoria, en segundo plano (se baja por /exportaciones).
+		{"GET", "/api/v1/postulaciones/{id}/expediente", a.conSesion(a.apiExpediente)},
+		{"POST", "/api/v1/expedientes", a.conSesion(a.apiPedirExpediente)},
+
+		// Reportes, plantillas de reporte y tableros: sólo supervisión.
+		{"GET", "/api/v1/convocatorias/{id}/reporte/campos", a.supervisa(a.apiCamposDeReporte)},
+		{"GET", "/api/v1/convocatorias/{id}/reporte", a.supervisa(a.apiReporte)},
+		{"GET", "/api/v1/reportes/plantillas", a.supervisa(a.apiPlantillasDeReporte)},
+		{"POST", "/api/v1/reportes/plantillas", a.supervisa(a.apiGuardarPlantillaDeReporte)},
+		{"DELETE", "/api/v1/reportes/plantillas/{id}", a.supervisa(a.apiBorrarPlantillaDeReporte)},
+		{"GET", "/api/v1/convocatorias/{id}/tablero", a.supervisa(a.apiTablero)},
+		{"GET", "/api/v1/ediciones/{id}/estadisticas", a.supervisa(a.apiEstadisticas)},
+
 		// Archivos públicos de una convocatoria: bases en PDF e imagen.
 		{"PUT", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiSubirArchivoDeConvocatoria)},
 		{"DELETE", "/api/v1/convocatorias/{id}/archivos/{clase}", a.administra(a.apiQuitarArchivoDeConvocatoria)},

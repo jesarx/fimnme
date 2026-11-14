@@ -1878,6 +1878,409 @@
         ]
       }
     },
+    "/api/v1/convocatorias/{id}/reporte": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Genera un reporte CSV",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo CSV: UTF-8 con BOM, comillas RFC 4180",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Los campos de obra piden granularidad «obra». Los de la evaluación (eval.*) y el rango de puntaje piden la granularidad de lo que califica el jurado: postulación en Intérpretes, obra en Compositores. Queda en la bitácora.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "campos",
+            "in": "query",
+            "required": false,
+            "description": "Claves del catálogo separadas por coma, en el orden de las columnas",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "granularidad",
+            "in": "query",
+            "required": false,
+            "description": "postulacion (por omisión) u obra",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "separador",
+            "in": "query",
+            "required": false,
+            "description": "coma (por omisión) o punto_y_coma",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "puntaje_min",
+            "in": "query",
+            "required": false,
+            "description": "Puntaje mínimo",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "puntaje_max",
+            "in": "query",
+            "required": false,
+            "description": "Puntaje máximo",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "orden",
+            "in": "query",
+            "required": false,
+            "description": "Los del archivo, o puntaje / -puntaje",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "plantilla",
+            "in": "query",
+            "required": false,
+            "description": "Id de una plantilla guardada: aporta los parámetros que falten",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en, para encabezados y valores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/reporte/campos": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Catálogo de campos del generador de reportes",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Campos disponibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogoDeReporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/convocatorias/{id}/requisitos": {
       "post": {
         "tags": [
@@ -2111,6 +2514,33 @@
               "type": "integer",
               "minimum": 1
             }
+          },
+          {
+            "name": "formato",
+            "in": "query",
+            "required": false,
+            "description": "json (por omisión) o csv: el reporte de resultados",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "separador",
+            "in": "query",
+            "required": false,
+            "description": "coma o punto_y_coma",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "security": [
@@ -2218,6 +2648,77 @@
             "description": "Texto en el folio o en el nombre",
             "schema": {
               "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/convocatorias/{id}/tablero": {
+      "get": {
+        "tags": [
+          "Tableros"
+        ],
+        "summary": "Tablero de la convocatoria",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cifras de la convocatoria",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tablero"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cada cifra trae «filtro»: la consulta de /api/v1/archivo que lista lo que cuenta. El avance del jurado no lleva puntajes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         ],
@@ -3348,6 +3849,366 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/ediciones/{id}/estadisticas": {
+      "get": {
+        "tags": [
+          "Tableros"
+        ],
+        "summary": "Estadísticas descriptivas de una edición",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Distribuciones de las postulaciones enviadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estadisticas"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Sólo las de esta convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/expedientes": {
+      "post": {
+        "tags": [
+          "Expediente"
+        ],
+        "summary": "Pide el expediente de una convocatoria, en un solo PDF",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional",
+          "revisor de la convocatoria",
+          "jurado de la convocatoria"
+        ],
+        "responses": {
+          "202": {
+            "description": "Tarea encolada; se consulta y se baja en /api/v1/exportaciones/{id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Exportacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "«convocatoria» es obligatorio. Lleva portada, índice y marcadores, y una postulación por sección. El contenido se decide con los permisos que la persona tenga al generarse, no al pedirlo. Al terminar se avisa por correo.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Texto libre: folio, nombres, nombre artístico, ensamble, títulos de obra, compositores y correo. Tolera acentos y busca también por fragmento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edicion",
+            "in": "query",
+            "required": false,
+            "description": "Número de edición",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "convocatoria",
+            "in": "query",
+            "required": false,
+            "description": "Id de la convocatoria",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": false,
+            "description": "interpretes o compositores",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subcategoria",
+            "in": "query",
+            "required": false,
+            "description": "solista o ensamble",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "description": "Estado de la postulación",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dictamen",
+            "in": "query",
+            "required": false,
+            "description": "Resultado del proceso; sólo para la supervisión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dotacion",
+            "in": "query",
+            "required": false,
+            "description": "Id de la dotación de alguna de sus obras",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "entidad_residencia",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entidad_concierto",
+            "in": "query",
+            "required": false,
+            "description": "Entidad federativa del concierto propuesto",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nacionalidad",
+            "in": "query",
+            "required": false,
+            "description": "Nacionalidad",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pais",
+            "in": "query",
+            "required": false,
+            "description": "País de residencia",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "genero",
+            "in": "query",
+            "required": false,
+            "description": "Género declarado",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "estreno",
+            "in": "query",
+            "required": false,
+            "description": "Tipo de estreno de alguna de sus obras",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_desde",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (hora de México) o instante ISO-8601, inclusive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "enviada_hasta",
+            "in": "query",
+            "required": false,
+            "description": "Día AAAA-MM-DD (se incluye completo) o instante ISO-8601",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "con_subsanaciones",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna subsanación solicitada",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "documentos_pendientes",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con documentos aún sin dictaminar",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ligas_con_problema",
+            "in": "query",
+            "required": false,
+            "description": "si / no: con alguna liga de video que no pudo validarse",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "required": false,
+            "description": "Selección a mano: ids separados por coma (hasta 500)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en; por omisión, el de quien lo pide",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fotografia",
+            "in": "query",
+            "required": false,
+            "description": "«no» para omitir la fotografía",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hoja",
+            "in": "query",
+            "required": false,
+            "description": "«si» añade una hoja de calificación en blanco por cada unidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -5433,6 +6294,104 @@
         ]
       }
     },
+    "/api/v1/postulaciones/{id}/expediente": {
+      "get": {
+        "tags": [
+          "Expediente"
+        ],
+        "summary": "Expediente en PDF de una postulación",
+        "x-perfiles": [
+          "quien pueda ver la postulación"
+        ],
+        "responses": {
+          "200": {
+            "description": "El PDF",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "El contenido se recorta al generarlo según quién lo pide: la revisión documental, para revisores y supervisión; la evaluación propia, para el jurado; las evaluaciones de todos, la suma y el resultado, sólo para la supervisión. El titular no ve el descarte. Queda registrado.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "query",
+            "required": false,
+            "description": "es o en; por omisión, el de quien lo pide",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fotografia",
+            "in": "query",
+            "required": false,
+            "description": "«no» para omitir la fotografía",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hoja",
+            "in": "query",
+            "required": false,
+            "description": "«si» añade una hoja de calificación en blanco por cada unidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones/{id}/integrantes": {
       "put": {
         "tags": [
@@ -6336,6 +7295,243 @@
             }
           }
         },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reportes/plantillas": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Plantillas de reporte guardadas",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Guarda la definición de un reporte con nombre",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Ya existe un registro con esos datos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "La plantilla sirve para cualquier convocatoria de su tipo, también en ediciones posteriores.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nombre": {
+                    "type": "string",
+                    "description": "Hasta 100 caracteres; único"
+                  },
+                  "tipo": {
+                    "type": "string",
+                    "description": "interpretes o compositores"
+                  },
+                  "consulta": {
+                    "type": "string",
+                    "description": "Parámetros del reporte, sin la convocatoria: campos=folio,estado&granularidad=obra"
+                  }
+                },
+                "required": [
+                  "nombre",
+                  "tipo",
+                  "consulta"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/reportes/plantillas/{id}": {
+      "delete": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Borra una plantilla de reporte",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillasDeReporte"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "El administrador borra cualquiera; el observador, las que guardó.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
         "security": [
           {
             "sesion": []
@@ -8869,7 +10065,11 @@
                   ]
                 },
                 "lugar": {
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Los empates comparten lugar; null si nadie ha calificado"
                 },
                 "estado": {
                   "type": "string"
@@ -9059,7 +10259,7 @@
           },
           "archivos": {
             "type": "integer",
-            "description": "Documentos incluidos"
+            "description": "Documentos del ZIP, o postulaciones del expediente"
           },
           "bytes": {
             "type": "integer",
@@ -9080,6 +10280,488 @@
               "null"
             ],
             "description": "Hasta cuándo puede bajarse"
+          }
+        }
+      },
+      "CatalogoDeReporte": {
+        "type": "object",
+        "properties": {
+          "campos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "etiqueta": {
+                  "type": "string"
+                },
+                "nivel": {
+                  "type": "string",
+                  "enum": [
+                    "postulacion",
+                    "obra",
+                    "evaluacion"
+                  ]
+                }
+              }
+            }
+          },
+          "granularidades": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "granularidad_de_evaluacion": {
+            "type": "string"
+          },
+          "separadores": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PlantillasDeReporte": {
+        "type": "object",
+        "properties": {
+          "plantillas": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "tipo": {
+                  "type": "string"
+                },
+                "consulta": {
+                  "type": "string"
+                },
+                "creado_por": {
+                  "type": "integer"
+                },
+                "creado_at": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Tablero": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "object",
+            "properties": {
+              "clave": {
+                "type": "string"
+              },
+              "cantidad": {
+                "type": "integer"
+              },
+              "filtro": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Consulta del archivo que produce la cifra"
+              },
+              "nombre": {
+                "type": "string"
+              }
+            }
+          },
+          "por_estado": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "envios_por_dia": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "documentos_pendientes": {
+            "type": "object",
+            "properties": {
+              "documentos": {
+                "type": "integer"
+              },
+              "postulaciones": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "subsanaciones": {
+            "type": "object",
+            "properties": {
+              "abiertas": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "por_vencer": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "vencidas": {
+                "type": "object",
+                "properties": {
+                  "clave": {
+                    "type": "string"
+                  },
+                  "cantidad": {
+                    "type": "integer"
+                  },
+                  "filtro": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Consulta del archivo que produce la cifra"
+                  },
+                  "nombre": {
+                    "type": "string"
+                  }
+                }
+              },
+              "dias_por_vencer": {
+                "type": "integer"
+              }
+            }
+          },
+          "evaluacion": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jurado_id": {
+                  "type": "integer"
+                },
+                "nombre": {
+                  "type": "string"
+                },
+                "enviadas": {
+                  "type": "integer"
+                },
+                "excusadas": {
+                  "type": "integer"
+                },
+                "pendientes": {
+                  "type": "integer"
+                },
+                "total": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Estadisticas": {
+        "type": "object",
+        "properties": {
+          "postulaciones": {
+            "type": "integer"
+          },
+          "obras": {
+            "type": "integer"
+          },
+          "duracion_media_min": {
+            "type": "number"
+          },
+          "por_convocatoria": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_entidad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_pais": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_nacionalidad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_genero": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_edad": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_dotacion": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "por_estreno": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clave": {
+                  "type": "string"
+                },
+                "cantidad": {
+                  "type": "integer"
+                },
+                "filtro": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Consulta del archivo que produce la cifra"
+                },
+                "nombre": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "rangos_de_edad": {
+            "type": "string"
           }
         }
       }

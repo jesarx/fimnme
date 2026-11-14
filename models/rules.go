@@ -2576,3 +2576,493 @@ func ValidarVistaGuardada(nombre, ruta string, existentes int) []ErrorCampo {
 	}
 	return errores
 }
+
+// --- Expediente en PDF (§5.12.4) ----------------------------------------------
+
+// RecorteDelExpediente dice si la sesión puede pedir el expediente de una
+// postulación y, si puede, qué partes reservadas lleva (RF-ARCH-41):
+//
+//   - Lo pide quien puede ver la postulación: su titular, la supervisión, los
+//     revisores de la convocatoria y, si pasó a evaluación, sus jurados.
+//   - La revisión documental, para revisores y supervisión.
+//   - La evaluación propia, para el jurado. Nunca la de otro jurado.
+//   - Todas las evaluaciones, la suma y el resultado, sólo para la supervisión.
+func RecorteDelExpediente(s *Sesion, p Postulacion) (RecorteDeExpediente, bool) {
+	if !PuedeVerPostulacion(s, p) {
+		return RecorteDeExpediente{}, false
+	}
+	return RecorteDeExpediente{
+		Revision:         PuedeVerRevision(s, p.ConvocatoriaID),
+		EvaluacionPropia: PuedeEvaluar(s, p.ConvocatoriaID) && EnEvaluacion(p.Estado),
+		Supervision:      PuedeSupervisar(s),
+	}, true
+}
+
+// RecortarExpediente quita del expediente todo lo que su recorte no permite
+// (RN-26). Es la última palabra antes de que el contenido llegue a la vista:
+// aunque quien lo armó haya cargado de más, lo que aquí se borra no se
+// imprime. La vista no decide nada; pinta lo que recibe.
+func RecortarExpediente(x *Expediente) {
+	p := &x.Postulacion
+	if !x.Recorte.Revision {
+		x.Revision = Revision{}
+		p.MotivoDescarte, p.Subsanaciones = "", nil
+		// Los documentos van sin su dictamen. Se copian antes de tocarlos:
+		// la postulación puede venir de otra parte que aún la usa.
+		p.Documentos = slices.Clone(p.Documentos)
+		for i := range p.Documentos {
+			p.Documentos[i].Dictamen = ""
+		}
+		if !x.Recorte.Supervision {
+			// Para su titular el descarte no existe (decisión de la CNMO).
+			p.Estado = EstadoParaTitular(p.Estado)
+		}
+	}
+	if !x.Recorte.EvaluacionPropia {
+		x.Propias = nil
+	}
+	if !x.Recorte.Supervision {
+		p.DictamenFinal = ""
+		x.Jurados, x.Resultados = nil, nil
+	}
+}
+
+// --- Reportes (§5.7 y §9) -----------------------------------------------------
+
+// MaxCamposDeReporte acota cuántas columnas puede pedir un reporte.
+const MaxCamposDeReporte = 120
+
+// PuedeGenerarReportes indica si la sesión puede usar el generador de
+// reportes: administrador y observador (§2.2).
+func PuedeGenerarReportes(s *Sesion) bool {
+	return PuedeSupervisar(s)
+}
+
+// CatalogoDeReporte devuelve los campos que puede llevar un reporte de una
+// convocatoria (RF-REP-02), en el orden en que conviene ofrecerlos.
+//
+// No es una lista aparte que haya que mantener: los campos de la postulación
+// y de la obra salen de la definición del formulario, con sus mismas rutas
+// («datos.genero», «obra.titulo»), de modo que un campo nuevo del formulario
+// queda disponible en los reportes sin tocar nada aquí. A ellos se suman los
+// calculados (edad, totales, listas concatenadas), los de la revisión y los
+// de la evaluación: un puntaje por jurado y criterio, y los agregados.
+func CatalogoDeReporte(cfg ConfiguracionConvocatoria) []CampoDeReporte {
+	tipo := cfg.Convocatoria.Tipo
+	catalogo := []CampoDeReporte{
+		{Clave: "folio", Nivel: NivelPostulacion},
+		{Clave: "estado", Nivel: NivelPostulacion, Tipo: CampoEstado},
+		{Clave: "envios", Nivel: NivelPostulacion},
+		{Clave: "primera_enviada_at", Nivel: NivelPostulacion, Tipo: CampoMarca},
+		{Clave: "enviada_at", Nivel: NivelPostulacion, Tipo: CampoMarca},
+	}
+	subcategorias := []Subcategoria{""}
+	if tipo == TipoInterpretes {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "subcategoria", Nivel: NivelPostulacion, Tipo: CampoSubcategoria})
+		subcategorias = []Subcategoria{SubcategoriaSolista, SubcategoriaEnsamble}
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "usuario.nombre", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "usuario.email", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "usuario.idioma", Nivel: NivelPostulacion})
+
+	// Campos del formulario. En Intérpretes, los del solista y los del
+	// ensamble: cada postulación llena los de su subcategoría.
+	vistos := make(map[string]bool)
+	tieneIntegrantes, tieneVideos := false, false
+	for _, sub := range subcategorias {
+		formulario := FormularioDe(tipo, sub)
+		tieneIntegrantes, tieneVideos = tieneIntegrantes || formulario.TieneIntegrantes, tieneVideos || formulario.TieneVideos
+		for _, def := range formulario.Campos {
+			if vistos[def.Ruta] {
+				continue
+			}
+			vistos[def.Ruta] = true
+			catalogo = append(catalogo, CampoDeReporte{Clave: def.Ruta, Nivel: NivelPostulacion, Tipo: def.Tipo})
+			if def.Tipo == CampoFechaNacimiento {
+				catalogo = append(catalogo, CampoDeReporte{Clave: "datos.edad", Nivel: NivelPostulacion})
+			}
+		}
+	}
+	if tieneIntegrantes {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "integrantes", Nivel: NivelPostulacion},
+			CampoDeReporte{Clave: "integrantes.count", Nivel: NivelPostulacion})
+	}
+	if tieneVideos {
+		catalogo = append(catalogo, CampoDeReporte{Clave: "videos", Nivel: NivelPostulacion})
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "obras.count", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obras.duracion_total", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obras.titulos", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "obra.orden", Nivel: NivelObra})
+	for _, def := range FormularioDe(tipo, subcategorias[0]).CamposObra {
+		catalogo = append(catalogo, CampoDeReporte{Clave: def.Ruta, Nivel: NivelObra, Tipo: def.Tipo})
+	}
+	catalogo = append(catalogo,
+		CampoDeReporte{Clave: "revision.estado", Nivel: NivelPostulacion, Tipo: CampoRevision},
+		CampoDeReporte{Clave: "revision.motivo_descarte", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "revision.observaciones", Nivel: NivelPostulacion},
+		CampoDeReporte{Clave: "revision.subsanaciones", Nivel: NivelPostulacion})
+
+	// Evaluación: por cada jurado, sus puntajes y sus observaciones; después
+	// los agregados.
+	for jurado := 1; jurado <= CuotaJurados; jurado++ {
+		for i := range cfg.Criterios {
+			catalogo = append(catalogo, CampoDeReporte{Clave: fmt.Sprintf("eval.j%d.%s", jurado, cfg.Criterios[i].Clave),
+				Nivel: NivelEvaluacion, Jurado: jurado, Criterio: &cfg.Criterios[i]})
+		}
+		catalogo = append(catalogo, CampoDeReporte{Clave: fmt.Sprintf("eval.j%d.observaciones", jurado), Nivel: NivelEvaluacion, Jurado: jurado})
+	}
+	for _, clave := range []string{"eval.jurados", "eval.total", "eval.promedio", "eval.puntaje", "eval.lugar"} {
+		catalogo = append(catalogo, CampoDeReporte{Clave: clave, Nivel: NivelEvaluacion})
+	}
+	return append(catalogo, CampoDeReporte{Clave: "dictamen", Nivel: NivelPostulacion, Tipo: CampoResultado})
+}
+
+// GranularidadDeEvaluacion es la granularidad que debe tener un reporte para
+// llevar campos de la evaluación: la de la unidad que califica el jurado
+// (RN-16). En Intérpretes, la postulación; en Compositores, la obra.
+func GranularidadDeEvaluacion(tipo TipoConvocatoria) string {
+	if tipo == TipoCompositores {
+		return GranularidadObra
+	}
+	return GranularidadPostulacion
+}
+
+// ValidarReporte valida la definición de un reporte contra el catálogo de su
+// convocatoria, fija los valores que faltan y devuelve los campos pedidos, en
+// el orden en que se pidieron.
+//
+//   - Un campo de obra sólo cabe en un reporte por obra: en uno por
+//     postulación no hay UNA obra de la que tomarlo.
+//   - Los campos de la evaluación piden la granularidad de la unidad que se
+//     califica. La suma de una obra no es un dato de la postulación entera.
+func ValidarReporte(def *DefinicionDeReporte, cfg ConfiguracionConvocatoria) ([]CampoDeReporte, []ErrorCampo) {
+	var errores []ErrorCampo
+	falla := func(campo, clave string) { errores = append(errores, ErrorCampo{Campo: campo, Clave: clave}) }
+	if def.Granularidad == "" {
+		def.Granularidad = GranularidadPostulacion
+	}
+	if def.Granularidad != GranularidadPostulacion && def.Granularidad != GranularidadObra {
+		falla("granularidad", "error.opcion_invalida")
+	}
+	if def.Separador == "" {
+		def.Separador = "coma"
+	}
+	if def.Separador != "coma" && def.Separador != "punto_y_coma" {
+		falla("separador", "error.opcion_invalida")
+	}
+	if def.PuntajeMin != nil && def.PuntajeMax != nil && *def.PuntajeMax < *def.PuntajeMin {
+		falla("puntaje_max", "error.filtro_invalido")
+	}
+	if len(def.Campos) == 0 || len(def.Campos) > MaxCamposDeReporte {
+		falla("campos", "error.campos_de_reporte")
+		return nil, errores
+	}
+	porClave := make(map[string]CampoDeReporte)
+	for _, campo := range CatalogoDeReporte(cfg) {
+		porClave[campo.Clave] = campo
+	}
+	deEvaluacion := def.PuntajeMin != nil || def.PuntajeMax != nil || def.PorPuntaje
+	pedidos := make([]CampoDeReporte, 0, len(def.Campos))
+	repetidos := make(map[string]bool)
+	for _, clave := range def.Campos {
+		campo, existe := porClave[clave]
+		if !existe || repetidos[clave] {
+			falla("campos", "error.campos_de_reporte")
+			return nil, errores
+		}
+		repetidos[clave] = true
+		pedidos = append(pedidos, campo)
+		if campo.Nivel == NivelObra && def.Granularidad != GranularidadObra {
+			falla("granularidad", "error.reporte_por_obra")
+			return nil, errores
+		}
+		deEvaluacion = deEvaluacion || campo.Nivel == NivelEvaluacion
+	}
+	if deEvaluacion && def.Granularidad != GranularidadDeEvaluacion(cfg.Convocatoria.Tipo) {
+		falla("granularidad", "error.reporte_por_unidad")
+	}
+	return pedidos, errores
+}
+
+// EdadEn calcula los años cumplidos a una fecha de referencia a partir de una
+// fecha de nacimiento AAAA-MM-DD. El segundo valor es false si la fecha no
+// puede leerse o es posterior a la referencia.
+func EdadEn(fechaDeNacimiento string, referencia time.Time) (int, bool) {
+	nacimiento, err := time.Parse("2006-01-02", fechaDeNacimiento)
+	if err != nil || nacimiento.After(referencia) {
+		return 0, false
+	}
+	edad := referencia.Year() - nacimiento.Year()
+	if referencia.Month() < nacimiento.Month() || (referencia.Month() == nacimiento.Month() && referencia.Day() < nacimiento.Day()) {
+		edad--
+	}
+	return edad, true
+}
+
+// CierreDePostulacion devuelve el fin de la etapa de postulación de una
+// convocatoria; el valor cero si no tiene calendario.
+func CierreDePostulacion(c Convocatoria) time.Time {
+	for _, etapa := range c.Etapas {
+		if etapa.Clave == EtapaPostulacion {
+			return etapa.TerminaAt
+		}
+	}
+	return time.Time{}
+}
+
+// ResultadoDeRevision resume en qué quedó la revisión documental de una
+// postulación: «validada», «descartada», «en_revision» o vacío si aún es un
+// borrador.
+func ResultadoDeRevision(estado EstadoDePostulacion) string {
+	switch estado {
+	case PostulacionBorrador:
+		return ""
+	case PostulacionDescartada:
+		return "descartada"
+	case PostulacionEnviada, PostulacionEnRevision, PostulacionEnSubsanacion:
+		return "en_revision"
+	}
+	return "validada"
+}
+
+// ValorDeReporte devuelve el valor de un campo del catálogo para un renglón.
+// Entrega el dato tal como se guarda (la clave de una opción, la fecha en
+// ISO-8601); traducirlo a la lengua del reporte es asunto de la vista.
+func ValorDeReporte(campo CampoDeReporte, f FilaDeReporte) string {
+	p := f.Postulacion
+	marca := func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.UTC().Format(time.RFC3339)
+	}
+	switch campo.Clave {
+	case "folio":
+		return p.Folio
+	case "estado":
+		return string(p.Estado)
+	case "envios":
+		return strconv.Itoa(p.Envios)
+	case "primera_enviada_at":
+		if len(p.Acuses) == 0 {
+			return ""
+		}
+		return marca(p.Acuses[0].GeneradoAt)
+	case "enviada_at":
+		return marca(p.EnviadaAt)
+	case "subcategoria":
+		return string(p.Subcategoria)
+	case "usuario.nombre":
+		return strings.TrimSpace(f.Titular.Nombre + " " + f.Titular.Apellidos)
+	case "usuario.email":
+		return f.Titular.Email
+	case "usuario.idioma":
+		return f.Titular.Idioma
+	case "datos.edad":
+		referencia := f.Cierre
+		if referencia.IsZero() {
+			referencia = p.EnviadaAt
+		}
+		if edad, ok := EdadEn(p.Campos["datos.fecha_nacimiento"], referencia); ok {
+			return strconv.Itoa(edad)
+		}
+		return ""
+	case "integrantes":
+		lista := make([]string, 0, len(p.Integrantes))
+		for _, integrante := range p.Integrantes {
+			lista = append(lista, integrante.Nombre+" – "+integrante.Instrumento)
+		}
+		return strings.Join(lista, "; ")
+	case "integrantes.count":
+		return strconv.Itoa(len(p.Integrantes))
+	case "videos":
+		lista := make([]string, 0, len(p.Videos))
+		for _, video := range p.Videos {
+			lista = append(lista, video.URL)
+		}
+		return strings.Join(lista, " ")
+	case "obras.count":
+		return strconv.Itoa(len(p.Obras))
+	case "obras.duracion_total":
+		total := 0
+		for _, obra := range p.Obras {
+			minutos, _ := strconv.Atoi(obra.Campos["obra.duracion_min"]) // vacío cuenta como 0
+			total += minutos
+		}
+		return strconv.Itoa(total)
+	case "obras.titulos":
+		lista := make([]string, 0, len(p.Obras))
+		for _, obra := range p.Obras {
+			lista = append(lista, obra.Campos["obra.titulo"])
+		}
+		return strings.Join(lista, "; ")
+	case "obra.orden":
+		if f.Obra == nil {
+			return ""
+		}
+		return strconv.Itoa(f.Obra.Orden)
+	case "revision.estado":
+		return ResultadoDeRevision(p.Estado)
+	case "revision.motivo_descarte":
+		return p.MotivoDescarte
+	case "revision.observaciones":
+		lista := make([]string, 0, len(f.Observaciones))
+		for _, observacion := range f.Observaciones {
+			lista = append(lista, observacion.Texto)
+		}
+		return strings.Join(lista, " | ")
+	case "revision.subsanaciones":
+		return strconv.Itoa(len(p.Subsanaciones))
+	case "dictamen":
+		return p.DictamenFinal
+	}
+	switch {
+	case campo.Nivel == NivelEvaluacion:
+		return valorDeEvaluacion(campo, f)
+	case campo.Nivel == NivelObra:
+		if f.Obra == nil {
+			return ""
+		}
+		valor := f.Obra.Campos[campo.Clave]
+		if campo.Tipo == CampoDotacion {
+			// La dotación se guarda por id; al reporte va su nombre.
+			for _, dotacion := range f.Dotaciones {
+				if strconv.FormatInt(dotacion.ID, 10) == valor {
+					return dotacion.NombreES
+				}
+			}
+		}
+		return valor
+	}
+	return p.Campos[campo.Clave]
+}
+
+// valorDeEvaluacion devuelve un campo de la evaluación. Vacío si la unidad
+// no llegó a evaluación o si ese jurado no la ha enviado.
+func valorDeEvaluacion(campo CampoDeReporte, f FilaDeReporte) string {
+	r := f.Resultado
+	if r == nil {
+		return ""
+	}
+	if campo.Jurado > 0 {
+		if campo.Jurado > len(f.Jurados) {
+			return ""
+		}
+		juradoID := f.Jurados[campo.Jurado-1].ID
+		if _, excusado := r.Excusas[juradoID]; excusado {
+			if campo.Criterio == nil {
+				return ""
+			}
+			return "excusa"
+		}
+		evaluacion, enviada := r.PorJurado[juradoID]
+		switch {
+		case !enviada:
+			return ""
+		case campo.Criterio == nil:
+			return evaluacion.Observaciones
+		}
+		if puntaje, calificado := evaluacion.Puntajes[campo.Criterio.Clave]; calificado {
+			return strconv.Itoa(puntaje)
+		}
+		return ""
+	}
+	if r.JuradosQueEvaluaron == 0 && campo.Clave != "eval.jurados" {
+		return ""
+	}
+	decimal := func(n float64) string { return strconv.FormatFloat(n, 'f', -1, 64) }
+	switch campo.Clave {
+	case "eval.jurados":
+		return strconv.Itoa(r.JuradosQueEvaluaron)
+	case "eval.total":
+		return strconv.Itoa(r.Total)
+	case "eval.promedio":
+		return decimal(r.Promedio)
+	case "eval.puntaje":
+		return decimal(r.Comparable)
+	case "eval.lugar":
+		if f.Lugar > 0 {
+			return strconv.Itoa(f.Lugar)
+		}
+	}
+	return ""
+}
+
+// LugaresDeLaMatriz da el lugar de cada fila de la matriz de resultados, que
+// ya viene ordenada de mayor a menor puntaje. Los empates quedan a la vista
+// (RF-REP-08): dos unidades con el mismo puntaje comparten lugar y el
+// siguiente se salta (1, 2, 2, 4). Una unidad que nadie ha calificado no
+// tiene lugar (0).
+func LugaresDeLaMatriz(filas []FilaDeResultado) []int {
+	lugares := make([]int, len(filas))
+	for i, fila := range filas {
+		switch {
+		case fila.JuradosQueEvaluaron == 0:
+			lugares[i] = 0
+		case i > 0 && filas[i-1].JuradosQueEvaluaron > 0 && filas[i-1].Comparable == fila.Comparable:
+			lugares[i] = lugares[i-1]
+		default:
+			lugares[i] = i + 1
+		}
+	}
+	return lugares
+}
+
+// ValidarPlantillaDeReporte valida una plantilla que se quiere guardar: un
+// nombre, el tipo de convocatoria al que aplica y la definición, que no debe
+// fijar la convocatoria (para eso es reutilizable).
+func ValidarPlantillaDeReporte(p PlantillaDeReporte) []ErrorCampo {
+	var errores []ErrorCampo
+	if largo := utf8.RuneCountInString(strings.TrimSpace(p.Nombre)); largo == 0 || largo > 100 {
+		errores = append(errores, ErrorCampo{Campo: "nombre", Clave: "error.nombre_de_vista"})
+	}
+	if !p.Tipo.Valido() {
+		errores = append(errores, ErrorCampo{Campo: "tipo", Clave: "error.opcion_invalida"})
+	}
+	valores, err := url.ParseQuery(p.Consulta)
+	if err != nil || len(p.Consulta) > 4000 || valores.Get("campos") == "" || valores.Has("convocatoria") || valores.Has("plantilla") {
+		errores = append(errores, ErrorCampo{Campo: "consulta", Clave: "error.consulta_de_plantilla"})
+	}
+	return errores
+}
+
+// --- Tableros y estadísticas (§5.13) ------------------------------------------
+
+// DiasPorVencer es el margen con que una subsanación abierta se cuenta como
+// «por vencer» en el tablero.
+const DiasPorVencer = 3
+
+// RangosDeEdad son los tramos de la distribución por edad, en orden.
+var RangosDeEdad = []string{"menos_de_18", "18_a_25", "26_a_35", "36_a_45", "46_a_60", "mas_de_60"}
+
+// RangoDeEdad devuelve el tramo al que pertenece una edad.
+func RangoDeEdad(edad int) string {
+	switch {
+	case edad < 18:
+		return RangosDeEdad[0]
+	case edad <= 25:
+		return RangosDeEdad[1]
+	case edad <= 35:
+		return RangosDeEdad[2]
+	case edad <= 45:
+		return RangosDeEdad[3]
+	case edad <= 60:
+		return RangosDeEdad[4]
+	}
+	return RangosDeEdad[5]
+}
+
+// JuradosDe devuelve los jurados activos de una convocatoria, en el orden de
+// su asignación: es el orden en que la matriz y los reportes los numeran.
+func JuradosDe(cfg ConfiguracionConvocatoria) []JuradoEnMatriz {
+	var jurados []JuradoEnMatriz
+	for _, a := range cfg.Asignaciones {
+		if a.Activo && a.Perfil == PerfilJurado {
+			jurados = append(jurados, JuradoEnMatriz{ID: a.Usuario.ID, Nombre: strings.TrimSpace(a.Usuario.Nombre + " " + a.Usuario.Apellidos)})
+		}
+	}
+	return jurados
+}

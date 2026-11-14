@@ -16,17 +16,21 @@
 //
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Package pdf es un escritor mínimo de documentos PDF de texto, hecho con la
+// Package pdf es un escritor mínimo de documentos PDF, hecho con la
 // biblioteca estándar (RF-PDF-03, D-16).
 //
-// Existe para componer el acuse de recibo, que debe pesar menos de 100 KB y
+// Nació para componer el acuse de recibo, que debe pesar menos de 100 KB y
 // generarse siempre igual. Por eso hace muy poco, a propósito:
 //
 //   - Sólo usa las fuentes base del formato (Helvetica y Helvetica-Bold), que
 //     todo visor trae consigo: no se incrusta ninguna fuente.
-//   - No admite imágenes. La identidad visual se dibuja con rectángulos y
-//     líneas.
+//   - La identidad visual se dibuja con rectángulos y líneas.
 //   - Comprime el contenido de cada página con Flate.
+//
+// El expediente (§5.12.4) necesita un poco más, y sólo eso se añadió:
+// imágenes JPEG (la fotografía), marcadores de navegación, salto de página,
+// un pie distinto por página y mover páginas al inicio (para el índice). Un
+// documento que no usa nada de eso —el acuse— sale byte por byte como antes.
 //
 // El texto se escribe en WinAnsiEncoding (Windows-1252), que cubre el español
 // y el inglés completos. Las letras latinas que no están en esa codificación
@@ -83,6 +87,25 @@ type Documento struct {
 	formatoPagina string          // «Página %d de %d», ya traducido
 	paginas       []*bytes.Buffer // operadores de dibujo de cada página, sin comprimir
 	y             float64         // posición vertical del siguiente renglón
+
+	// Lo que sigue sólo lo usa el expediente.
+	pies       []string   // pie de cada página, en paralelo a paginas
+	imagenes   []imagen   // imágenes incrustadas, en el orden en que se añadieron
+	usadas     [][]int    // por página, índices de las imágenes que dibuja
+	marcadores []marcador // entradas del panel de navegación
+}
+
+// imagen es una fotografía JPEG incrustada tal cual (filtro DCTDecode).
+type imagen struct {
+	jpeg        []byte
+	ancho, alto int // en pixeles
+}
+
+// marcador es una entrada del panel de navegación del visor: un título que
+// lleva al inicio de una página.
+type marcador struct {
+	titulo string
+	pagina int // índice en paginas
 }
 
 // Nuevo crea un documento vacío. fecha queda en los metadatos: para que el
@@ -97,7 +120,94 @@ func Nuevo(titulo, pie, formatoPagina string, fecha time.Time) *Documento {
 // nuevaPagina abre una página en blanco y coloca el cursor arriba.
 func (d *Documento) nuevaPagina() {
 	d.paginas = append(d.paginas, &bytes.Buffer{})
+	d.pies = append(d.pies, d.pie)
+	d.usadas = append(d.usadas, nil)
 	d.y = altoPagina - margen
+}
+
+// SaltoDePagina termina la página en curso y abre otra.
+func (d *Documento) SaltoDePagina() {
+	d.nuevaPagina()
+}
+
+// FijarPie cambia el texto del pie para la página en curso y las siguientes.
+// En un expediente de muchas postulaciones, cada página lleva el folio de la
+// suya.
+func (d *Documento) FijarPie(pie string) {
+	d.pie = pie
+	d.pies[len(d.pies)-1] = pie
+}
+
+// Paginas devuelve cuántas páginas lleva el documento.
+func (d *Documento) Paginas() int {
+	return len(d.paginas)
+}
+
+// Marcador añade al panel de navegación una entrada que lleva a la página en
+// curso.
+func (d *Documento) Marcador(titulo string) {
+	d.marcadores = append(d.marcadores, marcador{titulo: titulo, pagina: len(d.paginas) - 1})
+}
+
+// QuitarMarcadores deja el documento sin panel de navegación. En el
+// expediente de una sola postulación un único marcador sólo estorba.
+func (d *Documento) QuitarMarcadores() {
+	d.marcadores = nil
+}
+
+// MoverAlInicio pasa al principio del documento las páginas escritas a partir
+// de la número desde (contando desde 0). Sirve para el índice: sólo puede
+// escribirse cuando ya se sabe en qué página quedó cada cosa, pero va al
+// frente. Los marcadores siguen apuntando a sus páginas.
+func (d *Documento) MoverAlInicio(desde int) {
+	if desde <= 0 || desde >= len(d.paginas) {
+		return
+	}
+	movidas := len(d.paginas) - desde
+	d.paginas = append(append([]*bytes.Buffer{}, d.paginas[desde:]...), d.paginas[:desde]...)
+	d.pies = append(append([]string{}, d.pies[desde:]...), d.pies[:desde]...)
+	d.usadas = append(append([][]int{}, d.usadas[desde:]...), d.usadas[:desde]...)
+	for i := range d.marcadores {
+		if d.marcadores[i].pagina >= desde {
+			d.marcadores[i].pagina -= desde
+		} else {
+			d.marcadores[i].pagina += movidas
+		}
+	}
+}
+
+// Imagen dibuja una fotografía JPEG en el margen izquierdo, a continuación de
+// lo ya escrito, ajustada para caber en anchoMax × altoMax puntos sin
+// deformarse. ancho y alto son sus dimensiones en pixeles. El JPEG se
+// incrusta tal cual: quien llama lo entrega ya reducido, en RGB.
+func (d *Documento) Imagen(jpeg []byte, ancho, alto int, anchoMax, altoMax float64) {
+	if len(jpeg) == 0 || ancho <= 0 || alto <= 0 {
+		return
+	}
+	escala := min(anchoMax/float64(ancho), altoMax/float64(alto))
+	anchoPuntos, altoPuntos := float64(ancho)*escala, float64(alto)*escala
+	d.reservar(altoPuntos + 6)
+	d.imagenes = append(d.imagenes, imagen{jpeg: jpeg, ancho: ancho, alto: alto})
+	indice := len(d.imagenes) - 1
+	d.usadas[len(d.usadas)-1] = append(d.usadas[len(d.usadas)-1], indice)
+	// «cm» lleva el cuadrado unitario de la imagen a su lugar y tamaño.
+	fmt.Fprintf(d.pagina(), "q %s 0 0 %s %s %s cm /Im%d Do Q\n",
+		num(anchoPuntos), num(altoPuntos), num(margen), num(d.y-altoPuntos+cuerpoTexto), indice)
+	d.y -= altoPuntos + 6
+}
+
+// Renglon escribe un renglón con un texto a la izquierda y otro alineado a la
+// derecha: una entrada del índice con su número de página. El texto de la
+// izquierda se recorta si no cabe.
+func (d *Documento) Renglon(izquierda, derecha string) {
+	paso := cuerpoTexto * interlinea
+	d.reservar(paso)
+	anchoDerecha := Ancho(derecha, false, cuerpoTexto)
+	if renglones := Envolver(izquierda, false, cuerpoTexto, anchoUtil-anchoDerecha-12); len(renglones) > 0 {
+		d.texto(margen, d.y, false, cuerpoTexto, Tinta, renglones[0])
+	}
+	d.texto(anchoPagina-margen-anchoDerecha, d.y, false, cuerpoTexto, TintaSuave, derecha)
+	d.y -= paso + 1
 }
 
 // pagina devuelve la página en la que se está escribiendo.
@@ -223,8 +333,8 @@ func (d *Documento) Espacio(puntos float64) {
 // Un PDF es una lista de objetos numerados, seguida de una tabla que dice en
 // qué byte empieza cada uno (xref) y de un tráiler que señala el objeto raíz.
 // Aquí los objetos son: 1 catálogo, 2 árbol de páginas, 3 y 4 las dos
-// fuentes, y por cada página dos más (la página y su contenido); al final,
-// los metadatos.
+// fuentes, y por cada página dos más (la página y su contenido); después las
+// imágenes y los marcadores, si los hay; al final, los metadatos.
 func (d *Documento) Bytes() ([]byte, error) {
 	var salida bytes.Buffer
 	var posiciones []int // byte en que empieza cada objeto, en orden
@@ -243,7 +353,15 @@ func (d *Documento) Bytes() ([]byte, error) {
 	for i := range d.paginas {
 		hijos = append(hijos, fmt.Sprintf("%d 0 R", primeraPagina+2*i))
 	}
-	objeto("<< /Type /Catalog /Pages 2 0 R >>")
+	// Los números de objeto se conocen de antemano: tras las páginas van las
+	// imágenes, y tras ellas la raíz de los marcadores y cada marcador.
+	primeraImagen := primeraPagina + 2*total
+	raizMarcadores := primeraImagen + len(d.imagenes)
+	if len(d.marcadores) == 0 {
+		objeto("<< /Type /Catalog /Pages 2 0 R >>")
+	} else {
+		objeto(fmt.Sprintf("<< /Type /Catalog /Pages 2 0 R /Outlines %d 0 R /PageMode /UseOutlines >>", raizMarcadores))
+	}
 	objeto(fmt.Sprintf("<< /Type /Pages /Count %d /Kids [%s] >>", total, strings.Join(hijos, " ")))
 	objeto("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
 	objeto("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
@@ -254,7 +372,7 @@ func (d *Documento) Bytes() ([]byte, error) {
 		contenido := bytes.NewBuffer(bytes.Clone(pagina.Bytes()))
 		numeracion := fmt.Sprintf(d.formatoPagina, i+1, total)
 		contenido.WriteString(operadorLinea(margenPie-14, Filete))
-		contenido.WriteString(operadorTexto(margen, margenPie-26, false, cuerpoPie, TintaSuave, d.pie))
+		contenido.WriteString(operadorTexto(margen, margenPie-26, false, cuerpoPie, TintaSuave, d.pies[i]))
 		contenido.WriteString(operadorTexto(anchoPagina-margen-Ancho(numeracion, false, cuerpoPie), margenPie-26,
 			false, cuerpoPie, TintaSuave, numeracion))
 
@@ -266,10 +384,42 @@ func (d *Documento) Bytes() ([]byte, error) {
 		if err := compresor.Close(); err != nil {
 			return nil, fmt.Errorf("comprimir página %d: %w", i+1, err)
 		}
+		// Una página sólo declara las imágenes que dibuja.
+		recursos := "/Font << /F1 3 0 R /F2 4 0 R >>"
+		if len(d.usadas[i]) > 0 {
+			var imagenes strings.Builder
+			for _, indice := range d.usadas[i] {
+				fmt.Fprintf(&imagenes, " /Im%d %d 0 R", indice, primeraImagen+indice)
+			}
+			recursos += " /XObject <<" + imagenes.String() + " >>"
+		}
 		objeto(fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %s %s] "+
-			"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents %d 0 R >>",
-			num(anchoPagina), num(altoPagina), primeraPagina+2*i+1))
+			"/Resources << %s >> /Contents %d 0 R >>",
+			num(anchoPagina), num(altoPagina), recursos, primeraPagina+2*i+1))
 		objeto(fmt.Sprintf("<< /Length %d /Filter /FlateDecode >>\nstream\n%s\nendstream", comprimido.Len(), comprimido.String()))
+	}
+
+	for _, img := range d.imagenes {
+		objeto(fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceRGB "+
+			"/BitsPerComponent 8 /Filter /DCTDecode /Length %d >>\nstream\n%s\nendstream",
+			img.ancho, img.alto, len(img.jpeg), img.jpeg))
+	}
+
+	// Marcadores: una lista de un solo nivel, encadenada con /Prev y /Next.
+	if cantidad := len(d.marcadores); cantidad > 0 {
+		objeto(fmt.Sprintf("<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count %d >>",
+			raizMarcadores+1, raizMarcadores+cantidad, cantidad))
+		for i, m := range d.marcadores {
+			enlaces := ""
+			if i > 0 {
+				enlaces += fmt.Sprintf(" /Prev %d 0 R", raizMarcadores+i)
+			}
+			if i < cantidad-1 {
+				enlaces += fmt.Sprintf(" /Next %d 0 R", raizMarcadores+i+2)
+			}
+			objeto(fmt.Sprintf("<< /Title (%s) /Parent %d 0 R%s /Dest [%d 0 R /XYZ 0 %s null] >>",
+				escapar(codificar(m.titulo)), raizMarcadores, enlaces, primeraPagina+2*m.pagina, num(altoPagina)))
+		}
 	}
 
 	objeto(fmt.Sprintf("<< /Title (%s) /Producer (FIMNME) /CreationDate (D:%sZ) >>",
