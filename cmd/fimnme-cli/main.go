@@ -29,12 +29,13 @@
 //	fimnme-cli sembrar-demo   carga una edición de demostración (sólo desarrollo)
 //	fimnme-cli verify         compara el acervo de archivos con la base
 //	fimnme-cli mirror         instantáneas firmadas para el servidor espejo
+//	fimnme-cli import         importación asistida en dos fases
+//	fimnme-cli schema         campos extendidos: añadir y quitar sin recompilar
 //	fimnme-cli export-json    exportación sanitizada para el portal público
 //	fimnme-cli arco           anonimización ante una solicitud ARCO
 //	fimnme-cli version        muestra la versión
 //
-// Las demás (TUI, importación asistida, extensión de campos) llegan en el
-// paso 10b del plan.
+// El modo interactivo (--tui) y export-csv llegan en el paso 10c del plan.
 package main
 
 import (
@@ -111,6 +112,17 @@ Sin ORDEN, y si el directorio de datos aún no tiene base, la inicializa.
                    snapshot --destino DIR --clave ARCHIVO [--conservar-dias N]
                    verify   --destino DIR --clave ARCHIVO [--instantanea NOMBRE]
                    list
+  import --tipo TIPO --convocatoria ID --como CORREO ARCHIVO
+                 Importación asistida de un .csv o .xlsx, en dos fases: analiza,
+                 pregunta cómo resolver cada conflicto y, al confirmar, aplica
+                 todo o nada. Tipos: dotaciones, usuarios_jurado,
+                 usuarios_revisor.
+  schema ORDEN   Campos extendidos, sin recompilar. Órdenes:
+                   list
+                   add  --tabla NODO --nombre NOMBRE --etiqueta-es TEXTO
+                        [--tipo texto|entero|decimal] [--etiqueta-en TEXTO]
+                        [--visible postulante,jurado,…] [--no-exportable]
+                   drop --tabla NODO --nombre NOMBRE
   export-json    Exportación sanitizada para el portal público.
                  Opciones: --edicion N, --salida ARCHIVO.
   arco anonimizar FOLIO --fundamento TEXTO [--con-cuenta]
@@ -184,6 +196,10 @@ func main() {
 		err = conRepositorio(*dirDatos, verificar(*dirDatos, banderas.Args()[1:]))
 	case "export-json":
 		err = conRepositorio(*dirDatos, exportarJSON(*dirDatos, banderas.Args()[1:]))
+	case "import":
+		err = conRepositorio(*dirDatos, importar(*dirDatos, banderas.Args()[1:]))
+	case "schema":
+		err = conRepositorio(*dirDatos, ordenDeEsquema(banderas.Args()[1:]))
 	case "mirror":
 		err = ordenDeEspejo(*dirDatos, banderas.Args()[1:])
 	case "arco":

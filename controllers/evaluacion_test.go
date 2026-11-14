@@ -99,8 +99,13 @@ func hastaRevision(t *testing.T) *evaluacionDePrueba {
 	x.rutaLuis, _ = e.solistaCompleto(x.luis, interpretes, "luis")
 	x.rutaAna, _ = e.solistaCompleto(x.ana, interpretes, "ana")
 	x.rutaEva, x.obrasDeEva = e.compositorCompleto(x.eva, compositores, cuarteto)
-	for c, ruta := range map[*cliente]string{x.luis: x.rutaLuis, x.ana: x.rutaAna, x.eva: x.rutaEva} {
-		c.exige(http.StatusOK, "POST", ruta+"/envio", si)
+	// Se envían en un orden fijo: de él salen los folios (Luis, el 0001), y
+	// un mapa se recorrería en un orden distinto cada vez.
+	for _, envio := range []struct {
+		c    *cliente
+		ruta string
+	}{{x.luis, x.rutaLuis}, {x.ana, x.rutaAna}, {x.eva, x.rutaEva}} {
+		envio.c.exige(http.StatusOK, "POST", envio.ruta+"/envio", si)
 	}
 
 	x.revisora = e.revisor(admin, interpretes, "rita@ejemplo.mx")

@@ -156,6 +156,8 @@ func (ar *armadorDeExpedientes) armar(ctx context.Context, p models.Postulacion,
 			}
 		}
 	}
+	// Campos extendidos: sólo los que esta persona puede ver.
+	x.Extendidos = models.ExtendidosVisibles(&x.Postulacion, cfg.Convocatoria.Tipo, cfg.Extendidos, ar.visor)
 	models.RecortarExpediente(&x)
 
 	if sinFotografia {

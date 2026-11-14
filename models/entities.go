@@ -505,6 +505,9 @@ type ConfiguracionConvocatoria struct {
 	Requisitos   []RequisitoDocumental
 	Criterios    []CriterioEvaluacion
 	Asignaciones []AsignacionDetalle
+	// Extendidos son los campos añadidos sin recompilar (§5.14.1), de todos
+	// los nodos: los mismos para todas las convocatorias.
+	Extendidos []CampoExtendido
 	// SinDictaminar cuenta las postulaciones enviadas que la revisión
 	// documental aún no valida ni descarta. Mientras quede alguna, la
 	// convocatoria no pasa a evaluación.
@@ -1316,6 +1319,9 @@ type Expediente struct {
 	Propias       []Evaluacion      // sólo con Recorte.EvaluacionPropia: una por unidad
 	Jurados       []JuradoEnMatriz  // sólo con Recorte.Supervision
 	Resultados    []FilaDeResultado // sólo con Recorte.Supervision: una por unidad
+	// Extendidos son los campos dinámicos (§5.14.1) que quien lo pide puede
+	// ver; los valores de los demás ya no están en la postulación.
+	Extendidos []CampoExtendido
 }
 
 // ---------------------------------------------------------------------------
@@ -1356,6 +1362,9 @@ type CampoDeReporte struct {
 	// jurado (desde 1) y el criterio que califica.
 	Jurado   int
 	Criterio *CriterioEvaluacion
+	// Extendido es el campo dinámico del que sale el valor, si es uno
+	// (§5.14.1): su etiqueta viene del diccionario, no de las traducciones.
+	Extendido *CampoExtendido
 }
 
 // DefinicionDeReporte es lo que se pide al generador (RF-REP-01).

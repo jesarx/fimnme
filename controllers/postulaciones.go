@@ -107,7 +107,10 @@ func (a *App) responderPostulacion(w http.ResponseWriter, r *http.Request, estad
 	// todo; durante una subsanación, sólo lo que lista «subsanacion».
 	esTitular := sesion.Usuario.ID == p.UsuarioID
 	editable := esTitular && len(models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, ahora)) == 0
-	cuerpo := views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r))
+	// Campos extendidos: se quitan de la postulación los que esta persona no
+	// puede ver, y la vista recibe sólo los demás.
+	extendidos := models.ExtendidosVisibles(&p, cfg.Convocatoria.Tipo, cfg.Extendidos, sesion)
+	cuerpo := views.PostulacionJSON(p, cfg, editable, a.bloqueadoresDeEnvio(r, bloqueadores), a.etiquetas(r), extendidos)
 	nombrar := a.nombreDeElemento(idiomaDe(r), cfg)
 	cuerpo["subsanacion"] = views.SubsanacionPendienteJSON(p, ahora, nombrar)
 

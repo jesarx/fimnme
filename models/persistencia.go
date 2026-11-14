@@ -176,6 +176,23 @@ type Persistencia interface {
 	PortalPublico(ctx context.Context, almacen BlobStore, numeroDeEdicion int) (InteropPortal, error)
 	AnonimizarPostulacion(ctx context.Context, actor Actor, postulacionID int64, solicitud SolicitudDeAnonimizacion) (ResultadoDeAnonimizacion, error)
 
+	// Extensión dinámica de nodos. Añadir y quitar campos es DDL y sólo lo
+	// hace fimnme-cli, sobre *Repositorio: el servidor no altera el esquema.
+	CamposExtendidos(ctx context.Context) ([]CampoExtendido, error)
+	ValoresExtendidos(ctx context.Context, tabla string, id int64) ([]CampoExtendido, map[string]string, error)
+	GuardarExtendidos(ctx context.Context, actor Actor, tabla string, id int64, valores map[string]string) (ResultadoGuardado, error)
+
+	// Importación asistida en dos fases.
+	CuentasParaConciliar(ctx context.Context) ([]Usuario, error)
+	CrearImportacion(ctx context.Context, actor Actor, tipo string, convocatoriaID int64, blob Blob, mime, nombreOriginal string,
+		filasTotal int, conflictos []ConflictoDeImportacion) (int64, error)
+	ImportacionPorID(ctx context.Context, id int64) (Importacion, error)
+	ResolverConflicto(ctx context.Context, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error
+	ResolverSinCandidatos(ctx context.Context, actor Actor, importacionID int64, resolucion string) (int, error)
+	CancelarImportacion(ctx context.Context, actor Actor, importacionID int64) error
+	ConfirmarImportacion(ctx context.Context, actor Actor, importacionID int64, filas []FilaDeImportacion,
+		activaciones map[int]ActivacionDeCuenta) (EfectoDeImportacion, error)
+
 	// Comprobación en red de las ligas de video.
 	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)
 	EnlacesDePostulacion(ctx context.Context, postulacionID int64) ([]EnlacePorVerificar, error)

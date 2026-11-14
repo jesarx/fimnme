@@ -191,6 +191,7 @@ func (e *ExpedientePDF) Agregar(x models.Expediente, fotografia []byte) {
 		return ""
 	})
 
+	e.escribirExtendidos(x)
 	if x.Recorte.Revision {
 		e.escribirRevision(x)
 	}
@@ -202,6 +203,38 @@ func (e *ExpedientePDF) Agregar(x models.Expediente, fotografia []byte) {
 	}
 	if e.o.HojaDeCalificacion {
 		e.escribirHoja(x, folio, nombre)
+	}
+}
+
+// escribirExtendidos escribe los campos dinámicos (§5.14.1) que quien pidió
+// el expediente puede ver y que tienen valor: los de la postulación y,
+// debajo, los de cada obra. Si no hay ninguno, no escribe la sección.
+func (e *ExpedientePDF) escribirExtendidos(x models.Expediente) {
+	p := x.Postulacion
+	dePostulacion, deObra := models.ExtendidosDePostulacion(x.Extendidos, x.Configuracion.Convocatoria.Tipo, p.Subcategoria)
+	seccion := false
+	// escribir pone los campos con valor de un mapa; devuelve si escribió algo.
+	escribir := func(titulo string, campos []models.CampoExtendido, valores map[string]string) {
+		tituloPuesto := titulo == ""
+		for _, c := range campos {
+			valor := valores[c.Ruta()]
+			if valor == "" {
+				continue
+			}
+			if !seccion {
+				e.d.Seccion(e.t("expediente.extendidos"))
+				seccion = true
+			}
+			if !tituloPuesto {
+				e.d.Subtitulo(titulo)
+				tituloPuesto = true
+			}
+			e.d.Campo(c.Etiqueta(e.o.Idioma), valor)
+		}
+	}
+	escribir("", dePostulacion, p.Campos)
+	for _, obra := range p.Obras {
+		escribir(e.tituloDeUnidad(p, obra.ID), deObra, obra.Campos)
 	}
 }
 

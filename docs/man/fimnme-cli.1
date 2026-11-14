@@ -13,7 +13,9 @@ fimnme-cli \- mantenimiento de la plataforma de postulaciones FIMNME
 concentra todo lo que no es atender peticiones HTTP: inicializar la base de
 datos, aplicar las migraciones del esquema, dar de alta las cuentas internas,
 verificar el acervo de archivos, producir y comprobar las instantáneas del
-servidor espejo, exportar para el portal público y anonimizar postulaciones.
+servidor espejo, exportar para el portal público, anonimizar postulaciones,
+añadir campos sin recompilar e importar catálogos y cuentas desde una hoja de
+cálculo.
 Comparte el modelo con
 .BR fimnme-web (1)
 y no duplica ninguna regla de negocio.
@@ -108,6 +110,86 @@ puede ejecutarse en el servidor espejo.
 .TP
 .B mirror list
 Muestra las últimas instantáneas registradas.
+.TP
+.B schema list
+Muestra el diccionario de campos extendidos y los nodos que los admiten.
+.TP
+.B schema add \-\-tabla \fINODO\fR \-\-nombre \fINOMBRE\fR \-\-etiqueta\-es \fITEXTO\fR \fR[\fIOPCIONES\fR]
+Añade un campo a un nodo con
+.IR "ALTER TABLE" ,
+sin recompilar, y lo registra en el diccionario. La columna se llama
+.BI x_ NOMBRE\fR.
+Sólo sobre los nodos de la lista blanca: edicion, convocatoria, dotacion,
+postulacion, obra, datos_solista, datos_ensamble, datos_compositor,
+propuesta_concierto, integrante y enlace_video. Las tablas probatorias
+(evaluacion, evaluacion_puntaje, acuse, descarga, auditoria, subsanacion,
+subsanacion_problema, revision_documento) no admiten campos. El campo es
+siempre opcional, no entra en el acuse y no se desbloquea en una
+subsanación. El DDL exacto queda en la bitácora. No hace falta reiniciar el
+servicio. Opciones:
+.RS
+.TP
+.BR \-\-tipo " \fITIPO\fR"
+.BR texto
+(por omisión),
+.B entero
+o
+.BR decimal .
+.TP
+.BR \-\-etiqueta\-en ", " \-\-ayuda\-es ", " \-\-ayuda\-en " \fITEXTO\fR"
+Etiqueta en inglés y textos de ayuda.
+.TP
+.BR \-\-visible " \fIPERFILES\fR"
+Perfiles que lo ven además del administrador y el observador, separados por
+coma:
+.BR postulante ,
+.BR revisor_documental ,
+.BR jurado .
+Con
+.B postulante
+el campo aparece en el formulario y lo captura quien postula; sin él, lo
+captura la administración. Sólo aplica a los nodos de una postulación.
+.TP
+.B \-\-no\-exportable
+Lo deja fuera de los reportes y de la exportación a MariaDB.
+.RE
+.TP
+.B schema drop \-\-tabla \fINODO\fR \-\-nombre \fINOMBRE\fR
+Quita un campo extendido y borra todos sus valores. Pide escribir el nombre
+de la columna para confirmar. Sólo alcanza campos del diccionario: nunca una
+columna del esquema.
+.TP
+.B import \-\-tipo \fITIPO\fR \-\-convocatoria \fIID\fR \-\-como \fICORREO\fR \fIARCHIVO\fR
+Importación asistida de una hoja
+.I .csv
+o
+.IR .xlsx ,
+en dos fases. Analiza la hoja sin escribir nada; muestra cada renglón que no
+tiene una correspondencia unívoca en la base, con sus candidatos, y pregunta
+si se vincula a un registro existente, se crea uno nuevo o se omite; dice lo
+que va a ocurrir y pide escribir
+.BR IMPORTAR .
+Entonces aplica todo en una sola transacción, o nada. Si se interrumpe, la
+importación se cancela. Una postulación nunca se importa.
+.RS
+.TP
+.BR \-\-tipo " \fITIPO\fR"
+.B dotaciones
+(columnas nombre_es, nombre_en, descripcion_es, descripcion_en),
+.B usuarios_jurado
+o
+.B usuarios_revisor
+(columnas email, nombre, apellidos, idioma).
+.TP
+.BR \-\-como " \fICORREO\fR"
+Cuenta de administrador que resuelve la importación: queda registrada en cada
+decisión.
+.TP
+.BR \-\-url\-base " \fIURL\fR"
+Dirección pública del sitio, para los enlaces de activación de las cuentas
+nuevas, que se muestran al terminar.
+.RB ( FIMNME_URL_BASE )
+.RE
 .TP
 .B export\-json \fR[\fB\-\-edicion\fR \fIN\fR] [\fB\-\-salida\fR \fIARCHIVO\fR]
 Genera la exportación sanitizada para el portal público: bases, calendario y

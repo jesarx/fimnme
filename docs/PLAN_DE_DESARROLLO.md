@@ -50,12 +50,13 @@ páginas de manual.
 | 9a | **Archivo, búsqueda y descargas masivas.** Un solo listado para todas las ediciones, con visibilidad que no caduca; búsqueda FTS5 tolerante a acentos y por fragmento; filtros combinables en la URL, orden y paginación; CSV del resultado; vistas guardadas; enlace permanente por folio; ZIP en segundo plano con selección de tipos, nomenclatura predecible y `manifiesto.csv`, registrado y con vigencia de 7 días. | ✅ Hecho |
 | 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con catálogo de campos, granularidad por postulación u obra, filtros, rango de puntaje y plantillas reutilizables; reporte de resultados con empates; expediente PDF individual y por convocatoria, **recortado según quién lo pide**, con fotografía, índice y marcadores; tablero de la convocatoria y estadísticas de la edición, con cifras navegables. | ✅ Hecho |
 | 10a | **Continuidad, portal público y anonimización.** `fimnme-cli verify` del acervo; espejo con `VACUUM INTO`, manifiesto firmado con HMAC-SHA256 y acervo replicado por contenido; alerta de espacio en disco; exportación sanitizada al portal público (lista blanca hecha tipo) con publicación explícita de la nómina; anonimización ARCO con confirmación doble. | ✅ Hecho |
+| 10b | **Extensión de campos e importación asistida.** `fimnme-cli schema add` / `drop` sobre la lista blanca de nodos, con columnas `x_…`, diccionario y DDL auditado; los campos aparecen solos en el formulario, los reportes y el expediente. Importación en dos fases (Analyze → Commit) de dotaciones y de cuentas de jurado y revisor, desde `.csv` o `.xlsx`, por la API y por `fimnme-cli import`: nada entra sin que una persona resuelva cada conflicto. | ✅ Hecho |
 
 ### Backend
 
 | # | Paso | Requerimientos | Estado |
 |---|---|---|---|
-| 10b | **Importación, extensión de campos y TUI.** Importación asistida en dos fases (Analyze → Commit), por CLI y por API; extensión dinámica de nodos con lista blanca (`schema add` / `drop`); modo interactivo `--tui`; `export-csv` desde una plantilla. | §5.14, §5.14.1, §5.15, RN-29 a 33 | Pendiente |
+| 10c | **Modo interactivo y `export-csv`.** `fimnme-cli --tui` para administrar ediciones, convocatorias, dotaciones, requisitos, criterios y asignaciones; `export-csv` desde una plantilla de reporte. | §5.14 (RF-CLI-02 y 05) | Pendiente |
 
 ### Frontal
 
@@ -97,6 +98,41 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 10b — qué se entregó
+
+El paso 10 quedó en tres entregas: 10a, **10b** (esto) y 10c (modo interactivo `--tui` y
+`export-csv`).
+
+**Decisiones:** [ADR 0015](adr/0015-extension-dinamica-e-importacion-asistida.md).
+
+- **Extensión dinámica de campos** (`fimnme-cli schema list | add | drop`): añade y quita
+  campos con `ALTER TABLE`, sin recompilar, sólo sobre la lista blanca de nodos y sólo
+  columnas `x_…`. Las tablas probatorias no se dejan tocar. Cada DDL queda en la bitácora.
+- Un campo extendido **aparece solo** en el formulario de postulación (si lo ve el
+  postulante), en el catálogo de reportes y en el expediente. Es siempre opcional, no
+  entra en el acuse y no se desbloquea en una subsanación.
+- **Captura** por el postulante (autoguardado) o por la administración
+  (`PUT /api/v1/extendidos/{tabla}/{id}`), según quién lo ve.
+- **Importación asistida** (`fimnme-cli import` y `/api/v1/importaciones`): analiza un
+  `.csv` o `.xlsx`, levanta un conflicto por cada renglón sin correspondencia unívoca, una
+  persona los resuelve, y el Commit entra entero o no entra. Tipos: dotaciones, cuentas
+  de jurado y cuentas de revisor.
+- Sin migraciones ni dependencias nuevas.
+
+**Verificado.** `make verificar`. Pruebas del modelo (lectura de CSV y XLSX, forma de los
+renglones, análisis, reglas, la cerca del DDL), de extremo a extremo (un campo extendido
+por todo su ciclo; importación de dotaciones y de cuentas con sus rechazos y su «todo o
+nada») y de la herramienta. En vivo, con los binarios: hojas XLSX reales escritas por
+LibreOffice, openpyxl y xlsxwriter; una importación completa; y `schema add` y `drop` con
+el servidor en marcha, viendo el campo en la API, en un reporte y en el expediente.
+
+**De paso** se corrigió una prueba anterior que fallaba de vez en cuando: dependía del
+orden en que se recorre un mapa.
+
+**No se hizo:** la conciliación de postulantes recurrentes (RF-IMP-06), la captura de
+campos extendidos en integrantes y ligas de video, y la exportación de los campos a
+MariaDB (paso 14). Véase el ADR.
 
 ## Paso 10a — qué se entregó
 
@@ -642,3 +678,17 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 58. **Umbral de la alerta de disco: 10 GB libres**, configurable.
 59. **La nómina se publica desde la API**, no desde la línea de órdenes: el registro exige
     la cuenta del administrador que la autoriza.
+60. **Conciliación de postulantes recurrentes entre ediciones** (RF-IMP-06): no se hizo.
+    En este modelo un postulante es su cuenta y no hay una entidad «persona» sobre la
+    cual fundir dos cuentas. Hace falta decidir qué significaría (ADR 0015, §8).
+61. **Los campos extendidos de integrantes y de ligas de video** se pueden crear pero aún
+    no capturar (ADR 0015, §5).
+62. **Los campos extendidos sólo se añaden y se quitan desde `fimnme-cli`**, no desde el
+    panel: el servidor web nunca altera el esquema.
+63. **Una dotación sólo se da por existente si su nombre es idéntico**; con otras
+    mayúsculas o sin acento, lo decide una persona.
+64. **En una importación de cuentas todo renglón pide una decisión**, también cuando el
+    correo coincide con el de una cuenta (RN-30).
+65. **Columnas de las hojas**: dotaciones, `nombre_es` (obligatoria), `nombre_en`,
+    `descripcion_es`, `descripcion_en`; cuentas, `email`, `nombre`, `apellidos`
+    (obligatorias) e `idioma`.

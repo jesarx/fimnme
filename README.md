@@ -19,8 +19,14 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 10a de 14: continuidad operativa, portal público y anonimización.** Hoy el sistema tiene:
+**Paso 10b de 14: extensión de campos e importación asistida.** Hoy el sistema tiene:
 
+- **Campos extendidos**: `fimnme-cli schema` añade campos a ciertas tablas sin recompilar;
+  aparecen solos en el formulario, los reportes y el expediente. Las tablas del proceso
+  (evaluaciones, acuses, bitácora) no se dejan tocar.
+- **Importación asistida** de catálogos de dotaciones y de cuentas de jurado y revisor,
+  desde `.csv` o `.xlsx`: nada entra sin que una persona resuelva cada conflicto, y entra
+  todo o nada.
 - **Continuidad operativa** desde `fimnme-cli`: verificación del acervo de archivos contra
   la base, **instantáneas firmadas** (HMAC-SHA256) para el servidor espejo y alerta de
   espacio en disco.
@@ -485,6 +491,36 @@ curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: applicati
 
 Decisiones de este módulo: [ADR 0014](docs/adr/0014-continuidad-portal-publico-y-anonimizacion.md).
 
+### API de importación asistida y campos extendidos
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `POST /api/v1/importaciones` | `admin_sistema` | **Analyze**: multipart con `tipo`, `convocatoria_id` y `archivo` (.csv o .xlsx). No escribe nada en el dominio |
+| `GET /api/v1/importaciones/{id}` | `admin_sistema` | Conflictos, candidatos y efecto que tendrá confirmarla |
+| `PUT /api/v1/importaciones/{id}/conflictos/{conflicto}` | `admin_sistema` | Resuelve uno: `resolucion` (`vincular`, `crear_nuevo`, `omitir`) y `entidad_id` |
+| `POST /api/v1/importaciones/{id}/resoluciones` | `admin_sistema` | Resuelve de una vez los que no tienen candidatos: `crear_nuevo` u `omitir` |
+| `POST /api/v1/importaciones/{id}/confirmacion` | `admin_sistema` | **Commit**: `{"confirmo": true}`. Todo o nada |
+| `DELETE /api/v1/importaciones/{id}` | `admin_sistema` | La cancela |
+| `GET /api/v1/extendidos` | `admin_sistema`, `coordinacion_nacional` | Diccionario de campos extendidos |
+| `GET` · `PUT /api/v1/extendidos/{tabla}/{id}` | Supervisión · `admin_sistema` | Valores de los campos extendidos de una fila; `PUT` los captura |
+
+Tipos de importación y columnas de la hoja (el primer renglón, con estos nombres exactos):
+
+| `tipo` | Columnas | Obligatorias |
+|---|---|---|
+| `dotaciones` (sólo Compositores) | `nombre_es`, `nombre_en`, `descripcion_es`, `descripcion_en` | `nombre_es` |
+| `usuarios_jurado`, `usuarios_revisor` | `email`, `nombre`, `apellidos`, `idioma` | las tres primeras |
+
+Una dotación sólo se da por existente si su nombre es **idéntico**; en una importación de
+cuentas **todo** renglón pide una decisión, también cuando el correo coincide con el de
+una cuenta. Una postulación nunca se importa.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F tipo=dotaciones -F convocatoria_id=2 -F archivo=@dotaciones.xlsx http://127.0.0.1:8080/api/v1/importaciones
+```
+
+Decisiones de este módulo: [ADR 0015](docs/adr/0015-extension-dinamica-e-importacion-asistida.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -507,12 +543,14 @@ crean sus propias bases SQLite temporales; no tocan `./data`.
 cmd/
   fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
   fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, verify, mirror,
-                      export-json, arco, sembrar-demo)
+                      export-json, arco, schema, import, sembrar-demo)
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
   blobs.go            almacén de archivos en disco, direccionado por SHA-256
   mirror.go           verificación del acervo e instantáneas firmadas del espejo
+  schema_extender.go  extensión dinámica de campos: lista blanca y composición del DDL
+  importacion.go      importación asistida: lectura de CSV y XLSX, análisis y reglas
   catalogos.go        catálogos fijos: países y entidades federativas
   persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
   repository.go       persistencia sobre SQLite: TODO el SQL del sistema
@@ -533,6 +571,8 @@ controllers/        CONTROLADOR
   archivo.go          archivo histórico, vistas guardadas y descargas masivas
   expediente.go       expediente en PDF: qué carga para cada quien
   interop.go          portal público, publicación de la nómina y anonimización
+  importaciones.go    importación asistida en dos fases
+  extendidos.go       campos extendidos: diccionario y captura
   disco.go            alerta de espacio en disco
   reportes.go         reportes CSV, plantillas de reporte y tableros
   enlaces.go          comprobación en red de las ligas de video
@@ -854,6 +894,44 @@ sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme ver
 ```bash
 sudo systemctl start fimnme-web
 ```
+
+### Añadir un campo sin recompilar
+
+`fimnme-cli schema` añade campos a las tablas que lo admiten (edición, convocatoria,
+dotación, postulación, obra, datos generales, propuesta de concierto, integrantes y ligas
+de video). Las tablas del proceso —evaluaciones, acuses, descargas, bitácora,
+subsanaciones— no se dejan tocar.
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme schema add --tabla datos_solista --nombre como_se_entero --etiqueta-es "¿Cómo te enteraste?" --etiqueta-en "How did you hear about us?" --visible postulante
+```
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme schema list
+```
+
+- La columna se llama `x_` + el nombre. Tipos: `texto` (por omisión), `entero`, `decimal`.
+- Con `--visible postulante` el campo aparece en el formulario y lo llena quien postula;
+  sin él, es un dato interno que captura la administración. Además del administrador y
+  el observador, pueden verlo `revisor_documental` y `jurado` si se listan.
+- Es siempre opcional, no entra en el acuse y no se desbloquea en una subsanación.
+- No hace falta reiniciar el servicio. Cada `ALTER TABLE` queda en la bitácora.
+
+`schema drop --tabla T --nombre N` quita el campo **y borra sus valores**; pide escribir
+el nombre de la columna para confirmar.
+
+### Importar un catálogo o un jurado
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme import --tipo dotaciones --convocatoria 2 --como admin@ejemplo.mx dotaciones.xlsx
+```
+
+La herramienta analiza la hoja, muestra cada conflicto con sus candidatos y pregunta qué
+hacer (vincular, crear u omitir). Al final dice lo que va a ocurrir y pide escribir
+`IMPORTAR`. Hasta entonces no ha escrito nada; si se interrumpe, se cancela. `--como` es
+el correo del administrador que resuelve: queda registrado en cada decisión. Las cuentas
+nuevas (`--tipo usuarios_jurado` o `usuarios_revisor`) nacen sin contraseña y sus enlaces
+de activación se muestran al terminar.
 
 ### Anonimizar una postulación (solicitud ARCO)
 

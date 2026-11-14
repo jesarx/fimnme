@@ -131,3 +131,30 @@ func AnonimizacionJSON(r models.ResultadoDeAnonimizacion, pendientes int) any {
 		"archivos_por_purgar": pendientes, "archivos_conservados": r.ArchivosConservados, "cuenta_anonimizada": r.CuentaAnonimizada,
 	}
 }
+
+// ImportacionJSON describe una importación asistida: sus conflictos, cómo se
+// resolvió cada uno y el efecto que tendrá —o tuvo— confirmarla (RF-IMP-08).
+func ImportacionJSON(i models.Importacion) any {
+	conflictos := make([]map[string]any, 0, len(i.Conflictos))
+	for _, c := range i.Conflictos {
+		candidatos := c.Candidatos
+		if candidatos == nil {
+			candidatos = []models.Candidato{}
+		}
+		conflictos = append(conflictos, map[string]any{
+			"id": c.ID, "fila": c.Fila, "columna": c.Columna, "valor": c.ValorOrigen, "candidatos": candidatos,
+			"resolucion": textoONulo(c.Resolucion), "entidad_id": ceroANulo(c.EntidadID),
+			"resuelto_por": ceroANulo(c.ResueltoPor), "resuelto_at": marcaJSON(c.ResueltoAt),
+		})
+	}
+	efecto := i.Efecto()
+	columnas, obligatorias := models.ColumnasDeImportacion(i.Tipo)
+	return map[string]any{
+		"id": i.ID, "tipo": i.Tipo, "convocatoria_id": i.ConvocatoriaID, "estado": i.Estado, "filas": i.FilasTotal,
+		"sha256": i.Archivo.SHA256, "creado_at": marcaJSON(i.CreadoAt), "confirmada_at": marcaJSON(i.ConfirmadaAt),
+		"columnas": columnas, "columnas_obligatorias": obligatorias,
+		"conflictos": conflictos, "puede_confirmarse": i.PuedeConfirmarse(),
+		"efecto": map[string]any{"crean": efecto.Crean, "vinculan": efecto.Vinculan, "omiten": efecto.Omiten,
+			"sin_resolver": efecto.SinResolver, "sin_conflicto": efecto.SinConflicto},
+	}
+}

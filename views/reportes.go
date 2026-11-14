@@ -43,6 +43,10 @@ import (
 //   - Los campos calculados tienen su propia clave de traducción.
 //   - Los del formulario usan la misma etiqueta que el formulario.
 func (m *Motor) etiquetaDeCampo(idioma string, campo models.CampoDeReporte, jurados []models.JuradoEnMatriz) string {
+	if campo.Extendido != nil {
+		// Un campo extendido trae su etiqueta en el diccionario.
+		return campo.Extendido.Etiqueta(idioma)
+	}
 	if campo.Jurado > 0 {
 		jurado := m.textos.T(idioma, "reporte.jurado", campo.Jurado)
 		if campo.Jurado <= len(jurados) {

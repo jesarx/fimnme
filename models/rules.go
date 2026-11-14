@@ -844,6 +844,7 @@ const (
 	CampoEntidad           TipoCampo = "entidad"            // una de las 32 entidades
 	CampoEntidadResidencia TipoCampo = "entidad_residencia" // entidad si el país es México; texto libre si no
 	CampoDotacion          TipoCampo = "dotacion"           // id de una dotación activa de la convocatoria
+	CampoDecimal           TipoCampo = "decimal"            // número con decimales (sólo campos extendidos)
 )
 
 // CondicionFueraDeCDMX es la condición de los campos de sede: son
@@ -864,9 +865,13 @@ type DefinicionCampo struct {
 	Opciones    []string  // valores admitidos (CampoOpcion)
 
 	// Dónde se guarda. Son constantes del código: el nombre de una tabla o de
-	// una columna nunca sale de un dato de la petición.
+	// una columna nunca sale de un dato de la petición. (Los de un campo
+	// extendido salen del diccionario, validados por schema_extender.go.)
 	tabla   string
 	columna string
+	// llave es la columna que identifica la fila; vacía = la habitual de
+	// quien guarda. Sólo la fijan los campos extendidos.
+	llave string
 }
 
 // DefinicionFormulario es el formulario que corresponde a una postulación
@@ -1083,6 +1088,10 @@ func ValidarValorDeCampo(def DefinicionCampo, valor string, ctx ContextoCampos) 
 			minimo, maximo = AnioMinimo, ctx.Ahora.In(time.UTC).Year()
 		}
 		if err != nil || n < minimo || n > maximo {
+			return "error.numero_fuera_de_rango"
+		}
+	case CampoDecimal:
+		if n, err := strconv.ParseFloat(valor, 64); err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 			return "error.numero_fuera_de_rango"
 		}
 	case CampoFecha, CampoFechaNacimiento:
@@ -1862,6 +1871,12 @@ func (pe PermisoDeEdicion) programaAbierto() bool {
 // la postulación. Vale también para las listas: CampoIntegrantes, CampoVideos
 // y CampoObras.
 func (pe PermisoDeEdicion) Campo(ruta string, obraID int64) bool {
+	if EsRutaExtendida(ruta) {
+		// Un campo extendido no se desbloquea en una subsanación, ni
+		// siquiera cuando el revisor abre el programa de obras (RF-CLI-26):
+		// sólo se captura mientras la postulación es un borrador.
+		return pe.Total
+	}
 	return pe.Total || pe.desbloqueados[claveDeElemento(ProblemaCampo, ruta, obraID)] || (obraID != 0 && pe.programaAbierto())
 }
 
@@ -2698,6 +2713,23 @@ func CatalogoDeReporte(cfg ConfiguracionConvocatoria) []CampoDeReporte {
 		CampoDeReporte{Clave: "obra.orden", Nivel: NivelObra})
 	for _, def := range FormularioDe(tipo, subcategorias[0]).CamposObra {
 		catalogo = append(catalogo, CampoDeReporte{Clave: def.Ruta, Nivel: NivelObra, Tipo: def.Tipo})
+	}
+	// Campos extendidos exportables (RF-CLI-22): entran solos al catálogo,
+	// con la clave «ext.<tabla>.<columna>».
+	for _, sub := range subcategorias {
+		dePostulacion, deObra := ExtendidosDePostulacion(cfg.Extendidos, tipo, sub)
+		for i := range dePostulacion {
+			if c := dePostulacion[i]; c.Exportable && !vistos[c.Ruta()] {
+				vistos[c.Ruta()] = true
+				catalogo = append(catalogo, CampoDeReporte{Clave: c.Ruta(), Nivel: NivelPostulacion, Extendido: &dePostulacion[i]})
+			}
+		}
+		for i := range deObra {
+			if c := deObra[i]; c.Exportable && !vistos[c.Ruta()] {
+				vistos[c.Ruta()] = true
+				catalogo = append(catalogo, CampoDeReporte{Clave: c.Ruta(), Nivel: NivelObra, Extendido: &deObra[i]})
+			}
+		}
 	}
 	catalogo = append(catalogo,
 		CampoDeReporte{Clave: "revision.estado", Nivel: NivelPostulacion, Tipo: CampoRevision},

@@ -20,8 +20,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -404,5 +406,229 @@ func TestExportarJSONYArco(t *testing.T) {
 		{Campo: "confirmo", Clave: "error.confirmacion_requerida"}, {Campo: "folio", Clave: "error.folio_no_coincide"}, {Campo: "x", Clave: "error.nuevo"}}})
 	if motivos != "no se escribió la palabra ANONIMIZAR; el folio escrito para confirmar no coincide; x: error.nuevo" {
 		t.Errorf("motivos de rechazo: %s", motivos)
+	}
+}
+
+// responder sustituye la entrada de las órdenes por las respuestas dadas, una
+// por renglón.
+func responder(t *testing.T, respuestas ...string) {
+	t.Helper()
+	anterior := entrada
+	entrada = strings.NewReader(strings.Join(respuestas, "\n") + "\n")
+	t.Cleanup(func() { entrada = anterior })
+}
+
+// «schema»: añade y quita campos sólo dentro de la cerca, y pide confirmar
+// antes de borrar.
+func TestOrdenDeEsquema(t *testing.T) {
+	dir, _ := datosConArchivos(t)
+	texto := capturar(t)
+	esquema := func(args ...string) error { return conRepositorio(dir, ordenDeEsquema(args)) }
+
+	if err := esquema("list"); err != nil || !strings.Contains(texto.String(), "No hay campos extendidos.") || !strings.Contains(texto.String(), "datos_solista") {
+		t.Fatalf("schema list vacío: %v\n%s", err, texto)
+	}
+	texto.Reset()
+	if err := esquema("add", "--tabla", "datos_solista", "--nombre", "como_se_entero", "--etiqueta-es", "¿Cómo te enteraste?",
+		"--etiqueta-en", "How did you hear about us?", "--visible", "postulante,jurado"); err != nil {
+		t.Fatal(err)
+	}
+	for _, fragmento := range []string{"Campo añadido: datos_solista.x_como_se_entero", "Se ejecutó: ALTER TABLE datos_solista ADD COLUMN x_como_se_entero TEXT",
+		"Clave en reportes: ext.datos_solista.x_como_se_entero", "Aparece en el formulario de postulación"} {
+		if !strings.Contains(texto.String(), fragmento) {
+			t.Errorf("salida de schema add: falta %q\n%s", fragmento, texto)
+		}
+	}
+	texto.Reset()
+	if err := esquema("add", "--tabla", "dotacion", "--nombre", "tarifa", "--tipo", "decimal", "--etiqueta-es", "Tarifa", "--no-exportable"); err != nil ||
+		!strings.Contains(texto.String(), "ADD COLUMN x_tarifa REAL") || !strings.Contains(texto.String(), "Lo captura la administración") {
+		t.Errorf("campo de configuración: %v\n%s", err, texto)
+	}
+	texto.Reset()
+	if err := esquema("add", "--tabla", "integrante", "--nombre", "anio", "--tipo", "entero", "--etiqueta-es", "Año"); err != nil || !strings.Contains(texto.String(), "AVISO") {
+		t.Errorf("campo en una lista: %v\n%s", err, texto)
+	}
+	// Lo que la cerca rechaza, con su explicación.
+	for nombre, caso := range map[string]struct {
+		args   []string
+		motivo string
+	}{
+		"tabla probatoria":  {[]string{"add", "--tabla", "evaluacion", "--nombre", "nota", "--etiqueta-es", "Nota"}, "material probatorio"},
+		"tabla ajena":       {[]string{"add", "--tabla", "usuario", "--nombre", "nota", "--etiqueta-es", "Nota"}, "no admite campos"},
+		"nombre inválido":   {[]string{"add", "--tabla", "obra", "--nombre", "Nota; DROP TABLE acuse", "--etiqueta-es", "Nota"}, "minúsculas"},
+		"sin etiqueta":      {[]string{"add", "--tabla", "obra", "--nombre", "nota"}, "--etiqueta-es"},
+		"tipo inventado":    {[]string{"add", "--tabla", "obra", "--nombre", "nota", "--etiqueta-es", "Nota", "--tipo", "blob"}, "texto, entero o decimal"},
+		"duplicado":         {[]string{"add", "--tabla", "dotacion", "--nombre", "tarifa", "--etiqueta-es", "Tarifa"}, "ya existe el campo"},
+		"orden desconocida": {[]string{"rename"}, "desconocida"},
+		"sin orden":         {nil, "falta la orden"},
+	} {
+		if err := esquema(caso.args...); err == nil || !strings.Contains(err.Error(), caso.motivo) {
+			t.Errorf("%s: %v", nombre, err)
+		}
+	}
+	texto.Reset()
+	if err := esquema("list"); err != nil || !strings.Contains(texto.String(), "datos_solista.x_como_se_entero  (texto, exportable)") ||
+		!strings.Contains(texto.String(), "Lo ven: también postulante, jurado") || !strings.Contains(texto.String(), "dotacion.x_tarifa  (decimal, no exportable)") {
+		t.Errorf("schema list: %v\n%s", err, texto)
+	}
+
+	// Eliminar pide escribir el nombre de la columna; y sólo alcanza campos
+	// del diccionario.
+	responder(t, "x_otra_cosa")
+	if err := esquema("drop", "--tabla", "dotacion", "--nombre", "tarifa"); err == nil || !strings.Contains(err.Error(), "no se eliminó nada") {
+		t.Errorf("drop sin confirmar: %v", err)
+	}
+	responder(t, "x_estado")
+	if err := esquema("drop", "--tabla", "postulacion", "--nombre", "estado"); err == nil || !strings.Contains(err.Error(), "no existe el campo extendido") {
+		t.Errorf("drop de una columna nativa: %v", err)
+	}
+	responder(t, "x_tarifa")
+	texto.Reset()
+	if err := esquema("drop", "--tabla", "dotacion", "--nombre", "x_tarifa"); err != nil || !strings.Contains(texto.String(), "ALTER TABLE dotacion DROP COLUMN x_tarifa") {
+		t.Errorf("drop confirmado: %v\n%s", err, texto)
+	}
+	// Los tres ALTER TABLE quedaron en la bitácora, con el usuario del sistema.
+	err := conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+		asientos, _, err := repositorio.ConsultarAuditoria(ctx, models.FiltroAuditoria{Accion: "schema.alter", Pagina: 1, Tamano: 10})
+		if err == nil && len(asientos) != 4 {
+			t.Errorf("asientos de DDL: %d", len(asientos))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// «import»: analiza, pregunta y aplica; sin la palabra, no escribe nada.
+func TestOrdenDeImportacion(t *testing.T) {
+	dir, _ := datosConArchivos(t)
+	texto := capturar(t)
+	var compositores, interpretes int64
+	var existente string
+	// dotaciones devuelve los nombres del catálogo de Compositores.
+	dotaciones := func() []string {
+		var nombres []string
+		err := conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+			cfg, err := repositorio.ConfiguracionDeConvocatoria(ctx, compositores)
+			for _, d := range cfg.Dotaciones {
+				nombres = append(nombres, d.NombreES)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return nombres
+	}
+	// Un administrador y una cuenta sin perfil, para --como.
+	err := conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+		convocatorias, err := repositorio.ConvocatoriasPublicas(ctx)
+		if err != nil {
+			return err
+		}
+		for _, c := range convocatorias {
+			if c.Tipo == models.TipoCompositores {
+				compositores = c.ID
+			} else {
+				interpretes = c.ID
+			}
+		}
+		for correo, perfil := range map[string]models.Perfil{"admin@ejemplo.mx": models.PerfilAdminSistema, "nadie@ejemplo.mx": ""} {
+			if _, err := repositorio.CrearUsuario(ctx, actorCLI(), models.NuevoUsuario{Email: correo, Nombre: "Persona", Apellidos: "De Prueba",
+				Idioma: models.IdiomaES, PasswordHash: "x", Perfil: perfil}, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iniciales := dotaciones()
+	if len(iniciales) < 2 {
+		t.Fatal("la demostración debe traer al menos dos dotaciones")
+	}
+	existente = iniciales[0]
+	hoja := filepath.Join(t.TempDir(), "dotaciones.csv")
+	if err := os.WriteFile(hoja, []byte("nombre_es,nombre_en\n"+iniciales[1]+",\nDotación de prueba,Test ensemble\n"+strings.ToUpper(existente)+" ,\nOtra de prueba,\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	importar := func(args ...string) error { return conRepositorio(dir, importar(dir, args)) }
+	base := []string{"--tipo", "dotaciones", "--convocatoria", fmt.Sprint(compositores)}
+
+	// Quién importa: una cuenta de administrador, con nombre.
+	for nombre, caso := range map[string]struct {
+		args   []string
+		motivo string
+	}{
+		"sin --como":                {append(slices.Clone(base), hoja), "--como"},
+		"cuenta inexistente":        {append(slices.Clone(base), "--como", "fantasma@ejemplo.mx", hoja), "no existe ninguna cuenta"},
+		"cuenta sin perfil":         {append(slices.Clone(base), "--como", "nadie@ejemplo.mx", hoja), "no es de un administrador"},
+		"sin archivo":               {append(slices.Clone(base), "--como", "admin@ejemplo.mx"), "indique el archivo"},
+		"tipo desconocido":          {[]string{"--tipo", "postulaciones", "--convocatoria", fmt.Sprint(compositores), "--como", "admin@ejemplo.mx", hoja}, "--tipo debe ser"},
+		"dotaciones en Intérpretes": {[]string{"--tipo", "dotaciones", "--convocatoria", fmt.Sprint(interpretes), "--como", "admin@ejemplo.mx", hoja}, "sólo existen en la convocatoria de Compositores"},
+		"convocatoria inexistente":  {[]string{"--tipo", "dotaciones", "--convocatoria", "999", "--como", "admin@ejemplo.mx", hoja}, "no existe la convocatoria 999"},
+	} {
+		if err := importar(caso.args...); err == nil || !strings.Contains(err.Error(), caso.motivo) {
+			t.Errorf("%s: %v", nombre, err)
+		}
+	}
+	conAdmin := append(slices.Clone(base), "--como", "admin@ejemplo.mx", hoja)
+
+	// Se resuelve todo pero no se escribe la palabra: no entra nada.
+	responder(t, "c", "1", "no")
+	if err := importar(conAdmin...); err == nil || !strings.Contains(err.Error(), "no se escribió nada") {
+		t.Fatalf("importación sin confirmar: %v", err)
+	}
+	// Se corta la entrada a media resolución: tampoco.
+	responder(t, "c")
+	if err := importar(conAdmin...); err == nil || !strings.Contains(err.Error(), "cancelada") {
+		t.Fatalf("importación interrumpida: %v", err)
+	}
+	if obtenidas := dotaciones(); !slices.Equal(obtenidas, iniciales) {
+		t.Fatalf("una importación sin confirmar escribió en el catálogo: %v", obtenidas)
+	}
+
+	// Completa: crear los dos que no se parecen a nada, vincular el que es
+	// el mismo escrito distinto, y aplicar.
+	texto.Reset()
+	responder(t, "c", "x", "1", "IMPORTAR")
+	if err := importar(conAdmin...); err != nil {
+		t.Fatalf("importación: %v\n%s", err, texto)
+	}
+	for _, fragmento := range []string{"4 renglones, 3 por resolver", "2 renglones no se parecen a ningún registro existente", "fila 3: Dotación de prueba",
+		"[1] " + existente + "  (mismo nombre)", "No es una opción.", "Se van a crear 2 registros, vincular 1 y omitir 0; 1 renglones ya existían tal cual.", "aplicada"} {
+		if !strings.Contains(texto.String(), fragmento) {
+			t.Errorf("salida de import: falta %q\n%s", fragmento, texto)
+		}
+	}
+	if obtenidas := dotaciones(); len(obtenidas) != len(iniciales)+2 || !slices.Contains(obtenidas, "Dotación de prueba") || !slices.Contains(obtenidas, "Otra de prueba") {
+		t.Errorf("catálogo tras importar: %v", obtenidas)
+	}
+
+	// Cuentas: la nueva recibe su enlace de activación, que se muestra aquí.
+	jurados := filepath.Join(t.TempDir(), "jurado.csv")
+	if err := os.WriteFile(jurados, []byte("email;nombre;apellidos\nnora@ejemplo.mx;Nora;Paz\nadmin@ejemplo.mx;Persona;De Prueba\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	texto.Reset()
+	responder(t, "c", "o", "IMPORTAR")
+	if err := importar("--tipo", "usuarios_jurado", "--convocatoria", fmt.Sprint(interpretes), "--como", "admin@ejemplo.mx", "--url-base", "https://postula.ejemplo.mx/", jurados); err != nil {
+		t.Fatalf("importación de jurados: %v\n%s", err, texto)
+	}
+	if !strings.Contains(texto.String(), "(mismo correo)") || !strings.Contains(texto.String(), "nora@ejemplo.mx\n    https://postula.ejemplo.mx/cuenta/activar?token=") ||
+		!strings.Contains(texto.String(), "crear 1 registros, vincular 0 y omitir 1") {
+		t.Errorf("salida de la importación de jurados:\n%s", texto)
+	}
+	err = conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+		cfg, err := repositorio.ConfiguracionDeConvocatoria(ctx, interpretes)
+		if err == nil && (cfg.Activos(models.PerfilJurado) != 1) {
+			t.Errorf("jurados tras importar: %d", cfg.Activos(models.PerfilJurado))
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

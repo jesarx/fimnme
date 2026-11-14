@@ -273,6 +273,20 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/convocatorias/{id}/tablero", a.supervisa(a.apiTablero)},
 		{"GET", "/api/v1/ediciones/{id}/estadisticas", a.supervisa(a.apiEstadisticas)},
 
+		// Importación asistida en dos fases: analizar, resolver y confirmar.
+		{"POST", "/api/v1/importaciones", a.administra(a.apiAnalizarImportacion)},
+		{"GET", "/api/v1/importaciones/{id}", a.administra(a.apiImportacion)},
+		{"PUT", "/api/v1/importaciones/{id}/conflictos/{conflicto}", a.administra(a.apiResolverConflicto)},
+		{"POST", "/api/v1/importaciones/{id}/resoluciones", a.administra(a.apiResolverSinCandidatos)},
+		{"POST", "/api/v1/importaciones/{id}/confirmacion", a.administra(a.apiConfirmarImportacion)},
+		{"DELETE", "/api/v1/importaciones/{id}", a.administra(a.apiCancelarImportacion)},
+
+		// Campos extendidos: diccionario y captura. Añadirlos o quitarlos es
+		// DDL y sólo se hace desde fimnme-cli.
+		{"GET", "/api/v1/extendidos", a.supervisa(a.apiExtendidos)},
+		{"GET", "/api/v1/extendidos/{tabla}/{id}", a.supervisa(a.apiValoresExtendidos)},
+		{"PUT", "/api/v1/extendidos/{tabla}/{id}", a.administra(a.apiGuardarExtendidos)},
+
 		// Portal público: exportación sanitizada (pública) y publicación
 		// explícita de la nómina de seleccionados (administrador).
 		{"GET", "/api/v1/interop/convocatoria.json", a.apiInterop},

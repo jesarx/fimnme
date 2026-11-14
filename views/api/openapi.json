@@ -4828,6 +4828,259 @@
         ]
       }
     },
+    "/api/v1/extendidos": {
+      "get": {
+        "tags": [
+          "Campos extendidos"
+        ],
+        "summary": "Diccionario de campos extendidos",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Campos activos y nodos que admiten extensión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiccionarioExtendido"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Añadir o quitar un campo es DDL y sólo se hace con «fimnme-cli schema»: el servidor nunca altera el esquema.",
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/extendidos/{tabla}/{id}": {
+      "get": {
+        "tags": [
+          "Campos extendidos"
+        ],
+        "summary": "Campos extendidos de una fila de un nodo",
+        "x-perfiles": [
+          "admin_sistema",
+          "coordinacion_nacional"
+        ],
+        "responses": {
+          "200": {
+            "description": "Campos y valores",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValoresExtendidos"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "El id es el de la fila; para las tablas que cuelgan de una postulación, el de ésta.",
+        "parameters": [
+          {
+            "name": "tabla",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Nodo: edicion, convocatoria, dotacion, postulacion, obra, datos_solista, datos_ensamble, datos_compositor o propuesta_concierto"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Campos extendidos"
+        ],
+        "summary": "Captura campos extendidos",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Campos guardados y rechazados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Guardado"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Para los nodos de configuración y para los campos internos de una postulación o de una obra. Los que captura el postulante entran por el autoguardado de su postulación, con la ruta ext.<tabla>.<columna>.",
+        "parameters": [
+          {
+            "name": "tabla",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Nodo: edicion, convocatoria, dotacion, postulacion, obra, datos_solista, datos_ensamble, datos_compositor o propuesta_concierto"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "campos": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "description": "Nombre de columna (x_…) → valor"
+                  }
+                },
+                "required": [
+                  "campos"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/folios/{folio}": {
       "get": {
         "tags": [
@@ -4880,6 +5133,611 @@
             "description": "P. ej. FIM49-INT-0137"
           }
         ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/importaciones": {
+      "post": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Fase Analyze: sube y analiza una hoja de cálculo",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Importación con sus conflictos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Formulario multipart, con los campos antes del archivo: tipo (dotaciones, usuarios_jurado o usuarios_revisor), convocatoria_id y archivo (.csv o .xlsx, hasta 2 MB). No escribe nada en el dominio: levanta un conflicto por cada renglón sin correspondencia unívoca. Una postulación nunca se importa.",
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tipo": {
+                    "type": "string",
+                    "enum": [
+                      "dotaciones",
+                      "usuarios_jurado",
+                      "usuarios_revisor"
+                    ]
+                  },
+                  "convocatoria_id": {
+                    "type": "integer"
+                  },
+                  "archivo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "La hoja (.csv o .xlsx). Debe ser el ÚLTIMO campo del formulario"
+                  }
+                },
+                "required": [
+                  "tipo",
+                  "convocatoria_id",
+                  "archivo"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/importaciones/{id}": {
+      "get": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Estado de una importación",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Importación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Cancela una importación sin aplicarla",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Importación cancelada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/importaciones/{id}/confirmacion": {
+      "post": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Fase Commit: aplica la importación",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Importación confirmada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Sólo con todos los conflictos resueltos. Una sola transacción: si un renglón no puede entrar, no entra ninguno y la respuesta dice cuál. Las cuentas nuevas reciben su enlace de activación por correo.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirmo": {
+                    "type": "boolean",
+                    "description": "Debe ser true"
+                  }
+                },
+                "required": [
+                  "confirmo"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/importaciones/{id}/conflictos/{conflicto}": {
+      "put": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Resuelve un conflicto",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Importación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queda registrado quién lo resolvió y cuándo. En una importación de cuentas sólo puede vincularse a un candidato, y no puede crearse una cuenta con un correo ya registrado.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "conflicto",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "resolucion": {
+                    "type": "string",
+                    "enum": [
+                      "vincular",
+                      "crear_nuevo",
+                      "omitir"
+                    ]
+                  },
+                  "entidad_id": {
+                    "type": "integer",
+                    "description": "Registro existente elegido, si se vincula"
+                  }
+                },
+                "required": [
+                  "resolucion"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/importaciones/{id}/resoluciones": {
+      "post": {
+        "tags": [
+          "Importación"
+        ],
+        "summary": "Resuelve de una vez los conflictos sin candidatos",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Importación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Importacion"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Los conflictos con candidatos no se tocan: se resuelven de uno en uno.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "resolucion": {
+                    "type": "string",
+                    "enum": [
+                      "crear_nuevo",
+                      "omitir"
+                    ]
+                  }
+                },
+                "required": [
+                  "resolucion"
+                ]
+              }
+            }
+          }
+        },
         "security": [
           {
             "sesion": []
@@ -10040,6 +10898,129 @@
           "anonimizada_at": {
             "type": "string",
             "description": "Sólo si fue anonimizada por una solicitud ARCO"
+          },
+          "extendidos": {
+            "type": "object",
+            "properties": {
+              "campos": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ruta": {
+                      "type": "string",
+                      "description": "ext.<tabla>.<columna>"
+                    },
+                    "tabla": {
+                      "type": "string"
+                    },
+                    "columna": {
+                      "type": "string"
+                    },
+                    "tipo": {
+                      "type": "string",
+                      "enum": [
+                        "texto",
+                        "entero",
+                        "decimal"
+                      ]
+                    },
+                    "etiqueta_es": {
+                      "type": "string"
+                    },
+                    "etiqueta_en": {
+                      "type": "string"
+                    },
+                    "ayuda_es": {
+                      "type": "string"
+                    },
+                    "ayuda_en": {
+                      "type": "string"
+                    },
+                    "visible_en": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exportable": {
+                      "type": "boolean"
+                    },
+                    "captura": {
+                      "type": "string",
+                      "enum": [
+                        "postulante",
+                        "administracion"
+                      ]
+                    }
+                  }
+                }
+              },
+              "campos_de_obra": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ruta": {
+                      "type": "string",
+                      "description": "ext.<tabla>.<columna>"
+                    },
+                    "tabla": {
+                      "type": "string"
+                    },
+                    "columna": {
+                      "type": "string"
+                    },
+                    "tipo": {
+                      "type": "string",
+                      "enum": [
+                        "texto",
+                        "entero",
+                        "decimal"
+                      ]
+                    },
+                    "etiqueta_es": {
+                      "type": "string"
+                    },
+                    "etiqueta_en": {
+                      "type": "string"
+                    },
+                    "ayuda_es": {
+                      "type": "string"
+                    },
+                    "ayuda_en": {
+                      "type": "string"
+                    },
+                    "visible_en": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "exportable": {
+                      "type": "boolean"
+                    },
+                    "captura": {
+                      "type": "string",
+                      "enum": [
+                        "postulante",
+                        "administracion"
+                      ]
+                    }
+                  }
+                }
+              },
+              "valores": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "Campos extendidos que quien pregunta puede ver; cada obra trae los suyos en «extendidos»"
           }
         }
       },
@@ -11334,6 +12315,275 @@
           },
           "cuenta_anonimizada": {
             "type": "boolean"
+          }
+        }
+      },
+      "DiccionarioExtendido": {
+        "type": "object",
+        "properties": {
+          "campos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruta": {
+                  "type": "string",
+                  "description": "ext.<tabla>.<columna>"
+                },
+                "tabla": {
+                  "type": "string"
+                },
+                "columna": {
+                  "type": "string"
+                },
+                "tipo": {
+                  "type": "string",
+                  "enum": [
+                    "texto",
+                    "entero",
+                    "decimal"
+                  ]
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "ayuda_es": {
+                  "type": "string"
+                },
+                "ayuda_en": {
+                  "type": "string"
+                },
+                "visible_en": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "exportable": {
+                  "type": "boolean"
+                },
+                "captura": {
+                  "type": "string",
+                  "enum": [
+                    "postulante",
+                    "administracion"
+                  ]
+                }
+              }
+            }
+          },
+          "nodos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ValoresExtendidos": {
+        "type": "object",
+        "properties": {
+          "campos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruta": {
+                  "type": "string",
+                  "description": "ext.<tabla>.<columna>"
+                },
+                "tabla": {
+                  "type": "string"
+                },
+                "columna": {
+                  "type": "string"
+                },
+                "tipo": {
+                  "type": "string",
+                  "enum": [
+                    "texto",
+                    "entero",
+                    "decimal"
+                  ]
+                },
+                "etiqueta_es": {
+                  "type": "string"
+                },
+                "etiqueta_en": {
+                  "type": "string"
+                },
+                "ayuda_es": {
+                  "type": "string"
+                },
+                "ayuda_en": {
+                  "type": "string"
+                },
+                "visible_en": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "exportable": {
+                  "type": "boolean"
+                },
+                "captura": {
+                  "type": "string",
+                  "enum": [
+                    "postulante",
+                    "administracion"
+                  ]
+                }
+              }
+            }
+          },
+          "valores": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      },
+      "Importacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "tipo": {
+            "type": "string"
+          },
+          "convocatoria_id": {
+            "type": "integer"
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "esperando_resolucion",
+              "confirmada",
+              "cancelada"
+            ]
+          },
+          "filas": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Del archivo original, que se conserva"
+          },
+          "creado_at": {
+            "type": "string"
+          },
+          "confirmada_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "columnas": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "columnas_obligatorias": {
+            "type": "integer"
+          },
+          "puede_confirmarse": {
+            "type": "boolean"
+          },
+          "conflictos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "fila": {
+                  "type": "integer"
+                },
+                "columna": {
+                  "type": "string"
+                },
+                "valor": {
+                  "type": "string"
+                },
+                "candidatos": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "descripcion": {
+                        "type": "string"
+                      },
+                      "motivo": {
+                        "type": "string",
+                        "enum": [
+                          "mismo_correo",
+                          "mismo_nombre",
+                          "nombre_parecido"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "resolucion": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "entidad_id": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "resuelto_por": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "resuelto_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "efecto": {
+            "type": "object",
+            "properties": {
+              "crean": {
+                "type": "integer"
+              },
+              "vinculan": {
+                "type": "integer"
+              },
+              "omiten": {
+                "type": "integer"
+              },
+              "sin_resolver": {
+                "type": "integer"
+              },
+              "sin_conflicto": {
+                "type": "integer"
+              }
+            }
           }
         }
       }

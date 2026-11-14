@@ -849,6 +849,9 @@ func configuracion(ctx context.Context, q consultor, convocatoriaID int64) (Conf
 	if cfg.Asignaciones, err = leerAsignaciones(ctx, q, convocatoriaID); err != nil {
 		return cfg, err
 	}
+	if cfg.Extendidos, err = leerExtendidos(ctx, q); err != nil {
+		return cfg, err
+	}
 	err = q.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM postulacion
 		WHERE convocatoria_id = ? AND estado IN ('enviada', 'en_revision', 'en_subsanacion')`, convocatoriaID).Scan(&cfg.SinDictaminar)
@@ -1364,56 +1367,65 @@ func (r *Repositorio) BorrarCriterio(ctx context.Context, actor Actor, id int64)
 func (r *Repositorio) Asignar(ctx context.Context, actor Actor, convocatoriaID, usuarioID int64, perfil Perfil) (int64, error) {
 	var id int64
 	err := r.operacion(ctx, "asignar", func(tx *sql.Tx) error {
-		cfg, err := configuracion(ctx, tx, convocatoriaID)
-		if err != nil {
-			return err
-		}
-		usuario, err := leerUsuario(tx.QueryRowContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ?", usuarioID))
-		if errors.Is(err, sql.ErrNoRows) {
-			return validacion([]ErrorCampo{{Campo: "usuario_id", Clave: "error.usuario_inexistente"}})
-		}
-		if err != nil {
-			return err
-		}
-		postula, err := existe(ctx, tx,
-			"SELECT COUNT(*) FROM postulacion WHERE convocatoria_id = ? AND usuario_id = ?", convocatoriaID, usuarioID)
-		if err != nil {
-			return err
-		}
-		var activa bool
-		err = tx.QueryRowContext(ctx,
-			"SELECT id, activo FROM asignacion WHERE convocatoria_id = ? AND usuario_id = ? AND perfil = ?",
-			convocatoriaID, usuarioID, string(perfil)).Scan(&id, &activa)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			id = 0
-		case err != nil:
-			return err
-		case activa:
-			return ErrDuplicado
-		}
-		if err := validacion(ValidarAsignacion(cfg, usuario, perfil, postula)); err != nil {
-			return err
-		}
-		if id != 0 {
-			if _, err := tx.ExecContext(ctx, "UPDATE asignacion SET activo = 1 WHERE id = ?", id); err != nil {
-				return err
-			}
-		} else {
-			res, err := tx.ExecContext(ctx,
-				"INSERT INTO asignacion (convocatoria_id, usuario_id, perfil, activo, creado_at) VALUES (?, ?, ?, 1, ?)",
-				convocatoriaID, usuarioID, string(perfil), r.marca())
-			if err != nil {
-				return err
-			}
-			if id, err = res.LastInsertId(); err != nil {
-				return err
-			}
-		}
-		return r.auditar(ctx, tx, actor, "asignacion.otorgar", "asignacion", id, nil,
-			map[string]any{"convocatoria_id": convocatoriaID, "usuario_id": usuarioID, "perfil": perfil})
+		var err error
+		id, err = r.asignarEn(ctx, tx, actor, convocatoriaID, usuarioID, perfil)
+		return err
 	})
 	return id, err
+}
+
+// asignarEn hace el trabajo de Asignar dentro de una transacción ya abierta.
+// La usa también el Commit de una importación de cuentas.
+func (r *Repositorio) asignarEn(ctx context.Context, tx *sql.Tx, actor Actor, convocatoriaID, usuarioID int64, perfil Perfil) (int64, error) {
+	var id int64
+	cfg, err := configuracion(ctx, tx, convocatoriaID)
+	if err != nil {
+		return 0, err
+	}
+	usuario, err := leerUsuario(tx.QueryRowContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.id = ?", usuarioID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, validacion([]ErrorCampo{{Campo: "usuario_id", Clave: "error.usuario_inexistente"}})
+	}
+	if err != nil {
+		return 0, err
+	}
+	postula, err := existe(ctx, tx,
+		"SELECT COUNT(*) FROM postulacion WHERE convocatoria_id = ? AND usuario_id = ?", convocatoriaID, usuarioID)
+	if err != nil {
+		return 0, err
+	}
+	var activa bool
+	err = tx.QueryRowContext(ctx,
+		"SELECT id, activo FROM asignacion WHERE convocatoria_id = ? AND usuario_id = ? AND perfil = ?",
+		convocatoriaID, usuarioID, string(perfil)).Scan(&id, &activa)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		id = 0
+	case err != nil:
+		return 0, err
+	case activa:
+		return 0, ErrDuplicado
+	}
+	if err := validacion(ValidarAsignacion(cfg, usuario, perfil, postula)); err != nil {
+		return 0, err
+	}
+	if id != 0 {
+		if _, err := tx.ExecContext(ctx, "UPDATE asignacion SET activo = 1 WHERE id = ?", id); err != nil {
+			return 0, err
+		}
+	} else {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO asignacion (convocatoria_id, usuario_id, perfil, activo, creado_at) VALUES (?, ?, ?, 1, ?)",
+			convocatoriaID, usuarioID, string(perfil), r.marca())
+		if err != nil {
+			return 0, err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return 0, err
+		}
+	}
+	return id, r.auditar(ctx, tx, actor, "asignacion.otorgar", "asignacion", id, nil,
+		map[string]any{"convocatoria_id": convocatoriaID, "usuario_id": usuarioID, "perfil": perfil})
 }
 
 // RetirarAsignacion desactiva una asignación: la cuenta pierde ese perfil en
@@ -1540,52 +1552,9 @@ func (r *Repositorio) insertarToken(ctx context.Context, tx *sql.Tx, usuarioID i
 func (r *Repositorio) CrearUsuario(ctx context.Context, actor Actor, n NuevoUsuario, token *NuevoToken, correos ...CorreoSaliente) (int64, error) {
 	var id int64
 	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
-		if enUso, err := emailEnUso(ctx, tx, n.Email, 0); err != nil {
-			return err
-		} else if enUso {
-			return ErrEmailEnUso
-		}
-		marca := r.marca()
-		var avisoAceptado sql.NullString
-		if n.AvisoVersion != "" {
-			// Consentimiento con sello de tiempo y versión del aviso (LFPDPPP).
-			avisoAceptado = sql.NullString{String: marca, Valid: true}
-		}
-		res, err := tx.ExecContext(ctx, `
-			INSERT INTO usuario (email, password_hash, nombre, apellidos, idioma,
-			                     aviso_privacidad_version, aviso_privacidad_aceptado_at,
-			                     creado_at, actualizado_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			n.Email, n.PasswordHash, n.Nombre, n.Apellidos, n.Idioma,
-			nuloSiVacio(n.AvisoVersion), avisoAceptado, marca, marca)
-		if err != nil {
-			return err
-		}
-		if id, err = res.LastInsertId(); err != nil {
-			return err
-		}
-		// Una cuenta que sólo tendrá perfiles por convocatoria (jurado o
-		// revisor) nace sin perfil global.
-		if n.Perfil != "" {
-			if _, err := tx.ExecContext(ctx,
-				"INSERT INTO usuario_perfil (usuario_id, perfil, otorgado_por, creado_at) VALUES (?, ?, ?, ?)",
-				id, string(n.Perfil), nuloSiCero(actor.UsuarioID), marca); err != nil {
-				return err
-			}
-		}
-		if token != nil {
-			if err := r.insertarToken(ctx, tx, id, *token); err != nil {
-				return err
-			}
-		}
-		for _, c := range correos {
-			if err := r.encolarCorreo(ctx, tx, c); err != nil {
-				return err
-			}
-		}
-		return r.auditar(ctx, tx, actor, "usuario.crear", "usuario", id, nil, map[string]any{
-			"perfil": n.Perfil, "idioma": n.Idioma, "aviso_privacidad_version": n.AvisoVersion,
-		})
+		var err error
+		id, err = r.crearUsuarioEn(ctx, tx, actor, n, token, correos...)
+		return err
 	})
 	if err != nil {
 		if errors.Is(err, ErrEmailEnUso) {
@@ -1594,6 +1563,59 @@ func (r *Repositorio) CrearUsuario(ctx context.Context, actor Actor, n NuevoUsua
 		return 0, fmt.Errorf("crear usuario: %w", err)
 	}
 	return id, nil
+}
+
+// crearUsuarioEn hace el trabajo de CrearUsuario dentro de una transacción
+// ya abierta: la usa también el Commit de una importación, que crea varias
+// cuentas y las asigna en una sola transacción.
+func (r *Repositorio) crearUsuarioEn(ctx context.Context, tx *sql.Tx, actor Actor, n NuevoUsuario, token *NuevoToken, correos ...CorreoSaliente) (int64, error) {
+	if enUso, err := emailEnUso(ctx, tx, n.Email, 0); err != nil {
+		return 0, err
+	} else if enUso {
+		return 0, ErrEmailEnUso
+	}
+	marca := r.marca()
+	var avisoAceptado sql.NullString
+	if n.AvisoVersion != "" {
+		// Consentimiento con sello de tiempo y versión del aviso (LFPDPPP).
+		avisoAceptado = sql.NullString{String: marca, Valid: true}
+	}
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO usuario (email, password_hash, nombre, apellidos, idioma,
+		                     aviso_privacidad_version, aviso_privacidad_aceptado_at,
+		                     creado_at, actualizado_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Email, n.PasswordHash, n.Nombre, n.Apellidos, n.Idioma,
+		nuloSiVacio(n.AvisoVersion), avisoAceptado, marca, marca)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	// Una cuenta que sólo tendrá perfiles por convocatoria (jurado o
+	// revisor) nace sin perfil global.
+	if n.Perfil != "" {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO usuario_perfil (usuario_id, perfil, otorgado_por, creado_at) VALUES (?, ?, ?, ?)",
+			id, string(n.Perfil), nuloSiCero(actor.UsuarioID), marca); err != nil {
+			return 0, err
+		}
+	}
+	if token != nil {
+		if err := r.insertarToken(ctx, tx, id, *token); err != nil {
+			return 0, err
+		}
+	}
+	for _, c := range correos {
+		if err := r.encolarCorreo(ctx, tx, c); err != nil {
+			return 0, err
+		}
+	}
+	return id, r.auditar(ctx, tx, actor, "usuario.crear", "usuario", id, nil, map[string]any{
+		"perfil": n.Perfil, "idioma": n.Idioma, "aviso_privacidad_version": n.AvisoVersion,
+	})
 }
 
 // UsuarioPorEmail busca una cuenta por su correo y devuelve además su resumen
@@ -2444,6 +2466,24 @@ func completarPostulacion(ctx context.Context, q consultor, p *Postulacion, tipo
 			return err
 		}
 	}
+	// Campos extendidos (§5.14.1): van en los mismos mapas, bajo su ruta
+	// «ext.<tabla>.<columna>». Quién puede verlos lo decide después
+	// ExtendidosVisibles, antes de mostrar la postulación.
+	extendidos, err := leerExtendidos(ctx, q)
+	if err != nil {
+		return err
+	}
+	dePostulacion, deObra := definicionesExtendidas(ExtendidosDePostulacion(extendidos, tipo, p.Subcategoria))
+	for _, tabla := range tablasDe(dePostulacion) {
+		if err := leerCampos(ctx, q, tabla, llaveDeNodo(tabla), p.ID, dePostulacion, p.Campos); err != nil {
+			return err
+		}
+	}
+	for i := range p.Obras {
+		if err := leerCampos(ctx, q, "obra", "id", p.Obras[i].ID, deObra, p.Obras[i].Campos); err != nil {
+			return err
+		}
+	}
 	if p.Documentos, err = documentosVigentes(ctx, q, p.ID); err != nil {
 		return err
 	}
@@ -2652,12 +2692,23 @@ func guardarCampos(ctx context.Context, tx *sql.Tx, buscar func(string) (Definic
 			}
 			dato = n
 		}
+		if valor != "" && def.Tipo == CampoDecimal {
+			n, err := strconv.ParseFloat(valor, 64)
+			if err != nil {
+				return resultado, err // ya validado
+			}
+			dato = n
+		}
 		consulta := "UPDATE " + def.tabla + " SET " + def.columna + " = ?"
 		if ruta == "obra.liga_media" {
 			// Una liga nueva está por comprobar.
 			consulta += ", liga_media_estado = 'pendiente'"
 		}
-		if _, err := tx.ExecContext(ctx, consulta+" WHERE "+llave+" = ?", dato, id); err != nil {
+		llaveDeLaFila := llave
+		if def.llave != "" {
+			llaveDeLaFila = def.llave // un campo extendido dice cuál es la suya
+		}
+		if _, err := tx.ExecContext(ctx, consulta+" WHERE "+llaveDeLaFila+" = ?", dato, id); err != nil {
 			return resultado, fmt.Errorf("guardar %s: %w", ruta, err)
 		}
 		resultado.Guardados = append(resultado.Guardados, ruta)
@@ -2688,7 +2739,8 @@ func (r *Repositorio) GuardarCamposDePostulacion(ctx context.Context, usuarioID,
 			pais = actuales["datos.pais_residencia"]
 		}
 		contexto := ContextoCampos{Ahora: r.ahora(), PaisResidencia: strings.TrimSpace(pais), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.Campo, "postulacion_id", p.ID, cambios, contexto,
+		dePostulacion, _ := ExtendidosDePostulacion(cfg.Extendidos, cfg.Convocatoria.Tipo, p.Subcategoria)
+		if resultado, err = guardarCampos(ctx, tx, conExtendidosDelPostulante(formulario.Campo, dePostulacion), "postulacion_id", p.ID, cambios, contexto,
 			func(ruta string) bool { return permiso.Campo(ruta, 0) }); err != nil {
 			return err
 		}
@@ -2727,7 +2779,8 @@ func (r *Repositorio) GuardarCamposDeObra(ctx context.Context, usuarioID, obraID
 		postulacionID = p.ID
 		formulario := FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
 		contexto := ContextoCampos{Ahora: r.ahora(), Dotaciones: cfg.Dotaciones}
-		if resultado, err = guardarCampos(ctx, tx, formulario.CampoDeObra, "id", obraID, cambios, contexto,
+		_, deObra := ExtendidosDePostulacion(cfg.Extendidos, cfg.Convocatoria.Tipo, p.Subcategoria)
+		if resultado, err = guardarCampos(ctx, tx, conExtendidosDelPostulante(formulario.CampoDeObra, deObra), "id", obraID, cambios, contexto,
 			func(ruta string) bool { return permiso.Campo(ruta, obraID) }); err != nil {
 			return err
 		}
@@ -6264,6 +6317,25 @@ func (r *Repositorio) AnonimizarPostulacion(ctx context.Context, actor Actor, po
 			}
 		}
 
+		// Los campos extendidos de la postulación y de sus obras también se
+		// vacían: no se sabe qué guardan, y ante la duda son datos personales.
+		extendidos, err := leerExtendidos(ctx, tx)
+		if err != nil {
+			return err
+		}
+		for _, campo := range extendidos {
+			if !NodoDePostulacion(campo.Tabla) || !identificadorSeguro(campo.Tabla, campo.Columna) {
+				continue
+			}
+			llave := llaveDeNodo(campo.Tabla)
+			if campo.Tabla == "obra" {
+				llave = "postulacion_id"
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE "+campo.Tabla+" SET "+campo.Columna+" = NULL WHERE "+llave+" = ?", p.ID); err != nil {
+				return fmt.Errorf("borrar campos extendidos: %w", err)
+			}
+		}
+
 		// 3. Archivos. Todas las versiones de sus documentos, no sólo las
 		//    vigentes, y sus acuses.
 		filas, err := tx.QueryContext(ctx, `
@@ -6365,4 +6437,657 @@ func (r *Repositorio) AnonimizarPostulacion(ctx context.Context, actor Actor, po
 			"archivos_conservados": resultado.ArchivosConservados, "cuenta": resultado.CuentaAnonimizada})
 	})
 	return resultado, err
+}
+
+// =============================================================================
+// 17. Extensión dinámica de nodos (§5.14.1)
+// =============================================================================
+
+// leerExtendidos devuelve el diccionario de campos dinámicos ACTIVOS, por
+// tabla y en el orden en que se crearon.
+func leerExtendidos(ctx context.Context, q consultor) ([]CampoExtendido, error) {
+	filas, err := q.QueryContext(ctx, `
+		SELECT id, tabla, columna, tipo_sql, etiqueta_es, etiqueta_en, COALESCE(ayuda_es, ''), COALESCE(ayuda_en, ''),
+		       visible_en, exportable, creado_at
+		FROM campo_extendido WHERE eliminado_at IS NULL ORDER BY tabla, id`)
+	if err != nil {
+		return nil, fmt.Errorf("leer campos extendidos: %w", err)
+	}
+	defer filas.Close()
+	var campos []CampoExtendido
+	for filas.Next() {
+		var c CampoExtendido
+		var tipoSQL, visible, creado string
+		if err := filas.Scan(&c.ID, &c.Tabla, &c.Columna, &tipoSQL, &c.EtiquetaES, &c.EtiquetaEN, &c.AyudaES, &c.AyudaEN,
+			&visible, &c.Exportable, &creado); err != nil {
+			return nil, fmt.Errorf("leer campos extendidos: %w", err)
+		}
+		c.Tipo = TipoExtendidoDeSQL(tipoSQL)
+		if err := json.Unmarshal([]byte(visible), &c.VisibleEn); err != nil {
+			return nil, fmt.Errorf("campo extendido %d: visibilidad que no es JSON válido: %w", c.ID, err)
+		}
+		if c.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		campos = append(campos, c)
+	}
+	return campos, filas.Err()
+}
+
+// CamposExtendidos devuelve el diccionario de campos dinámicos activos.
+func (r *Repositorio) CamposExtendidos(ctx context.Context) ([]CampoExtendido, error) {
+	return leerExtendidos(ctx, r.lectura)
+}
+
+// definicionesExtendidas convierte dos listas de campos dinámicos en
+// definiciones de formulario.
+func definicionesExtendidas(dePostulacion, deObra []CampoExtendido) (definicionesDePostulacion, definicionesDeObra []DefinicionCampo) {
+	for _, c := range dePostulacion {
+		definicionesDePostulacion = append(definicionesDePostulacion, c.definicion())
+	}
+	for _, c := range deObra {
+		definicionesDeObra = append(definicionesDeObra, c.definicion())
+	}
+	return definicionesDePostulacion, definicionesDeObra
+}
+
+// conExtendidosDelPostulante amplía el buscador de campos de un formulario
+// con los campos dinámicos que captura quien postula. Los internos —los que
+// el postulante no ve— no se encuentran: para él no existen.
+func conExtendidosDelPostulante(buscar func(string) (DefinicionCampo, bool), extendidos []CampoExtendido) func(string) (DefinicionCampo, bool) {
+	return func(ruta string) (DefinicionCampo, bool) {
+		if !EsRutaExtendida(ruta) {
+			return buscar(ruta)
+		}
+		for _, c := range extendidos {
+			if c.Ruta() == ruta && c.LoCapturaElPostulante() {
+				return c.definicion(), true
+			}
+		}
+		return DefinicionCampo{}, false
+	}
+}
+
+// AgregarCampoExtendido añade un campo dinámico a un nodo (RF-CLI-20 y 21):
+// ejecuta el ALTER TABLE y lo registra en el diccionario, en una sola
+// transacción, y deja en la bitácora el DDL exacto (RF-CLI-27). Las reglas
+// —lista blanca, forma del nombre, tipos— las aplica aquí mismo
+// ValidarCampoExtendido; el DDL se compone con identificadores ya validados.
+//
+// En SQLite el DDL es transaccional: si el registro falla, la columna no
+// queda. En MariaDB un ALTER TABLE confirma por su cuenta; allí habría que
+// registrar primero y alterar después.
+func (r *Repositorio) AgregarCampoExtendido(ctx context.Context, actor Actor, c CampoExtendido) (CampoExtendido, error) {
+	err := r.operacion(ctx, "añadir campo extendido", func(tx *sql.Tx) error {
+		c.EtiquetaES, c.EtiquetaEN = strings.TrimSpace(c.EtiquetaES), strings.TrimSpace(c.EtiquetaEN)
+		var existentes int
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM campo_extendido WHERE tabla = ? AND eliminado_at IS NULL", c.Tabla).Scan(&existentes); err != nil {
+			return err
+		}
+		if err := validacion(ValidarCampoExtendido(c, existentes)); err != nil {
+			return err
+		}
+		// ¿Ya hubo un campo con ese nombre? Si sigue activo, es un duplicado.
+		// Si se eliminó, su columna ya no existe y su registro se reutiliza.
+		var anterior sql.NullInt64
+		var eliminado sql.NullString
+		err := tx.QueryRowContext(ctx, "SELECT id, eliminado_at FROM campo_extendido WHERE tabla = ? AND columna = ?", c.Tabla, c.Columna).Scan(&anterior, &eliminado)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		case !eliminado.Valid:
+			return ErrDuplicado
+		}
+		sentencia, admisible := SentenciaParaAgregar(c)
+		if !admisible {
+			return validacion([]ErrorCampo{{Campo: "tabla", Clave: "error.nodo_no_extensible"}})
+		}
+		if _, err := tx.ExecContext(ctx, sentencia); err != nil {
+			return fmt.Errorf("ejecutar %q: %w", sentencia, err)
+		}
+		visible, err := json.Marshal(append([]Perfil{}, c.VisibleEn...))
+		if err != nil {
+			return err
+		}
+		ahora := r.marca()
+		if anterior.Valid {
+			c.ID = anterior.Int64
+			_, err = tx.ExecContext(ctx, `
+				UPDATE campo_extendido SET tipo_sql = ?, etiqueta_es = ?, etiqueta_en = ?, ayuda_es = ?, ayuda_en = ?, visible_en = ?,
+				       exportable = ?, creado_por = ?, creado_at = ?, eliminado_at = NULL WHERE id = ?`,
+				tipoSQLDeExtendido[c.Tipo], c.EtiquetaES, c.EtiquetaEN, nuloSiVacio(c.AyudaES), nuloSiVacio(c.AyudaEN), string(visible),
+				c.Exportable, nuloSiCero(actor.UsuarioID), ahora, c.ID)
+		} else {
+			var res sql.Result
+			res, err = tx.ExecContext(ctx, `
+				INSERT INTO campo_extendido (tabla, columna, tipo_sql, etiqueta_es, etiqueta_en, ayuda_es, ayuda_en, visible_en, exportable, creado_por, creado_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				c.Tabla, c.Columna, tipoSQLDeExtendido[c.Tipo], c.EtiquetaES, c.EtiquetaEN, nuloSiVacio(c.AyudaES), nuloSiVacio(c.AyudaEN),
+				string(visible), c.Exportable, nuloSiCero(actor.UsuarioID), ahora)
+			if err == nil {
+				c.ID, err = res.LastInsertId()
+			}
+		}
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "schema.alter", "campo_extendido", c.ID, nil, map[string]any{
+			"ddl": sentencia, "tabla": c.Tabla, "columna": c.Columna, "visible_en": c.VisibleEn, "exportable": c.Exportable})
+	})
+	return c, err
+}
+
+// EliminarCampoExtendido quita un campo dinámico (RF-CLI-20): ejecuta el
+// ALTER TABLE … DROP COLUMN, que BORRA los valores capturados, y marca el
+// campo como eliminado en el diccionario. Sólo alcanza columnas registradas
+// en el diccionario, que por construcción son «x_…» de la lista blanca:
+// nunca una columna del esquema. El DDL exacto queda en la bitácora.
+func (r *Repositorio) EliminarCampoExtendido(ctx context.Context, actor Actor, tabla, columna string) error {
+	return r.operacion(ctx, "eliminar campo extendido", func(tx *sql.Tx) error {
+		var id int64
+		err := tx.QueryRowContext(ctx, "SELECT id FROM campo_extendido WHERE tabla = ? AND columna = ? AND eliminado_at IS NULL", tabla, columna).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoEncontrado
+		}
+		if err != nil {
+			return err
+		}
+		sentencia, admisible := SentenciaParaEliminar(tabla, columna)
+		if !admisible {
+			return validacion([]ErrorCampo{{Campo: "tabla", Clave: "error.nodo_no_extensible"}})
+		}
+		if _, err := tx.ExecContext(ctx, sentencia); err != nil {
+			return fmt.Errorf("ejecutar %q: %w", sentencia, err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE campo_extendido SET eliminado_at = ? WHERE id = ?", r.marca(), id); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "schema.alter", "campo_extendido", id, nil, map[string]any{"ddl": sentencia, "tabla": tabla, "columna": columna})
+	})
+}
+
+// extendidosCapturables devuelve los campos dinámicos de una tabla que la
+// administración puede capturar: todos los de un nodo de configuración y,
+// de un nodo de postulación, sólo los internos (los que llena el postulante
+// son suyos).
+func extendidosCapturables(todos []CampoExtendido, tabla string) []CampoExtendido {
+	var capturables []CampoExtendido
+	for _, c := range todos {
+		if c.Tabla == tabla && NodoConCaptura(tabla) && !c.LoCapturaElPostulante() {
+			capturables = append(capturables, c)
+		}
+	}
+	return capturables
+}
+
+// ValoresExtendidos devuelve los valores de los campos dinámicos de una fila
+// de un nodo, por nombre de columna. Si la fila no existe devuelve
+// ErrNoEncontrado.
+func (r *Repositorio) ValoresExtendidos(ctx context.Context, tabla string, id int64) ([]CampoExtendido, map[string]string, error) {
+	if !NodoConCaptura(tabla) {
+		return nil, nil, ErrNoEncontrado
+	}
+	todos, err := leerExtendidos(ctx, r.lectura)
+	if err != nil {
+		return nil, nil, err
+	}
+	var campos []CampoExtendido
+	var definiciones []DefinicionCampo
+	for _, c := range todos {
+		if c.Tabla == tabla {
+			campos, definiciones = append(campos, c), append(definiciones, c.definicion())
+		}
+	}
+	// La tabla está en la lista blanca: su nombre puede ir en la consulta.
+	if hay, err := existe(ctx, r.lectura, "SELECT COUNT(*) FROM "+tabla+" WHERE "+llaveDeNodo(tabla)+" = ?", id); err != nil {
+		return nil, nil, fmt.Errorf("buscar la fila: %w", err)
+	} else if !hay {
+		return nil, nil, ErrNoEncontrado
+	}
+	porRuta := make(map[string]string)
+	if err := leerCampos(ctx, r.lectura, tabla, llaveDeNodo(tabla), id, definiciones, porRuta); err != nil {
+		return nil, nil, err
+	}
+	valores := make(map[string]string)
+	for _, c := range campos {
+		valores[c.Columna] = porRuta[c.Ruta()]
+	}
+	return campos, valores, nil
+}
+
+// GuardarExtendidos guarda, por la administración, valores de campos
+// dinámicos de una fila de un nodo: los de configuración (edición,
+// convocatoria, dotación) y los INTERNOS de una postulación o de una obra.
+// Los campos que captura el postulante no pueden escribirse por aquí. Queda
+// en la bitácora qué campos se tocaron, no sus valores.
+func (r *Repositorio) GuardarExtendidos(ctx context.Context, actor Actor, tabla string, id int64, valores map[string]string) (ResultadoGuardado, error) {
+	var resultado ResultadoGuardado
+	err := r.operacion(ctx, "guardar campos extendidos", func(tx *sql.Tx) error {
+		if !NodoConCaptura(tabla) {
+			return ErrNoEncontrado
+		}
+		if hay, err := existe(ctx, tx, "SELECT COUNT(*) FROM "+tabla+" WHERE "+llaveDeNodo(tabla)+" = ?", id); err != nil {
+			return err
+		} else if !hay {
+			return ErrNoEncontrado
+		}
+		todos, err := leerExtendidos(ctx, tx)
+		if err != nil {
+			return err
+		}
+		capturables := extendidosCapturables(todos, tabla)
+		// Quien llama nombra los campos por su columna; aquí se convierten a
+		// rutas, que es como los entiende el guardado.
+		cambios := make(map[string]string, len(valores))
+		for columna, valor := range valores {
+			cambios[PrefijoDeRutaExtendida+tabla+"."+columna] = valor
+		}
+		buscar := func(ruta string) (DefinicionCampo, bool) {
+			for _, c := range capturables {
+				if c.Ruta() == ruta {
+					return c.definicion(), true
+				}
+			}
+			return DefinicionCampo{}, false
+		}
+		if resultado, err = guardarCampos(ctx, tx, buscar, llaveDeNodo(tabla), id, cambios, ContextoCampos{Ahora: r.ahora()},
+			func(string) bool { return true }); err != nil {
+			return err
+		}
+		resultado.GuardadoAt = r.ahora()
+		if len(resultado.Guardados) == 0 {
+			return nil
+		}
+		return r.auditar(ctx, tx, actor, "extendido.guardar", tabla, id, nil, map[string]any{"campos": resultado.Guardados})
+	})
+	return resultado, err
+}
+
+// =============================================================================
+// 18. Importación asistida en dos fases (§5.15)
+// =============================================================================
+
+// CuentasParaConciliar devuelve todas las cuentas activas, para que el
+// análisis de una importación busque entre ellas a los candidatos de cada
+// renglón. Son unos miles de filas a lo más.
+func (r *Repositorio) CuentasParaConciliar(ctx context.Context) ([]Usuario, error) {
+	filas, err := r.lectura.QueryContext(ctx, "SELECT "+columnasUsuario+" FROM usuario u WHERE u.activo = 1 AND u.anonimizado_at IS NULL ORDER BY u.id")
+	if err != nil {
+		return nil, fmt.Errorf("leer cuentas: %w", err)
+	}
+	defer filas.Close()
+	var cuentas []Usuario
+	for filas.Next() {
+		cuenta, err := leerUsuario(filas)
+		if err != nil {
+			return nil, fmt.Errorf("leer cuentas: %w", err)
+		}
+		cuentas = append(cuentas, cuenta)
+	}
+	return cuentas, filas.Err()
+}
+
+// CrearImportacion registra el resultado de la fase Analyze (RF-IMP-02): la
+// hoja original, que ya está en el almacén, y un conflicto por cada renglón
+// que una persona debe resolver. NO escribe nada en el dominio. Devuelve el
+// id de la importación.
+func (r *Repositorio) CrearImportacion(ctx context.Context, actor Actor, tipo string, convocatoriaID int64, blob Blob, mime, nombreOriginal string,
+	filasTotal int, conflictos []ConflictoDeImportacion) (int64, error) {
+	var id int64
+	err := r.operacion(ctx, "crear importación", func(tx *sql.Tx) error {
+		c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+		if err != nil {
+			return err
+		}
+		if err := validacion(ValidarNuevaImportacion(tipo, c)); err != nil {
+			return err
+		}
+		archivoID, err := r.guardarArchivo(ctx, tx, blob, mime, nombreOriginal)
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			INSERT INTO importacion (tipo, archivo_id, usuario_id, convocatoria_id, estado, filas_total, filas_resueltas, creado_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			tipo, archivoID, actor.UsuarioID, convocatoriaID, ImportacionEsperando, filasTotal, filasTotal-len(conflictos), r.marca())
+		if err != nil {
+			return err
+		}
+		if id, err = res.LastInsertId(); err != nil {
+			return err
+		}
+		for _, conflicto := range conflictos {
+			candidatos, err := json.Marshal(append([]Candidato{}, conflicto.Candidatos...))
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT INTO importacion_conflicto (importacion_id, fila, columna, valor_origen, candidatos) VALUES (?, ?, ?, ?, ?)",
+				id, conflicto.Fila, conflicto.Columna, conflicto.ValorOrigen, string(candidatos)); err != nil {
+				return err
+			}
+		}
+		return r.auditar(ctx, tx, actor, "importacion.analizar", "importacion", id, nil,
+			map[string]any{"tipo": tipo, "convocatoria_id": convocatoriaID, "sha256": blob.SHA256, "filas": filasTotal, "conflictos": len(conflictos)})
+	})
+	return id, err
+}
+
+// importacionPorID lee una importación con sus conflictos.
+func importacionPorID(ctx context.Context, q consultor, id int64) (Importacion, error) {
+	var i Importacion
+	var creado, confirmada string
+	err := q.QueryRowContext(ctx, `
+		SELECT i.id, i.tipo, COALESCE(i.convocatoria_id, 0), i.usuario_id, i.estado, i.filas_total, i.creado_at, COALESCE(i.confirmada_at, ''),
+		       a.id, a.sha256, a.clave, a.mime, a.tamano_bytes
+		FROM importacion i JOIN archivo a ON a.id = i.archivo_id WHERE i.id = ?`, id).Scan(
+		&i.ID, &i.Tipo, &i.ConvocatoriaID, &i.UsuarioID, &i.Estado, &i.FilasTotal, &creado, &confirmada,
+		&i.Archivo.ID, &i.Archivo.SHA256, &i.Archivo.Clave, &i.Archivo.MIME, &i.Archivo.TamanoBytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return i, ErrNoEncontrado
+	}
+	if err != nil {
+		return i, fmt.Errorf("leer importación: %w", err)
+	}
+	if i.CreadoAt, err = deMarca(creado); err != nil {
+		return i, err
+	}
+	if confirmada != "" {
+		if i.ConfirmadaAt, err = deMarca(confirmada); err != nil {
+			return i, err
+		}
+	}
+	filas, err := q.QueryContext(ctx, `
+		SELECT id, fila, columna, valor_origen, candidatos, COALESCE(resolucion, ''), COALESCE(entidad_id, 0),
+		       COALESCE(resuelto_por, 0), COALESCE(resuelto_at, '')
+		FROM importacion_conflicto WHERE importacion_id = ? ORDER BY fila, id`, id)
+	if err != nil {
+		return i, fmt.Errorf("leer conflictos: %w", err)
+	}
+	defer filas.Close()
+	for filas.Next() {
+		var c ConflictoDeImportacion
+		var candidatos, resuelto string
+		if err := filas.Scan(&c.ID, &c.Fila, &c.Columna, &c.ValorOrigen, &candidatos, &c.Resolucion, &c.EntidadID, &c.ResueltoPor, &resuelto); err != nil {
+			return i, fmt.Errorf("leer conflictos: %w", err)
+		}
+		if err := json.Unmarshal([]byte(candidatos), &c.Candidatos); err != nil {
+			return i, fmt.Errorf("conflicto %d: candidatos que no son JSON válido: %w", c.ID, err)
+		}
+		if resuelto != "" {
+			if c.ResueltoAt, err = deMarca(resuelto); err != nil {
+				return i, err
+			}
+		}
+		i.Conflictos = append(i.Conflictos, c)
+	}
+	return i, filas.Err()
+}
+
+// ImportacionPorID devuelve una importación con sus conflictos.
+func (r *Repositorio) ImportacionPorID(ctx context.Context, id int64) (Importacion, error) {
+	return importacionPorID(ctx, r.lectura, id)
+}
+
+// importacionAbierta lee una importación dentro de una transacción y exige
+// que siga esperando resolución: una confirmada o cancelada ya no se toca.
+func importacionAbierta(ctx context.Context, tx *sql.Tx, id int64) (Importacion, error) {
+	i, err := importacionPorID(ctx, tx, id)
+	if err != nil {
+		return i, err
+	}
+	if i.Estado != ImportacionEsperando {
+		return i, validacion([]ErrorCampo{{Campo: "estado", Clave: "error.importacion_cerrada"}})
+	}
+	return i, nil
+}
+
+// anotarResolucion escribe la resolución de un conflicto, con quién la dio y
+// cuándo (RF-IMP-03), y actualiza la cuenta de renglones resueltos.
+func (r *Repositorio) anotarResolucion(ctx context.Context, tx *sql.Tx, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error {
+	if _, err := tx.ExecContext(ctx, "UPDATE importacion_conflicto SET resolucion = ?, entidad_id = ?, resuelto_por = ?, resuelto_at = ? WHERE id = ?",
+		resolucion, nuloSiCero(entidadID), actor.UsuarioID, r.marca(), conflictoID); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE importacion SET filas_resueltas = filas_total
+		       - (SELECT COUNT(*) FROM importacion_conflicto WHERE importacion_id = ? AND resolucion IS NULL)
+		WHERE id = ?`, importacionID, importacionID)
+	return err
+}
+
+// ResolverConflicto registra la decisión de una persona sobre un conflicto
+// (RF-IMP-03): vincular a un registro existente, crear uno nuevo u omitir el
+// renglón. Si vincula, comprueba que el registro elegido exista y sea del
+// lugar: una dotación de esa convocatoria, o una cuenta. No escribe nada en
+// el dominio; una resolución puede cambiarse mientras no se confirme.
+func (r *Repositorio) ResolverConflicto(ctx context.Context, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error {
+	return r.operacion(ctx, "resolver conflicto", func(tx *sql.Tx) error {
+		i, err := importacionAbierta(ctx, tx, importacionID)
+		if err != nil {
+			return err
+		}
+		posicion := slices.IndexFunc(i.Conflictos, func(c ConflictoDeImportacion) bool { return c.ID == conflictoID })
+		if posicion < 0 {
+			return ErrNoEncontrado
+		}
+		if err := validacion(ValidarResolucion(i.Tipo, i.Conflictos[posicion], resolucion, entidadID)); err != nil {
+			return err
+		}
+		if resolucion != ResolucionVincular {
+			entidadID = 0
+		} else {
+			consulta, args := "SELECT COUNT(*) FROM usuario WHERE id = ? AND activo = 1", []any{entidadID}
+			if i.Tipo == ImportacionDotaciones {
+				consulta, args = "SELECT COUNT(*) FROM dotacion WHERE id = ? AND convocatoria_id = ?", []any{entidadID, i.ConvocatoriaID}
+			}
+			if hay, err := existe(ctx, tx, consulta, args...); err != nil {
+				return err
+			} else if !hay {
+				return validacion([]ErrorCampo{{Campo: "entidad_id", Clave: "error.candidato_requerido"}})
+			}
+		}
+		return r.anotarResolucion(ctx, tx, actor, i.ID, conflictoID, resolucion, entidadID)
+	})
+}
+
+// ResolverSinCandidatos aplica de una vez la misma decisión —crear u omitir—
+// a los conflictos pendientes que NO tienen candidatos: los renglones que no
+// se parecen a nada de lo que existe, donde no hay ambigüedad que resolver.
+// Sigue siendo una decisión de una persona, y así queda registrada en cada
+// uno. Los conflictos con candidatos no se tocan: se resuelven de uno en uno.
+// Devuelve cuántos resolvió.
+func (r *Repositorio) ResolverSinCandidatos(ctx context.Context, actor Actor, importacionID int64, resolucion string) (int, error) {
+	resueltos := 0
+	err := r.operacion(ctx, "resolver conflictos", func(tx *sql.Tx) error {
+		if resolucion != ResolucionCrear && resolucion != ResolucionOmitir {
+			return validacion([]ErrorCampo{{Campo: "resolucion", Clave: "error.opcion_invalida"}})
+		}
+		i, err := importacionAbierta(ctx, tx, importacionID)
+		if err != nil {
+			return err
+		}
+		for _, conflicto := range i.Conflictos {
+			if conflicto.Resolucion != "" || len(conflicto.Candidatos) > 0 {
+				continue
+			}
+			if err := r.anotarResolucion(ctx, tx, actor, i.ID, conflicto.ID, resolucion, 0); err != nil {
+				return err
+			}
+			resueltos++
+		}
+		return nil
+	})
+	return resueltos, err
+}
+
+// CancelarImportacion cierra una importación sin aplicarla. Nada se escribió
+// en el dominio, así que no hay nada que deshacer.
+func (r *Repositorio) CancelarImportacion(ctx context.Context, actor Actor, importacionID int64) error {
+	return r.operacion(ctx, "cancelar importación", func(tx *sql.Tx) error {
+		i, err := importacionAbierta(ctx, tx, importacionID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE importacion SET estado = ? WHERE id = ?", ImportacionCancelada, i.ID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "importacion.cancelar", "importacion", i.ID, nil, map[string]any{"sha256": i.Archivo.SHA256})
+	})
+}
+
+// ConfirmarImportacion ejecuta la fase Commit (RF-IMP-04): aplica la
+// importación al dominio en UNA sola transacción. O entra todo o no entra
+// nada (RN-29).
+//
+// Sólo procede si todos los conflictos están resueltos. Recibe los renglones
+// de la hoja —que quien llama vuelve a leer del archivo original— y, para
+// las cuentas nuevas, su enlace de activación por número de renglón.
+//
+// Cada escritura pasa por las mismas reglas que si se hiciera a mano: una
+// dotación repetida, un jurado de más o una cuenta que postula en la
+// convocatoria hacen fallar el Commit completo, con el renglón señalado. Si
+// algo cambió en la base desde el análisis, se nota aquí y no entra nada.
+func (r *Repositorio) ConfirmarImportacion(ctx context.Context, actor Actor, importacionID int64, filas []FilaDeImportacion,
+	activaciones map[int]ActivacionDeCuenta) (EfectoDeImportacion, error) {
+	var efecto EfectoDeImportacion
+	err := r.operacion(ctx, "confirmar importación", func(tx *sql.Tx) error {
+		i, err := importacionAbierta(ctx, tx, importacionID)
+		if err != nil {
+			return err
+		}
+		efecto = i.Efecto()
+		if efecto.SinResolver > 0 || len(filas) != i.FilasTotal {
+			return validacion([]ErrorCampo{{Campo: "conflictos", Clave: "error.conflictos_pendientes"}})
+		}
+		conflictoDe := make(map[int]ConflictoDeImportacion)
+		for _, conflicto := range i.Conflictos {
+			conflictoDe[conflicto.Fila] = conflicto
+		}
+		// enFila convierte cualquier rechazo del dominio en un error que dice
+		// en qué renglón ocurrió.
+		enFila := func(numero int, err error) error {
+			var regla *ErrorValidacion
+			switch {
+			case errors.As(err, &regla):
+				return validacion([]ErrorCampo{{Campo: "fila " + strconv.Itoa(numero), Clave: regla.Errores[0].Clave}})
+			case errors.Is(err, ErrDuplicado), errors.Is(err, ErrEmailEnUso):
+				return validacion([]ErrorCampo{{Campo: "fila " + strconv.Itoa(numero), Clave: "error.fila_ya_existe"}})
+			}
+			return err
+		}
+		for _, fila := range filas {
+			conflicto, conConflicto := conflictoDe[fila.Numero]
+			if conConflicto && conflicto.Resolucion == ResolucionOmitir {
+				continue
+			}
+			if i.Tipo == ImportacionDotaciones {
+				err = r.importarDotacion(ctx, tx, actor, i.ConvocatoriaID, fila, conflicto, conConflicto)
+			} else {
+				err = r.importarCuenta(ctx, tx, actor, i, fila, conflicto, activaciones[fila.Numero])
+			}
+			if err != nil {
+				return enFila(fila.Numero, err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE importacion SET estado = ?, confirmada_at = ? WHERE id = ?", ImportacionConfirmada, r.marca(), i.ID); err != nil {
+			return err
+		}
+		// Con el SHA-256 del archivo original, que se conserva (RF-IMP-09).
+		return r.auditar(ctx, tx, actor, "importacion.confirmar", "importacion", i.ID, nil, map[string]any{
+			"tipo": i.Tipo, "convocatoria_id": i.ConvocatoriaID, "sha256": i.Archivo.SHA256,
+			"crean": efecto.Crean, "vinculan": efecto.Vinculan, "omiten": efecto.Omiten, "sin_conflicto": efecto.SinConflicto})
+	})
+	return efecto, err
+}
+
+// importarDotacion aplica un renglón de una importación de dotaciones. Si
+// crea, inserta la dotación al final del catálogo. Si vincula —o si el
+// nombre era idéntico al de una existente—, completa en ella lo que le
+// falte (el nombre en inglés, las descripciones) sin pisar lo que ya tiene.
+func (r *Repositorio) importarDotacion(ctx context.Context, tx *sql.Tx, actor Actor, convocatoriaID int64, fila FilaDeImportacion,
+	conflicto ConflictoDeImportacion, conConflicto bool) error {
+	c, err := convocatoriaPorID(ctx, tx, convocatoriaID)
+	if err != nil {
+		return err
+	}
+	nueva := Dotacion{ConvocatoriaID: convocatoriaID, NombreES: fila.Valores["nombre_es"], NombreEN: fila.Valores["nombre_en"],
+		DescripcionES: fila.Valores["descripcion_es"], DescripcionEN: fila.Valores["descripcion_en"], Activa: true}
+	if err := validacion(append(ValidarEdicionDeConfiguracion(c.Estado), ValidarDotacion(nueva, c.Tipo)...)); err != nil {
+		return err
+	}
+	if conConflicto && conflicto.Resolucion == ResolucionCrear {
+		if repetida, err := existe(ctx, tx, "SELECT COUNT(*) FROM dotacion WHERE convocatoria_id = ? AND nombre_es = ?", convocatoriaID, nueva.NombreES); err != nil {
+			return err
+		} else if repetida {
+			return ErrDuplicado
+		}
+		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(orden), 0) + 1 FROM dotacion WHERE convocatoria_id = ?", convocatoriaID).Scan(&nueva.Orden); err != nil {
+			return err
+		}
+		id, err := insertarDotacion(ctx, tx, nueva)
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "dotacion.crear", "dotacion", id, nil, map[string]any{
+			"convocatoria_id": convocatoriaID, "nombre_es": nueva.NombreES, "nombre_en": nueva.NombreEN, "orden": nueva.Orden, "activa": true, "origen": "importacion"})
+	}
+	// Vincular: la dotación elegida, o la de nombre idéntico.
+	consulta, args := "SELECT id FROM dotacion WHERE convocatoria_id = ? AND nombre_es = ?", []any{convocatoriaID, nueva.NombreES}
+	if conConflicto {
+		consulta, args = "SELECT id FROM dotacion WHERE convocatoria_id = ? AND id = ?", []any{convocatoriaID, conflicto.EntidadID}
+	}
+	var id int64
+	if err := tx.QueryRowContext(ctx, consulta, args...).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		// Existía al analizar y ya no: la base cambió.
+		return validacion([]ErrorCampo{{Campo: "entidad_id", Clave: "error.base_cambio"}})
+	} else if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE dotacion SET
+		       nombre_en      = CASE WHEN nombre_en = '' THEN ? ELSE nombre_en END,
+		       descripcion_es = CASE WHEN descripcion_es IS NULL OR descripcion_es = '' THEN ? ELSE descripcion_es END,
+		       descripcion_en = CASE WHEN descripcion_en IS NULL OR descripcion_en = '' THEN ? ELSE descripcion_en END
+		WHERE id = ?`, nueva.NombreEN, nuloSiVacio(nueva.DescripcionES), nuloSiVacio(nueva.DescripcionEN), id)
+	if err != nil {
+		return err
+	}
+	if _, err := res.RowsAffected(); err != nil {
+		return err
+	}
+	return r.auditar(ctx, tx, actor, "dotacion.actualizar", "dotacion", id, nil, map[string]any{"convocatoria_id": convocatoriaID, "origen": "importacion"})
+}
+
+// importarCuenta aplica un renglón de una importación de jurados o de
+// revisores: crea la cuenta, si así se resolvió, y la asigna a la
+// convocatoria. La cuenta nueva nace sin contraseña, con su enlace de
+// activación. Una cuenta que ya tenía esa asignación no es un error: el
+// resultado que se quería ya está.
+func (r *Repositorio) importarCuenta(ctx context.Context, tx *sql.Tx, actor Actor, i Importacion, fila FilaDeImportacion,
+	conflicto ConflictoDeImportacion, activacion ActivacionDeCuenta) error {
+	usuarioID := conflicto.EntidadID
+	if conflicto.Resolucion == ResolucionCrear {
+		nueva := NuevoUsuario{Email: fila.Valores["email"], Nombre: fila.Valores["nombre"], Apellidos: fila.Valores["apellidos"],
+			Idioma: fila.Valores["idioma"], PasswordHash: PasswordSinDefinir}
+		if err := validacion(ValidarCuentaInterna(nueva)); err != nil {
+			return err
+		}
+		if activacion.Token.Resumen == "" {
+			return errors.New("falta el enlace de activación de una cuenta nueva")
+		}
+		var correos []CorreoSaliente
+		if activacion.Correo != nil {
+			correos = append(correos, *activacion.Correo)
+		}
+		var err error
+		if usuarioID, err = r.crearUsuarioEn(ctx, tx, actor, nueva, &activacion.Token, correos...); err != nil {
+			return err
+		}
+	}
+	_, err := r.asignarEn(ctx, tx, actor, i.ConvocatoriaID, usuarioID, PerfilDeImportacion(i.Tipo))
+	if errors.Is(err, ErrDuplicado) && conflicto.Resolucion == ResolucionVincular {
+		return nil
+	}
+	return err
 }
