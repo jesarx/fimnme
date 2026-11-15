@@ -1846,6 +1846,20 @@ func RevisionesDe(s *Sesion) []int64 {
 	return ids
 }
 
+// EvaluacionesDe devuelve las convocatorias en que la sesión es jurado.
+func EvaluacionesDe(s *Sesion) []int64 {
+	if s == nil {
+		return nil
+	}
+	var ids []int64
+	for _, a := range s.Asignaciones {
+		if a.Perfil == PerfilJurado {
+			ids = append(ids, a.ConvocatoriaID)
+		}
+	}
+	return ids
+}
+
 // PuedeEntrarARevision indica si la sesión tiene algo que hacer o que ver en
 // la revisión documental: si revisa alguna convocatoria, o si supervisa.
 func PuedeEntrarARevision(s *Sesion) bool {

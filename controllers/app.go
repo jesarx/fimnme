@@ -153,6 +153,14 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /postulaciones/{id}/envio", a.conSesion(a.enviarDelPaso))
 	mux.HandleFunc("POST /postulaciones/{id}/desbloqueos", a.conSesion(a.solicitarDesbloqueoDelPaso))
 
+	// Pantallas del jurado (§5.6): lista de trabajo y ficha de evaluación.
+	mux.HandleFunc("GET /evaluacion", a.conSesion(a.portadaDeEvaluacion))
+	mux.HandleFunc("GET /evaluacion/convocatorias/{id}", a.conSesion(a.listaDelJurado))
+	mux.HandleFunc("GET /evaluacion/postulaciones/{id}", a.conSesion(a.fichaDeEvaluacion))
+	mux.HandleFunc("POST /evaluacion/postulaciones/{id}/evaluacion", a.conSesion(a.guardarEvaluacionDesdeLaFicha))
+	mux.HandleFunc("POST /evaluacion/postulaciones/{id}/excusa", a.conSesion(a.excusaDesdeLaFicha(false)))
+	mux.HandleFunc("POST /evaluacion/postulaciones/{id}/excusa/retirar", a.conSesion(a.excusaDesdeLaFicha(true)))
+
 	// Pantallas del revisor documental (§5.5): bandeja y vista de revisión.
 	mux.HandleFunc("GET /revision", a.conSesion(a.portadaDeRevision))
 	mux.HandleFunc("GET /revision/convocatorias/{id}", a.conSesion(a.bandejaDeRevision))

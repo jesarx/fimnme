@@ -263,6 +263,12 @@ func (p *Pagina) EnSeccion(prefijo string) bool {
 	return p.Ruta == prefijo || strings.HasPrefix(p.Ruta, prefijo+"/")
 }
 
+// VeEvaluacion indica si el menú debe ofrecer la evaluación: sólo a quien
+// es jurado de alguna convocatoria.
+func (p *Pagina) VeEvaluacion() bool {
+	return len(models.EvaluacionesDe(p.Sesion)) > 0
+}
+
 // VeRevision indica si el menú debe ofrecer la revisión documental.
 func (p *Pagina) VeRevision() bool {
 	return models.PuedeEntrarARevision(p.Sesion)

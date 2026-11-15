@@ -415,12 +415,7 @@ func (a *App) documentosEnRevision(idioma string, pr *postulacionEnRevision) []v
 			requisito := vistaRequisitoEnRevision{Etiqueta: rq.Etiqueta, Obligatorio: rq.Obligatorio}
 			for _, d := range rq.Documentos {
 				documento := vistaDocumentoEnRevision{ID: d.ID, Ancla: fmt.Sprintf("documento-%d", d.ID), Nombre: d.Nombre, URL: d.URL,
-					Tamano: d.Tamano, Version: d.Version, Subido: d.Subido, Dictamen: "pendiente"}
-				for _, original := range pr.ab.p.Documentos {
-					if original.ID == d.ID {
-						documento.Tipo = tipoDeVisor(original.Archivo.MIME)
-					}
-				}
+					Tamano: d.Tamano, Version: d.Version, Subido: d.Subido, Dictamen: "pendiente", Tipo: d.Tipo}
 				if dictamen, hay := dictamenes[d.ID]; hay {
 					documento.Dictamen, documento.Motivo = dictamen.Dictamen, dictamen.Motivo
 				}

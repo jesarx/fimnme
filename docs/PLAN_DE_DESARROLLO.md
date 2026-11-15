@@ -62,7 +62,7 @@ Con el paso 10c **el backend está completo**.
 | 11a | **Postulante: panel y formulario.** Panel «Mis postulaciones» con el historial de todas las ediciones y las convocatorias abiertas; formulario por pasos (datos generales, propuesta de concierto, obras) pintado de la definición del modelo, con guardado automático por htmx y confirmación «Guardado a las…»; barra de pasos con lo que le falta a cada uno; integrantes, ligas de video y obras dinámicos; cambio de subcategoría; todo funciona sin JavaScript. Tema visual en un solo archivo, con rasgos del sitio del 48º. | ✅ Hecho |
 | 11b | **Postulante: documentos, envío y subsanación.** Documentos por postulación y por obra según la dotación, con subida con barra de progreso, reemplazo y retiro; revisión y envío con la postulación completa en sólo lectura, lo que falta con su enlace y las dos declaraciones; estado de la postulación enviada con sus acuses; subsanación con lo editable resaltado y su motivo, solicitudes de desbloqueo y reenvío. Corrige el límite que rechazaba toda subida de más de 1 MiB. | ✅ Hecho |
 | 12a | **Revisor documental.** Portada de revisión; bandeja con tablero por estado y filtros en la URL; vista de revisión con la postulación en sólo lectura, lo que cambió en el último reenvío, documentos con visor (PDF en un marco, audio, imagen) y dictamen, observaciones internas, subsanación, desbloqueos y dictamen. El observador lo ve todo sin actuar. | ✅ Hecho |
-| 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con el visor de documentos, puntajes por criterio en borrador o enviados y observaciones; excusa por conflicto de interés. | Pendiente |
+| 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con la postulación y sus documentos en el visor (en Compositores, cada obra por separado), escala por criterio en borrador o enviada, observaciones y excusa por conflicto de interés. Ninguna página deja ver lo de otro jurado. | ✅ Hecho |
 | 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
 
 ### Operación
@@ -97,6 +97,31 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 12b — qué se entregó
+
+Segunda entrega del paso 12: con ella están las pantallas del revisor y del jurado.
+
+**Decisiones:** [ADR 0020](adr/0020-pantallas-del-jurado.md).
+
+- **Evaluación** en el menú, sólo para los jurados; portada con sus convocatorias y su
+  avance.
+- **Lista de trabajo**: «Has evaluado 1 de 3», barra de avance, el estado de cada unidad
+  y la siguiente por evaluar.
+- **Ficha de evaluación**: la postulación en sólo lectura con sus documentos en el visor
+  (en Compositores, sólo la obra que se califica); la escala de cada criterio en botones
+  grandes; borrador o envío, modificable hasta el cierre; observaciones; excusa por
+  conflicto de interés y su retiro.
+- **Aislamiento**: las páginas sólo usan el acceso del jurado de la sesión. Una prueba
+  barre todas con cada jurado buscando lo que escribió el otro.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra, la lista,
+la ficha con sus rechazos (incompleta, fuera de escala), el envío, el barrido de
+aislamiento, el cierre de la etapa, la ficha por obra y la excusa. Una mutación en el
+permiso del jurado hace fallar las pruebas. En un navegador real, en escritorio y en
+móvil: un jurado entra desde el menú, va a la siguiente por evaluar, intenta enviar
+incompleta y la envía completa.
 
 ## Paso 12a — qué se entregó
 
@@ -855,3 +880,6 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 74. **Seis elementos por subsanación desde la pantalla**: si hacen falta más, se pide otra
     cuando el postulante atienda la primera (la API admite hasta 100).
 75. **El revisor ve el correo del titular** en la vista de revisión.
+76. **El jurado ve la postulación completa, con los datos de contacto**, conforme a la
+    decisión de que la evaluación no es a ciegas. Si sólo debiera ver los datos
+    artísticos, se recortan en la ficha.

@@ -50,7 +50,8 @@ type vistaDocumento struct {
 	URL     string
 	Version int
 	Subido  time.Time
-	Quitar  bool // puede retirarse
+	Quitar  bool   // puede retirarse
+	Tipo    string // pdf, audio o imagen: decide el visor
 }
 
 // vistaRequisito es una ranura de documento: lo que se pide y lo entregado.
@@ -207,6 +208,7 @@ func (a *App) requisitoDeVista(idioma string, ab *postulacionAbierta, rq models.
 		v.Documentos = append(v.Documentos, vistaDocumento{
 			ID: d.ID, Nombre: models.NombreDeDescarga(identificador, d, ordenDeObra), Tamano: tamanoLegible(d.Archivo.TamanoBytes),
 			URL: fmt.Sprintf("/api/v1/documentos/%d/archivo", d.ID), Version: d.Version, Subido: d.SubidoAt, Quitar: v.Editable,
+			Tipo: tipoDeVisor(d.Archivo.MIME),
 		})
 	}
 	// Si se admite un solo archivo, uno nuevo sustituye al que hay: es lo que

@@ -19,8 +19,9 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 12a de 14: pantallas del postulante y del revisor.** El backend está completo; el
-postulante y el revisor ya pueden hacerlo todo desde el navegador. Hoy el sistema tiene:
+**Paso 12 de 14: pantallas del postulante, del revisor y del jurado.** El backend está
+completo; postulante, revisor y jurado ya pueden hacerlo todo desde el navegador. Hoy el
+sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
@@ -33,7 +34,10 @@ postulante y el revisor ya pueden hacerlo todo desde el navegador. Hoy el sistem
   su motivo, y se puede pedir que se desbloquee algo más.
 - **Revisión documental** (`/revision`): bandeja con filtros y vista de revisión con
   **visor de documentos** (PDF, audio, imagen), dictámenes, observaciones, subsanación,
-  desbloqueos y dictamen. Las pantallas del jurado llegan en el 12b.
+  desbloqueos y dictamen.
+- **Evaluación** (`/evaluacion`): la lista de trabajo de cada jurado con su avance y la
+  ficha de evaluación con el visor, la escala por criterio, el envío y la excusa. Un
+  jurado nunca ve lo de otro.
 - **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
   imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
@@ -589,6 +593,7 @@ controllers/        CONTROLADOR
   postulante.go       páginas del postulante: panel y formulario por pasos
   postulante_envio.go páginas del postulante: documentos, envío, estado y subsanación
   revisor.go          páginas del revisor: bandeja y vista de revisión
+  jurado.go           páginas del jurado: lista de trabajo y ficha de evaluación
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados
