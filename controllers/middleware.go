@@ -51,10 +51,19 @@ func encadenar(h http.Handler, capas ...middleware) http.Handler {
 const cuerpoMaximo = 1 << 20 // 1 MiB
 
 // politicaContenido es la CSP estricta (RNF-10): todo recurso sale del propio
-// origen y no se permite código ni estilo en línea.
+// origen y no se permite código ni estilo en línea. frame-src y media-src
+// admiten el propio origen para el visor de documentos (RF-DOC-08): un PDF en
+// un marco y un audio con su reproductor, servidos por la aplicación.
 const politicaContenido = "default-src 'none'; script-src 'self'; style-src 'self'; " +
-	"img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; " +
-	"base-uri 'none'; frame-ancestors 'none'"
+	"img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self'; " +
+	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// politicaDeArchivo es la CSP de un documento del acervo servido en el
+// navegador. No admite ningún recurso ni código propio del archivo; sólo
+// deja que las páginas de la plataforma lo muestren en un marco
+// (frame-ancestors 'self'), y que el visor de PDF del navegador lo incruste
+// (object-src 'self').
+const politicaDeArchivo = "default-src 'none'; object-src 'self'; frame-ancestors 'self'"
 
 // respuesta envuelve http.ResponseWriter para conocer el estado que se envió.
 type respuesta struct {

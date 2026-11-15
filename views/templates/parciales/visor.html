@@ -1,0 +1,34 @@
+{{- /*
+  "visor": un documento del acervo, mostrado en la página para que revisor y
+  jurado no tengan que descargarlo (RF-DOC-08). Argumentos (con dict): P
+  (*views.Pagina) y D (el documento: URL, Nombre, Tipo, Tamano).
+
+  - PDF: en un marco, con el visor del propio navegador (sin pdf.js). Va
+    dentro de un <details>: el marco, con loading="lazy", no se carga hasta
+    que se abre. Si el navegador no muestra PDF en un marco, queda el enlace.
+  - Audio: el reproductor del navegador; preload="none" no descarga nada
+    hasta pulsar reproducir, y la aplicación sirve el archivo por rangos.
+  - Imagen: la imagen misma.
+
+  Cada consulta pasa por la aplicación, con el permiso comprobado, y la
+  primera lectura queda registrada como descarga (RN-27).
+*/ -}}
+{{define "visor"}}
+{{- $p := .P}}{{$d := .D}}
+<div class="visor visor--{{$d.Tipo}}">
+  {{- if eq $d.Tipo "pdf"}}
+  <details class="visor__pdf">
+    <summary>{{$p.T "visor.ver_pdf"}}<span class="oculto"> {{$d.Nombre}}</span></summary>
+    <iframe class="visor__marco" src="{{$d.URL}}" title="{{$d.Nombre}}" loading="lazy"></iframe>
+  </details>
+  {{- else if eq $d.Tipo "audio"}}
+  <audio class="visor__audio" controls preload="none" src="{{$d.URL}}" aria-label="{{$d.Nombre}}"></audio>
+  {{- else if eq $d.Tipo "imagen"}}
+  <img class="visor__imagen" src="{{$d.URL}}" alt="{{$d.Nombre}}" loading="lazy">
+  {{- end}}
+  <p class="visor__enlaces">
+    <a href="{{$d.URL}}" target="_blank" rel="noopener">{{$p.T "visor.abrir"}}<span class="oculto"> {{$d.Nombre}}</span></a>
+    · <a href="{{$d.URL}}?descargar=1">{{$p.T "visor.descargar"}}<span class="oculto"> {{$d.Nombre}}</span></a>
+  </p>
+</div>
+{{end}}

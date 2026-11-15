@@ -45,6 +45,9 @@
       <a href="/"{{if eq .Ruta "/"}} aria-current="page"{{end}}>{{.T "nav.convocatorias"}}</a>
       {{- if .Sesion}}
       <a href="/postulaciones"{{if .EnSeccion "/postulaciones"}} aria-current="page"{{end}}>{{.T "nav.postulaciones"}}</a>
+      {{- if .VeRevision}}
+      <a href="/revision"{{if .EnSeccion "/revision"}} aria-current="page"{{end}}>{{.T "nav.revision"}}</a>
+      {{- end}}
       <a href="/cuenta"{{if eq .Ruta "/cuenta"}} aria-current="page"{{end}}>{{.T "nav.cuenta"}}</a>
       {{- /* Salir es un POST: cerrar la sesión modifica estado. */}}
       <form method="post" action="/cuenta/salir">

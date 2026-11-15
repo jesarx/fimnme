@@ -61,7 +61,8 @@ Con el paso 10c **el backend está completo**.
 |---|---|---|
 | 11a | **Postulante: panel y formulario.** Panel «Mis postulaciones» con el historial de todas las ediciones y las convocatorias abiertas; formulario por pasos (datos generales, propuesta de concierto, obras) pintado de la definición del modelo, con guardado automático por htmx y confirmación «Guardado a las…»; barra de pasos con lo que le falta a cada uno; integrantes, ligas de video y obras dinámicos; cambio de subcategoría; todo funciona sin JavaScript. Tema visual en un solo archivo, con rasgos del sitio del 48º. | ✅ Hecho |
 | 11b | **Postulante: documentos, envío y subsanación.** Documentos por postulación y por obra según la dotación, con subida con barra de progreso, reemplazo y retiro; revisión y envío con la postulación completa en sólo lectura, lo que falta con su enlace y las dos declaraciones; estado de la postulación enviada con sus acuses; subsanación con lo editable resaltado y su motivo, solicitudes de desbloqueo y reenvío. Corrige el límite que rechazaba toda subida de más de 1 MiB. | ✅ Hecho |
-| 12 | **Revisor y jurado.** Bandeja con filtros; vista de revisión y dictámenes; solicitud de subsanación; ficha de evaluación; visor de PDF y reproductor de audio. | Pendiente |
+| 12a | **Revisor documental.** Portada de revisión; bandeja con tablero por estado y filtros en la URL; vista de revisión con la postulación en sólo lectura, lo que cambió en el último reenvío, documentos con visor (PDF en un marco, audio, imagen) y dictamen, observaciones internas, subsanación, desbloqueos y dictamen. El observador lo ve todo sin actuar. | ✅ Hecho |
+| 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con el visor de documentos, puntajes por criterio en borrador o enviados y observaciones; excusa por conflicto de interés. | Pendiente |
 | 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
 
 ### Operación
@@ -96,6 +97,38 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 12a — qué se entregó
+
+El paso 12 se parte en dos: **12a** (esto, el revisor documental) y **12b** (el jurado).
+
+**Decisiones:** [ADR 0019](adr/0019-pantallas-del-revisor-y-visor-de-documentos.md).
+
+- **Revisión** en el menú para quien revisa o supervisa; portada con sus convocatorias.
+- **Bandeja** (`/revision/convocatorias/{id}`): todas las enviadas, con una cifra por
+  estado y filtros en la URL (estado, subcategoría, quién la tomó, folio o nombre); con
+  htmx se filtra al escribir.
+- **Vista de revisión**: la postulación entera en sólo lectura; quién la tomó; lo que
+  cambió en el último reenvío; documentos con **visor** y dictamen; observaciones
+  internas; subsanaciones con sus solicitudes de desbloqueo (conceder o negar); pedir
+  una subsanación; validar o descartar.
+- **Visor de documentos**: PDF en un marco con el visor del navegador, audio con su
+  reproductor, imagen; siempre con enlaces para abrir y descargar. La CSP admite marcos y
+  audio del propio origen, y los documentos sólo se dejan enmarcar por la plataforma.
+- El observador ve todo, sin formularios. El titular y los revisores de otra convocatoria
+  reciben 404.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra, la bandeja y
+sus filtros, cada acción con sus rechazos, un documento de otra postulación por la ruta
+de ésta, observaciones que el titular no ve, subsanación con la partitura inválida
+sumada sola, desbloqueo, descarte que el titular no ve, y las cabeceras del visor. En un
+navegador real: el recorrido de una revisora desde el menú hasta pedir la subsanación,
+con el filtro al escribir y el visor pidiendo el PDF.
+
+**No se hizo:** comprobar que el navegador dibuje el PDF dentro del marco (el Chromium
+sin interfaz del entorno no trae visor de PDF); probar el reproductor con un audio real
+(la convocatoria de la demostración que pide audio no está abierta).
 
 ## Paso 11b — qué se entregó
 
@@ -819,3 +852,6 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     del Foro. El descarte no se le muestra (aparece «en revisión»).
 73. **Durante una subsanación**, el mensaje completo del correo se ofrece plegado en la
     página, además de la lista de lo señalado.
+74. **Seis elementos por subsanación desde la pantalla**: si hacen falta más, se pide otra
+    cuando el postulante atienda la primera (la API admite hasta 100).
+75. **El revisor ve el correo del titular** en la vista de revisión.

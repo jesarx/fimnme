@@ -1,0 +1,105 @@
+{{- /*
+  Bandeja del revisor (RF-REV-01): todas las postulaciones enviadas de una
+  convocatoria, sin reparto entre revisores, con su tablero por estado y los
+  filtros en la URL. Recibe en .Datos una vistaBandeja.
+
+  El formulario de filtros es un GET normal: sin JavaScript se envía con su
+  botón. Con htmx se envía solo al cambiar un filtro y sustituye sólo el
+  resultado (hx-select), conservando la URL (hx-push-url).
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Edicion}}</p>
+    <h1 class="banda__titulo">{{.Datos.Titulo}}</h1>
+    <p class="banda__entrada">{{.T "revision.bandeja"}} · {{.T "revision.enviadas" .Datos.Total}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- with .Datos}}
+<p class="migas"><a href="/revision">← {{$.T "revision.titulo"}}</a></p>
+{{- if .Tablero}}
+<ul class="tablero" aria-label="{{$.T "revision.por_estado"}}">
+  {{- range .Tablero}}
+  <li><a class="tablero__cifra{{if .Activa}} tablero__cifra--activa{{end}}" href="{{.URL}}"{{if .Activa}} aria-current="true"{{end}}>
+    <b>{{.Cuenta}}</b> <span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></a></li>
+  {{- end}}
+</ul>
+{{- end}}
+
+<form class="filtros" method="get" action="{{.Base}}" role="search"
+  hx-get="{{.Base}}" hx-trigger="change, input delay:400ms from:#f-q" hx-target="#resultado" hx-select="#resultado" hx-swap="outerHTML" hx-push-url="true">
+  <div class="campo">
+    <label for="f-estado">{{$.T "revision.filtro_estado"}}</label>
+    <select id="f-estado" name="estado">
+      <option value="">{{$.T "revision.todos"}}</option>
+      {{- range .Estados}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}
+    </select>
+  </div>
+  {{- if .EsInterpretes}}
+  <div class="campo">
+    <label for="f-subcategoria">{{$.T "revision.filtro_subcategoria"}}</label>
+    <select id="f-subcategoria" name="subcategoria">
+      <option value="">{{$.T "revision.todas"}}</option>
+      <option value="solista"{{if eq .Subcategoria "solista"}} selected{{end}}>{{$.T "subcategoria.solista"}}</option>
+      <option value="ensamble"{{if eq .Subcategoria "ensamble"}} selected{{end}}>{{$.T "subcategoria.ensamble"}}</option>
+    </select>
+  </div>
+  {{- end}}
+  <div class="campo">
+    <label for="f-toma">{{$.T "revision.filtro_toma"}}</label>
+    <select id="f-toma" name="toma">
+      <option value="">{{$.T "revision.todas"}}</option>
+      <option value="libre"{{if eq .Toma "libre"}} selected{{end}}>{{$.T "revision.toma_libre"}}</option>
+      <option value="mia"{{if eq .Toma "mia"}} selected{{end}}>{{$.T "revision.toma_mia"}}</option>
+      <option value="otra"{{if eq .Toma "otra"}} selected{{end}}>{{$.T "revision.toma_otra"}}</option>
+    </select>
+  </div>
+  <div class="campo campo--ancho">
+    <label for="f-q">{{$.T "revision.filtro_texto"}}</label>
+    <input id="f-q" name="q" type="search" value="{{.Texto}}" autocomplete="off">
+  </div>
+  <p class="filtros__acciones solo-sin-js"><button class="boton boton--menor" type="submit">{{$.T "revision.filtrar"}}</button></p>
+</form>
+
+<section id="resultado" class="resultado" aria-live="polite">
+  {{- if .Renglones}}
+  <p class="nota">{{$.T "revision.mostrando" (len .Renglones) .Total}}</p>
+  <div class="tabla-contenedor">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th scope="col">{{$.T "panel.folio"}}</th>
+        <th scope="col">{{$.T "revision.columna_nombre"}}</th>
+        <th scope="col">{{$.T "revision.columna_estado"}}</th>
+        <th scope="col">{{$.T "revision.columna_enviada"}}</th>
+        <th scope="col">{{$.T "revision.columna_toma"}}</th>
+        <th scope="col">{{$.T "revision.columna_pendientes"}}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{- range .Renglones}}
+      <tr>
+        <th scope="row"><a href="{{.URL}}">{{.Folio}}</a></th>
+        <td>{{.Nombre}}{{if .Subcategoria}} <span class="tabla__detalle">{{$.T (printf "subcategoria.%s" .Subcategoria)}}</span>{{end}}</td>
+        <td><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span>
+          {{- if .Subsanada}} <span class="tabla__marca">{{$.T "revision.subsanada"}}</span>{{end}}
+          {{- if not .FechaLimite.IsZero}} <span class="tabla__detalle{{if .Vencida}} tabla__detalle--alerta{{end}}">{{if .Vencida}}{{$.T "revision.plazo_vencido"}}{{else}}{{$.T "revision.plazo_hasta"}}{{end}} {{$.Fecha .FechaLimite}}</span>{{end}}</td>
+        <td><time datetime="{{$.ISO .EnviadaAt}}">{{$.Fecha .EnviadaAt}}</time>{{if gt .Envios 1}} <span class="tabla__detalle">{{$.T "revision.envios_n" .Envios}}</span>{{end}}</td>
+        <td>{{if .TomaPropia}}{{$.T "revision.toma_por_mi"}}{{else if .Toma}}{{.Toma}}{{else}}<span class="tabla__detalle">{{$.T "revision.toma_libre"}}</span>{{end}}</td>
+        <td>
+          {{- if .DocumentosInvalidos}}<span class="tabla__detalle tabla__detalle--alerta">{{$.T "revision.invalidos_n" .DocumentosInvalidos}}</span> {{end}}
+          {{- if .Observaciones}}<span class="tabla__detalle">{{$.T "revision.observaciones_n" .Observaciones}}</span>{{end}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{if .Total}}{{$.T "revision.sin_resultados"}}{{else}}{{$.T "revision.bandeja_vacia"}}{{end}}</p>
+  {{- end}}
+</section>
+{{- end}}
+{{end}}

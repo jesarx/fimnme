@@ -1830,6 +1830,28 @@ func PuedeRevisar(s *Sesion, convocatoriaID int64) bool {
 	return s != nil && (PuedeAdministrar(s) || s.TieneAsignacion(convocatoriaID, PerfilRevisorDocumental))
 }
 
+// RevisionesDe devuelve las convocatorias cuya revisión documental puede ver
+// la sesión por estar asignada a ellas como revisor. Quien supervisa las ve
+// todas; eso lo dice PuedeSupervisar.
+func RevisionesDe(s *Sesion) []int64 {
+	if s == nil {
+		return nil
+	}
+	var ids []int64
+	for _, a := range s.Asignaciones {
+		if a.Perfil == PerfilRevisorDocumental {
+			ids = append(ids, a.ConvocatoriaID)
+		}
+	}
+	return ids
+}
+
+// PuedeEntrarARevision indica si la sesión tiene algo que hacer o que ver en
+// la revisión documental: si revisa alguna convocatoria, o si supervisa.
+func PuedeEntrarARevision(s *Sesion) bool {
+	return PuedeSupervisar(s) || len(RevisionesDe(s)) > 0
+}
+
 // PuedeVerRevision indica si la sesión puede ver lo que la revisión ha
 // dejado sobre las postulaciones de una convocatoria: quienes revisan y
 // quienes supervisan. El postulante no: los dictámenes y las observaciones

@@ -313,6 +313,10 @@ func (a *App) servirArchivo(w http.ResponseWriter, r *http.Request, archivo mode
 	cabeceras.Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposicion, nombre))
 	// Material inédito: ni el navegador ni un intermediario deben guardarlo.
 	cabeceras.Set("Cache-Control", "private, no-store")
+	// El visor de documentos lo muestra en un marco de la propia plataforma;
+	// ningún otro sitio puede enmarcarlo.
+	cabeceras.Set("Content-Security-Policy", politicaDeArchivo)
+	cabeceras.Set("X-Frame-Options", "SAMEORIGIN")
 	http.ServeContent(w, r, "", time.Time{}, contenido)
 }
 

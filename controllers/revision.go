@@ -208,14 +208,24 @@ func (a *App) apiSolicitarSubsanacion(w http.ResponseWriter, r *http.Request) {
 			Clase: models.ClaseProblema(problema.Clase), Campo: problema.Campo, ObraID: problema.ObraID, Problema: problema.Problema,
 		})
 	}
-	// El correo va en el idioma del postulante, no en el del revisor (RF-REV-06).
-	titular, err := a.datos.UsuarioPorID(r.Context(), p.UsuarioID)
-	if a.falloDatos(w, r, err) {
+	if a.falloDatos(w, r, a.solicitarSubsanacion(r, p, nueva)) {
 		return
 	}
+	a.responderPostulacion(w, r, http.StatusCreated, id)
+}
+
+// solicitarSubsanacion pide una subsanación de una postulación y encola el
+// correo al postulante, en su idioma (RF-REV-06). La usan la API y la página
+// de revisión; no responde nada. Los permisos ya se comprobaron.
+func (a *App) solicitarSubsanacion(r *http.Request, p models.Postulacion, nueva models.NuevaSubsanacion) error {
+	// El correo va en el idioma del postulante, no en el del revisor (RF-REV-06).
+	titular, err := a.datos.UsuarioPorID(r.Context(), p.UsuarioID)
+	if err != nil {
+		return err
+	}
 	plantilla, err := a.datos.PlantillaCorreo(r.Context(), models.PlantillaSubsanacion, titular.Usuario.Idioma)
-	if a.falloDatos(w, r, err) {
-		return
+	if err != nil {
+		return err
 	}
 	componer := func(p models.Postulacion, cfg models.ConfiguracionConvocatoria, titular models.Usuario, n models.NuevaSubsanacion) (models.CorreoSaliente, error) {
 		idioma := titular.Idioma
@@ -242,10 +252,7 @@ func (a *App) apiSolicitarSubsanacion(w http.ResponseWriter, r *http.Request) {
 			"liga":            a.urlBase + "/postulaciones/" + p.Folio,
 		}), nil
 	}
-	if a.falloDatos(w, r, a.datos.SolicitarSubsanacion(r.Context(), a.actorDe(r), id, nueva, componer)) {
-		return
-	}
-	a.responderPostulacion(w, r, http.StatusCreated, id)
+	return a.datos.SolicitarSubsanacion(r.Context(), a.actorDe(r), p.ID, nueva, componer)
 }
 
 // POST /api/v1/postulaciones/{id}/desbloqueos   — el postulante pide corregir algo no señalado

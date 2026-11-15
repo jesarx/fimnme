@@ -1773,6 +1773,334 @@ main {
   font-weight: 700;
 }
 
+/* --- Revisión documental --- */
+
+.tarjeta__titulo-chico {
+  margin: 0 0 var(--e3);
+  font-size: 1.3rem;
+}
+
+.tablero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  margin: 0 0 var(--e5);
+  padding: 0;
+  list-style: none;
+}
+
+.tablero__cifra {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e2) var(--e3);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--tinta);
+  text-decoration: none;
+}
+
+.tablero__cifra b {
+  font-size: 1.25rem;
+}
+
+.tablero__cifra--activa {
+  border-color: var(--acento);
+  background: var(--acento-fondo);
+}
+
+.filtros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0 var(--e4);
+  align-items: end;
+  margin-bottom: var(--e4);
+  padding: var(--e4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.filtros .campo {
+  margin-bottom: var(--e3);
+}
+
+.filtros__acciones {
+  margin: 0 0 var(--e3);
+}
+
+.campo--ancho {
+  grid-column: span 2;
+}
+
+@media (max-width: 40rem) {
+  .campo--ancho {
+    grid-column: auto;
+  }
+}
+
+/* Las tablas anchas se desplazan dentro de su caja, no la página. */
+.tabla-contenedor {
+  overflow-x: auto;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.tabla th,
+.tabla td {
+  padding: var(--e2) var(--e3);
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+  vertical-align: top;
+}
+
+.tabla thead th {
+  background: var(--neutro-fondo);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tinta-suave);
+  white-space: nowrap;
+}
+
+.tabla tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.tabla tbody th a {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tabla__detalle {
+  display: block;
+  color: var(--tinta-suave);
+  font-size: 0.8438rem;
+}
+
+.tabla__detalle--alerta {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.tabla__marca {
+  display: block;
+  color: var(--info);
+  font-size: 0.8438rem;
+  font-weight: 600;
+}
+
+.tabla--compacta {
+  font-size: 0.875rem;
+}
+
+/* La vista de revisión: un índice a la izquierda en pantallas anchas. */
+.revision {
+  display: grid;
+  gap: var(--e5);
+}
+
+.revision__indice ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e1) var(--e4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+
+@media (min-width: 64rem) {
+  .revision {
+    grid-template-columns: 12rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .revision__indice {
+    position: sticky;
+    top: var(--e4);
+  }
+
+  .revision__indice ul {
+    flex-direction: column;
+    padding-left: var(--e3);
+    border-left: 3px solid var(--borde);
+  }
+}
+
+.revision__cuerpo {
+  min-width: 0;
+  max-width: 52rem;
+}
+
+.revision__cuerpo .grupo {
+  scroll-margin-top: var(--e4);
+}
+
+.fechas--en-linea {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  margin-bottom: var(--e4);
+}
+
+.fechas--en-linea dd {
+  overflow-wrap: anywhere;
+}
+
+.en-linea {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e2) var(--e3);
+  margin: 0;
+}
+
+.documentos__grupo {
+  margin: var(--e5) 0 var(--e3);
+  font-size: 1.05rem;
+}
+
+.documentos__grupo:first-of-type {
+  margin-top: 0;
+}
+
+.documento-revision {
+  margin-bottom: var(--e3);
+  padding: var(--e3) var(--e4);
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--espera);
+  border-radius: var(--radio);
+  scroll-margin-top: var(--e4);
+}
+
+.documento-revision--valido {
+  border-left-color: var(--exito);
+}
+
+.documento-revision--invalido {
+  border-left-color: var(--error);
+}
+
+.documento-revision__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e1) var(--e3);
+}
+
+.documento-revision__nombre {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.dictamen-documento {
+  margin-top: var(--e3);
+  padding-top: var(--e3);
+  border-top: 1px dashed var(--borde);
+}
+
+.dictamen-documento .opciones {
+  margin-bottom: var(--e2);
+}
+
+.dictamen-documento .campo {
+  margin-bottom: var(--e2);
+}
+
+/* El visor de documentos (RF-DOC-08). */
+.visor {
+  margin: var(--e3) 0 0;
+}
+
+.visor__pdf summary {
+  color: var(--acento);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.visor__marco {
+  display: block;
+  width: 100%;
+  height: min(80vh, 50rem);
+  margin-top: var(--e2);
+  border: 1px solid var(--borde-fuerte);
+  border-radius: var(--radio);
+  background: var(--neutro-fondo);
+}
+
+.visor__audio {
+  display: block;
+  width: 100%;
+  max-width: 32rem;
+}
+
+.visor__imagen {
+  display: block;
+  max-width: min(100%, 24rem);
+  height: auto;
+  border-radius: var(--radio);
+}
+
+.visor__enlaces {
+  margin: var(--e2) 0 0;
+  font-size: 0.875rem;
+}
+
+.observaciones {
+  margin: 0 0 var(--e4);
+  padding: 0;
+  list-style: none;
+}
+
+.observaciones li {
+  margin-bottom: var(--e3);
+  padding: var(--e3);
+  border-radius: var(--radio);
+  background: var(--neutro-fondo);
+}
+
+.observaciones__texto {
+  margin: 0 0 var(--e1);
+  white-space: pre-line;
+}
+
+.subsanacion-revision {
+  margin-bottom: var(--e4);
+  padding-bottom: var(--e3);
+  border-bottom: 1px solid var(--borde);
+}
+
+.resolver {
+  margin-top: var(--e2);
+}
+
+.resolver .campo {
+  margin-bottom: var(--e2);
+}
+
+.nueva-subsanacion summary {
+  color: var(--acento);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nueva-subsanacion form {
+  margin-top: var(--e3);
+}
+
+@media (min-width: 40rem) {
+  .renglon--problema {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* ---------- 5. Páginas ---------- */
 
 .portada {

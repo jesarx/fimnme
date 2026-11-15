@@ -263,6 +263,11 @@ func (p *Pagina) EnSeccion(prefijo string) bool {
 	return p.Ruta == prefijo || strings.HasPrefix(p.Ruta, prefijo+"/")
 }
 
+// VeRevision indica si el menú debe ofrecer la revisión documental.
+func (p *Pagina) VeRevision() bool {
+	return models.PuedeEntrarARevision(p.Sesion)
+}
+
 // OtroIdioma devuelve el idioma al que conmuta el selector de la cabecera.
 func (p *Pagina) OtroIdioma() string {
 	if p.Idioma == models.IdiomaEN {

@@ -153,6 +153,17 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /postulaciones/{id}/envio", a.conSesion(a.enviarDelPaso))
 	mux.HandleFunc("POST /postulaciones/{id}/desbloqueos", a.conSesion(a.solicitarDesbloqueoDelPaso))
 
+	// Pantallas del revisor documental (§5.5): bandeja y vista de revisión.
+	mux.HandleFunc("GET /revision", a.conSesion(a.portadaDeRevision))
+	mux.HandleFunc("GET /revision/convocatorias/{id}", a.conSesion(a.bandejaDeRevision))
+	mux.HandleFunc("GET /revision/postulaciones/{id}", a.conSesion(a.vistaDeRevisionHTTP))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/toma", a.conSesion(a.tomarDesdeLaRevision))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/documentos/{documento}/dictamen", a.conSesion(a.dictaminarDocumentoDesdeLaRevision))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/observaciones", a.conSesion(a.observarDesdeLaRevision))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/subsanacion", a.conSesion(a.subsanacionDesdeLaRevision))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/desbloqueos/{solicitud}", a.conSesion(a.desbloqueoDesdeLaRevision))
+	mux.HandleFunc("POST /revision/postulaciones/{id}/dictamen", a.conSesion(a.dictamenDesdeLaRevision))
+
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)
 
