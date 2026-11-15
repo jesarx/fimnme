@@ -1,0 +1,75 @@
+{{- /*
+  Cuentas internas (§5.2, RF-USR-04): búsqueda, alta y reenvío del enlace de
+  activación. Recibe en .Datos una vistaUsuariosAdmin.
+
+  Una cuenta sin perfil global es la de un jurado o un revisor: su perfil se
+  otorga por convocatoria, en la ficha de configuración.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "admin.cuentas"}}</h1>
+    <p class="banda__entrada">{{.T "admin.cuentas_entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+{{template "aviso" .}}
+{{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+
+<form method="get" action="/administracion/usuarios" class="admin__busqueda" role="search">
+  <div class="campo"><label for="q">{{.T "admin.buscar_cuenta"}}</label>
+    <input id="q" name="q" type="search" value="{{$v.Buscar}}"></div>
+  <button class="boton boton--menor boton--secundario" type="submit">{{.T "admin.buscar"}}</button>
+</form>
+
+<p class="nota">{{.T "admin.cuentas_total" $v.Total}}</p>
+{{- if $v.Cuentas}}
+<div class="tabla-contenedor">
+<table class="tabla tabla--compacta admin__tabla">
+  <thead><tr><th scope="col">{{.T "admin.persona"}}</th><th scope="col">{{.T "admin.perfiles"}}</th><th scope="col">{{.T "admin.cuenta"}}</th>{{if $v.PuedeAdministrar}}<th scope="col"><span class="oculto">{{.T "admin.acciones"}}</span></th>{{end}}</tr></thead>
+  <tbody>
+    {{- range $v.Cuentas}}
+    <tr>
+      <td>{{.Nombre}}<br><span class="nota admin__correo">{{.Email}}</span></td>
+      <td>{{range $i, $p := .Perfiles}}{{if $i}}, {{end}}{{$.T $p}}{{else}}<span class="campo__vacio">{{$.T "admin.sin_perfil"}}</span>{{end}}</td>
+      <td>{{if not .Activa}}<span class="estado estado--cerrada">{{$.T "admin.desactivada"}}</span>{{else if .Activada}}{{$.T "admin.activada"}}{{else}}<span class="estado estado--proxima">{{$.T "admin.sin_activar"}}</span>{{end}}</td>
+      {{- if $v.PuedeAdministrar}}
+      <td class="admin__celda-acciones">
+        {{- if and .Activa (not .Activada)}}
+        <form method="post" action="/administracion/usuarios/{{.ID}}/activacion" class="en-linea">
+          <button class="boton boton--menor boton--secundario" type="submit">{{$.T "admin.reenviar_activacion"}}</button>
+        </form>
+        {{- end}}
+      </td>
+      {{- end}}
+    </tr>
+    {{- end}}
+  </tbody>
+</table>
+</div>
+{{- else}}
+<p class="vacio">{{.T "admin.sin_resultados"}}</p>
+{{- end}}
+
+{{- if $v.PuedeAdministrar}}
+<section class="grupo" id="nueva" aria-labelledby="t-nueva">
+  <h2 class="titulo-seccion" id="t-nueva">{{.T "admin.nueva_cuenta"}}</h2>
+  <p class="campo__ayuda">{{.T "admin.nueva_cuenta_ayuda"}}</p>
+  <form method="post" action="/administracion/usuarios" class="admin__form">
+    {{template "campos_cuenta" (dict "P" . "V" $v.Valores "ID" "u")}}
+    <div class="campo"><label for="u-perfil_global">{{.T "admin.perfil_global"}}</label>
+      <select id="u-perfil_global" name="perfil_global">
+        <option value="">{{.T "admin.perfil_ninguno"}}</option>
+        <option value="admin_sistema"{{if eq (index $v.Valores "perfil_global") "admin_sistema"}} selected{{end}}>{{.T "admin.perfil.admin_sistema"}}</option>
+        <option value="coordinacion_nacional"{{if eq (index $v.Valores "perfil_global") "coordinacion_nacional"}} selected{{end}}>{{.T "admin.perfil.coordinacion_nacional"}}</option>
+      </select></div>
+    <p><button class="boton" type="submit">{{.T "admin.crear_cuenta"}}</button></p>
+  </form>
+</section>
+{{- end}}
+{{end}}

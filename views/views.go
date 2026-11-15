@@ -263,6 +263,18 @@ func (p *Pagina) EnSeccion(prefijo string) bool {
 	return p.Ruta == prefijo || strings.HasPrefix(p.Ruta, prefijo+"/")
 }
 
+// VeAdministracion indica si el menú debe ofrecer la administración: a quien
+// supervisa (el observador la ve, sin poder cambiar nada).
+func (p *Pagina) VeAdministracion() bool {
+	return models.PuedeSupervisar(p.Sesion)
+}
+
+// Administra indica si la sesión puede cambiar la configuración: las pantallas
+// de administración muestran sus formularios sólo entonces.
+func (p *Pagina) Administra() bool {
+	return models.PuedeAdministrar(p.Sesion)
+}
+
 // VeEvaluacion indica si el menú debe ofrecer la evaluación: sólo a quien
 // es jurado de alguna convocatoria.
 func (p *Pagina) VeEvaluacion() bool {

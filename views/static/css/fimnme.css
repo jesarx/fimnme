@@ -2284,3 +2284,293 @@ main {
     color: black;
   }
 }
+
+/* --- Administración (paso 13a) -------------------------------------------
+   Fichas de configuración: muchas secciones con formularios cortos. Cada
+   elemento de un catálogo (dotación, requisito, criterio) es un <details>
+   plegado que se abre para editarlo. */
+
+/* Botón de una acción que borra o retira. */
+.boton--peligro {
+  border-color: var(--error);
+  background: transparent;
+  color: var(--error);
+}
+
+.boton--peligro:hover {
+  border-color: var(--error);
+  background: var(--error);
+  color: var(--sobre-acento);
+}
+
+.admin__atajos {
+  margin: 0 0 var(--e5);
+  text-align: right;
+}
+
+.admin__form {
+  display: grid;
+  gap: var(--e3);
+}
+
+.admin__campos {
+  display: grid;
+  gap: var(--e3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Campos lado a lado mientras quepan; en el teléfono, uno bajo otro. */
+.admin__fila {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e3) var(--e4);
+  align-items: end;
+}
+
+.admin__fila > .campo {
+  flex: 1 1 16rem;
+  margin: 0;
+}
+
+.admin__fila > .campo--corto {
+  flex: 0 1 9rem;
+}
+
+.admin__fila > .campo--casilla {
+  flex: 0 1 auto;
+  padding-bottom: var(--e2);
+}
+
+.admin__columnas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--e4);
+  margin-top: var(--e4);
+}
+
+.admin__caja {
+  margin: var(--e3) 0;
+  padding: var(--e4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.admin__caja > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.admin__caja[open] > summary {
+  margin-bottom: var(--e3);
+}
+
+.admin__subtitulo {
+  margin: var(--e4) 0 var(--e2);
+  font-size: 1.0625rem;
+}
+
+.admin__caja > .admin__subtitulo:first-child {
+  margin-top: 0;
+}
+
+.admin__faltan {
+  margin: var(--e2) 0 var(--e3);
+  padding-left: 1.25rem;
+  color: var(--tinta-suave);
+}
+
+.admin__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  margin: 0;
+}
+
+.admin__markdown {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+}
+
+.admin__etapa {
+  margin: 0;
+  padding: var(--e3) var(--e4) var(--e4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.admin__etapa > legend {
+  padding: 0 var(--e2);
+  font-weight: 600;
+}
+
+.admin__opciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e4);
+  margin: 0;
+  padding: var(--e3) var(--e4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+}
+
+.admin__opciones > legend {
+  padding: 0 var(--e2);
+  font-weight: 600;
+}
+
+.admin__opcion {
+  display: inline-flex;
+  gap: var(--e2);
+  align-items: center;
+  font-weight: 400;
+}
+
+.admin__opcion input {
+  accent-color: var(--acento);
+}
+
+/* Un elemento de catálogo: su resumen en una línea y, al abrirlo, su
+   formulario. */
+.admin__elemento {
+  margin: 0 0 var(--e2);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.admin__elemento > summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e1) var(--e3);
+  align-items: baseline;
+  padding: var(--e3) var(--e4);
+  cursor: pointer;
+}
+
+.admin__elemento[open] > summary {
+  border-bottom: 1px solid var(--borde);
+}
+
+.admin__elemento > form {
+  padding: var(--e4);
+}
+
+.admin__elemento--nuevo {
+  border-style: dashed;
+  background: transparent;
+}
+
+.admin__elemento--nuevo > summary {
+  color: var(--acento);
+  font-weight: 600;
+}
+
+.admin__elemento-nombre {
+  font-weight: 600;
+}
+
+.admin__elemento-detalle {
+  color: var(--tinta-suave);
+  font-size: 0.875rem;
+}
+
+.admin__archivo .campo__rotulo {
+  margin-bottom: var(--e1);
+}
+
+.admin__subida {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  align-items: center;
+  margin-top: var(--e2);
+}
+
+.admin__subida input[type="file"] {
+  max-width: 100%;
+}
+
+.admin__busqueda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e3);
+  align-items: center;
+  margin: 0 0 var(--e4);
+}
+
+.admin__busqueda {
+  align-items: end;
+}
+
+.admin__busqueda .campo {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+.admin__encontradas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin__encontradas li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--e2) 0;
+  border-top: 1px solid var(--borde);
+}
+
+.admin__correo {
+  overflow-wrap: anywhere;
+}
+
+.admin__celda-acciones {
+  white-space: nowrap;
+}
+
+.admin__celda-acciones .en-linea + .en-linea {
+  margin-left: var(--e2);
+}
+
+/* En el teléfono, cada renglón de las tablas de cuentas es una ficha: la
+   columna de acciones no queda fuera de la pantalla. */
+@media (max-width: 40rem) {
+  .admin__tabla thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .admin__tabla tr {
+    display: grid;
+    gap: var(--e1);
+    padding: var(--e3) var(--e4);
+    border-top: 1px solid var(--borde);
+  }
+
+  .admin__tabla td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+
+  .admin__celda-acciones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2);
+    padding-top: var(--e2);
+  }
+
+  .admin__celda-acciones .en-linea + .en-linea {
+    margin-left: 0;
+  }
+}

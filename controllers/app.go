@@ -153,6 +153,35 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /postulaciones/{id}/envio", a.conSesion(a.enviarDelPaso))
 	mux.HandleFunc("POST /postulaciones/{id}/desbloqueos", a.conSesion(a.solicitarDesbloqueoDelPaso))
 
+	// Pantallas de administración (§5.2): ediciones, convocatorias, jurados y
+	// revisores, cuentas internas. Las ve quien supervisa; sólo el
+	// administrador envía sus formularios.
+	mux.HandleFunc("GET /administracion", a.conSesion(a.portadaDeAdministracion))
+	mux.HandleFunc("POST /administracion/ediciones", a.conSesion(a.crearEdicionDesdeAdmin))
+	mux.HandleFunc("GET /administracion/ediciones/{id}", a.conSesion(a.edicionDeAdmin))
+	mux.HandleFunc("POST /administracion/ediciones/{id}", a.conSesion(a.actualizarEdicionDesdeAdmin))
+	mux.HandleFunc("POST /administracion/ediciones/{id}/convocatorias", a.conSesion(a.crearConvocatoriaDesdeAdmin))
+	mux.HandleFunc("POST /administracion/ediciones/{id}/duplicar", a.conSesion(a.duplicarConvocatoriaDesdeAdmin))
+	mux.HandleFunc("GET /administracion/convocatorias/{id}", a.conSesion(a.convocatoriaDeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/datos", a.conSesion(a.datosDeConvocatoriaDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/bases", a.conSesion(a.basesDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/archivos/{clase}", a.conSesion(a.archivoDeConvocatoriaDesdeAdmin(false)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/archivos/{clase}/quitar", a.conSesion(a.archivoDeConvocatoriaDesdeAdmin(true)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/calendario", a.conSesion(a.calendarioDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/estado", a.conSesion(a.estadoDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/dotaciones", a.conSesion(a.dotacionDesdeAdmin(true)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/dotaciones/{dotacion}", a.conSesion(a.dotacionDesdeAdmin(false)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/requisitos", a.conSesion(a.requisitoDesdeAdmin(true)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/requisitos/{requisito}", a.conSesion(a.requisitoDesdeAdmin(false)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/criterios", a.conSesion(a.criterioDesdeAdmin(true)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/criterios/{criterio}", a.conSesion(a.criterioDesdeAdmin(false)))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/asignaciones", a.conSesion(a.asignarDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/asignaciones/{asignacion}/retirar", a.conSesion(a.retirarAsignacionDesdeAdmin))
+	mux.HandleFunc("POST /administracion/convocatorias/{id}/cuentas", a.conSesion(a.crearYAsignarDesdeAdmin))
+	mux.HandleFunc("GET /administracion/usuarios", a.conSesion(a.usuariosDeAdmin))
+	mux.HandleFunc("POST /administracion/usuarios", a.conSesion(a.crearCuentaDesdeAdmin))
+	mux.HandleFunc("POST /administracion/usuarios/{id}/activacion", a.conSesion(a.reenviarActivacionDesdeAdmin))
+
 	// Pantallas del jurado (§5.6): lista de trabajo y ficha de evaluación.
 	mux.HandleFunc("GET /evaluacion", a.conSesion(a.portadaDeEvaluacion))
 	mux.HandleFunc("GET /evaluacion/convocatorias/{id}", a.conSesion(a.listaDelJurado))

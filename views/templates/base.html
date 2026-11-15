@@ -48,6 +48,9 @@
       {{- if .VeEvaluacion}}
       <a href="/evaluacion"{{if .EnSeccion "/evaluacion"}} aria-current="page"{{end}}>{{.T "nav.evaluacion"}}</a>
       {{- end}}
+      {{- if .VeAdministracion}}
+      <a href="/administracion"{{if .EnSeccion "/administracion"}} aria-current="page"{{end}}>{{.T "nav.administracion"}}</a>
+      {{- end}}
       {{- if .VeRevision}}
       <a href="/revision"{{if .EnSeccion "/revision"}} aria-current="page"{{end}}>{{.T "nav.revision"}}</a>
       {{- end}}

@@ -19,8 +19,10 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 12 de 14: pantallas del postulante, del revisor y del jurado.** El backend está
-completo; postulante, revisor y jurado ya pueden hacerlo todo desde el navegador. Hoy el
+**Paso 13 de 14 (13a): pantallas de administración.** El backend está completo;
+postulante, revisor y jurado pueden hacerlo todo desde el navegador, y el administrador
+configura ediciones, convocatorias, jurados, revisores y cuentas desde
+`/administracion`. Faltan las pantallas de supervisión (13b) y de archivo (13c). Hoy el
 sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
@@ -38,6 +40,11 @@ sistema tiene:
 - **Evaluación** (`/evaluacion`): la lista de trabajo de cada jurado con su avance y la
   ficha de evaluación con el visor, la escala por criterio, el envío y la excusa. Un
   jurado nunca ve lo de otro.
+- **Administración** (`/administracion`): ediciones; la ficha de configuración de cada
+  convocatoria (estado con lo que falta para avanzar, bases en Markdown, PDF e imagen,
+  calendario en hora de la Ciudad de México, dotaciones, requisitos documentales,
+  criterios, jurados y revisores) y las cuentas internas. El observador lo ve todo sin
+  poder cambiar nada.
 - **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
   imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
@@ -100,9 +107,9 @@ sistema tiene:
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La configuración y la captura aún no tienen pantallas.** Se hacen por la API (`curl`
-> o cualquier cliente HTTP); el formulario del postulante llega en el paso 11 y el panel
-> de administración en el paso 13.
+> **La supervisión y el archivo aún se usan por la API.** El tablero, la matriz, los
+> reportes, el buscador, las descargas, la bitácora y la importación asistida tienen API
+> (ejemplos abajo); sus pantallas llegan en los pasos 13b y 13c.
 >
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
@@ -155,6 +162,11 @@ go run ./cmd/fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemp
 
 La orden imprime un **enlace de activación**: al abrirlo se elige la contraseña. El otro
 perfil global disponible es `coordinacion_nacional` (observador).
+
+Con la sesión abierta, **Administración** (`/administracion`) lleva a las ediciones y a la
+ficha de configuración de cada convocatoria; desde ahí se crean las demás cuentas
+internas, se asignan jurados y revisores, y se publica la convocatoria. Lo mismo puede
+hacerse por la API o con `fimnme-cli --tui`.
 
 ### Probar la API
 
@@ -594,6 +606,7 @@ controllers/        CONTROLADOR
   postulante_envio.go páginas del postulante: documentos, envío, estado y subsanación
   revisor.go          páginas del revisor: bandeja y vista de revisión
   jurado.go           páginas del jurado: lista de trabajo y ficha de evaluación
+  administracion.go   páginas de administración: ediciones, configuración, cuentas
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados

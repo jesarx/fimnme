@@ -63,7 +63,9 @@ Con el paso 10c **el backend está completo**.
 | 11b | **Postulante: documentos, envío y subsanación.** Documentos por postulación y por obra según la dotación, con subida con barra de progreso, reemplazo y retiro; revisión y envío con la postulación completa en sólo lectura, lo que falta con su enlace y las dos declaraciones; estado de la postulación enviada con sus acuses; subsanación con lo editable resaltado y su motivo, solicitudes de desbloqueo y reenvío. Corrige el límite que rechazaba toda subida de más de 1 MiB. | ✅ Hecho |
 | 12a | **Revisor documental.** Portada de revisión; bandeja con tablero por estado y filtros en la URL; vista de revisión con la postulación en sólo lectura, lo que cambió en el último reenvío, documentos con visor (PDF en un marco, audio, imagen) y dictamen, observaciones internas, subsanación, desbloqueos y dictamen. El observador lo ve todo sin actuar. | ✅ Hecho |
 | 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con la postulación y sus documentos en el visor (en Compositores, cada obra por separado), escala por criterio en borrador o enviada, observaciones y excusa por conflicto de interés. Ninguna página deja ver lo de otro jurado. | ✅ Hecho |
-| 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
+| 13a | **Administración: configuración.** Ediciones; ficha de configuración de cada convocatoria (estado con lo que falta para avanzar, títulos y límites, bases en Markdown, PDF e imagen, calendario en hora de la Ciudad de México, dotaciones, requisitos documentales, criterios); jurados y revisores (búsqueda, alta con enlace de activación, retiro); cuentas internas. El observador lo ve todo sin poder cambiar nada. | ✅ Hecho |
+| 13b | **Supervisión.** Tablero de cada convocatoria; matriz de resultados y dictamen final; reportes CSV a la medida y sus plantillas; estadísticas de la edición; publicación de la nómina al portal. | Pendiente |
+| 13c | **Archivo y operación.** Buscador global con filtros, vistas guardadas y CSV; descargas masivas; expedientes; bitácora; importación asistida; plantillas de correo. | Pendiente |
 
 ### Operación
 
@@ -91,12 +93,45 @@ Con el paso 10c **el backend está completo**.
   el log, de donde se toma el enlace de verificación. En el entorno `produccion` el log
   no muestra el cuerpo, de modo que las cuentas no pueden verificarse ni recuperarse
   hasta que exista el SMTP.
-- **La configuración se hace por API hasta el paso 13.** No hay pantallas de
-  administración todavía: se usa `curl` o cualquier cliente HTTP (ejemplos en el README).
+- **La configuración tiene pantallas desde el paso 13a** (`/administracion`). La API y
+  el modo interactivo de `fimnme-cli` siguen disponibles, con las mismas reglas.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 13a — qué se entregó
+
+Primera de tres entregas del paso 13: la configuración ya no exige la API.
+
+**Decisiones:** [ADR 0021](adr/0021-pantallas-de-administracion.md).
+
+- **Administración** en el menú, para administrador y observador. Portada con las
+  ediciones y sus convocatorias; alta de edición.
+- **Edición**: sus datos; alta de una convocatoria en blanco (con los requisitos y
+  criterios iniciales de su tipo) o copiada de otra edición (sin calendario ni jurados).
+- **Ficha de configuración** con índice: estado con lo que falta para avanzar y el cambio
+  forzado (retroceder pide motivo); títulos y límites; bases en Markdown en dos idiomas,
+  sus PDF y la imagen; calendario en hora de la Ciudad de México; dotaciones (se retiran,
+  no se borran); requisitos documentales y criterios, plegados, con alta, edición y
+  borrado; jurados y revisores con búsqueda, alta con enlace de activación, reenvío y
+  retiro.
+- **Cuentas internas** (`/administracion/usuarios`): búsqueda, alta con perfil global
+  opcional y reenvío del enlace.
+- **Lo rechazado vuelve junto a su formulario con lo escrito.** Un elemento de otra
+  convocatoria no se toca desde una ficha (404). El observador ve todo deshabilitado.
+- Crear y asignar comprueba antes la asignación, para no dejar cuentas huérfanas.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra y quién puede
+enviar (el observador recibe 403 en cada acción y no cambia nada), la configuración
+completa desde los formularios hasta publicar, cada rechazo con lo escrito, el calendario
+convertido a UTC, el aislamiento entre fichas, la copia a otra edición, la cuota de
+jurados, el retiro y las cuentas. Tres mutaciones (permiso del administrador, pertenencia
+del elemento, repintado de lo escrito) hacen fallar las pruebas. En un navegador real, en
+escritorio, teléfono y modo oscuro: se crea una edición y una convocatoria, se configura
+entera, se rechaza un calendario desordenado conservando lo escrito, se asignan tres
+jurados y un revisor, y se publica; el observador ve la ficha sin un solo control activo.
 
 ## Paso 12b — qué se entregó
 
@@ -883,3 +918,10 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 76. **El jurado ve la postulación completa, con los datos de contacto**, conforme a la
     decisión de que la evaluación no es a ciegas. Si sólo debiera ver los datos
     artísticos, se recortan en la ficha.
+77. **Las fechas del calendario se escriben en hora de la Ciudad de México**, no en la del
+    navegador de quien configura.
+78. **Las dotaciones no se borran**, ni por la API ni desde la pantalla: se retiran. Si se
+    quiere borrar una dotación capturada por error que nadie eligió, hace falta una
+    operación nueva.
+79. **El observador ve la configuración completa** (bases, requisitos, criterios, jurados
+    y revisores con sus correos), sin poder cambiarla.

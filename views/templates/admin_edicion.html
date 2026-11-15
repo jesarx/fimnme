@@ -1,0 +1,95 @@
+{{- /*
+  Una edición (§5.2): sus datos, sus convocatorias y el alta de una
+  convocatoria, en blanco o copiada de otra edición. Recibe en .Datos una
+  vistaEdicionAdmin; un rechazo llega en .Formulario ("error", "error_en").
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.Datos.NombreES}}</h1>
+    <p class="banda__entrada" lang="en">{{.Datos.NombreEN}}</p>
+  </div>
+</div>
+{{end}}
+
+{{- /* "error_edicion": el motivo de un rechazo, junto al formulario que lo produjo. */ -}}
+{{define "error_edicion"}}
+{{- if and (.P.Formulario.Valor "error") (eq (.P.Formulario.Valor "error_en") .En)}}
+<div class="aviso aviso--error" role="alert"><p>{{.P.Formulario.Valor "error"}}</p></div>
+{{- end}}
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+{{template "aviso" .}}
+
+<section class="grupo" id="convocatorias" aria-labelledby="t-convocatorias">
+  <h2 class="titulo-seccion" id="t-convocatorias">{{.T "admin.convocatorias"}}</h2>
+  {{- if $v.Convocatorias}}
+  <ul class="tarjetas">
+    {{- range $v.Convocatorias}}
+    <li class="tarjeta">
+      <p class="tarjeta__meta"><span>{{$.T .Tipo}}</span><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></p>
+      <h3 class="tarjeta__titulo-chico"><a class="tarjeta__enlace" href="{{.URL}}">{{.Titulo}}</a></h3>
+      <p class="tarjeta__accion" aria-hidden="true">{{$.T "admin.configurar"}} →</p>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{.T "admin.sin_convocatorias"}}</p>
+  {{- end}}
+
+  {{template "error_edicion" (dict "P" . "En" "convocatorias")}}
+  {{- if and .Administra $v.TiposLibres}}
+  <div class="admin__columnas">
+    <form method="post" action="{{$v.URL}}/convocatorias" class="admin__form admin__caja">
+      <h3 class="admin__subtitulo">{{.T "admin.crear_convocatoria"}}</h3>
+      <p class="campo__ayuda">{{.T "admin.crear_convocatoria_ayuda"}}</p>
+      <div class="campo"><label for="c-tipo">{{.T "admin.tipo"}}</label>
+        <select id="c-tipo" name="tipo">
+          {{- range $v.TiposLibres}}<option value="{{.Valor}}"{{if eq ($.Formulario.Valor "tipo") .Valor}} selected{{end}}>{{.Texto}}</option>{{end}}
+        </select></div>
+      <div class="campo"><label for="c-titulo_es">{{.T "admin.titulo_es"}}</label>
+        <input id="c-titulo_es" name="titulo_es" type="text" required value="{{.Formulario.Valor "titulo_es"}}"></div>
+      <div class="campo"><label for="c-titulo_en">{{.T "admin.titulo_en"}}</label>
+        <input id="c-titulo_en" name="titulo_en" type="text" required lang="en" value="{{.Formulario.Valor "titulo_en"}}"></div>
+      <p><button class="boton" type="submit">{{.T "admin.crear"}}</button></p>
+    </form>
+    {{- if $v.Origenes}}
+    <form method="post" action="{{$v.URL}}/duplicar" class="admin__form admin__caja">
+      <h3 class="admin__subtitulo">{{.T "admin.duplicar"}}</h3>
+      <p class="campo__ayuda">{{.T "admin.duplicar_ayuda"}}</p>
+      <div class="campo"><label for="c-origen">{{.T "admin.origen"}}</label>
+        <select id="c-origen" name="origen">
+          {{- range $v.Origenes}}<option value="{{.Valor}}"{{if eq ($.Formulario.Valor "origen") .Valor}} selected{{end}}>{{.Texto}}</option>{{end}}
+        </select></div>
+      <p><button class="boton boton--secundario" type="submit">{{.T "admin.duplicar_boton"}}</button></p>
+    </form>
+    {{- end}}
+  </div>
+  {{- end}}
+</section>
+
+<section class="grupo" id="datos" aria-labelledby="t-datos">
+  <h2 class="titulo-seccion" id="t-datos">{{.T "admin.datos_edicion"}}</h2>
+  {{template "error_edicion" (dict "P" . "En" "datos")}}
+  <form method="post" action="{{$v.URL}}" class="admin__form">
+    <fieldset class="admin__campos"{{if not .Administra}} disabled{{end}}>
+      <legend class="oculto">{{.T "admin.datos_edicion"}}</legend>
+      <div class="admin__fila">
+        <div class="campo"><label for="e-numero">{{.T "admin.edicion_numero"}}</label>
+          <input id="e-numero" name="numero" type="number" min="1" inputmode="numeric" required value="{{$v.Numero}}"></div>
+        <div class="campo"><label for="e-anio">{{.T "admin.edicion_anio"}}</label>
+          <input id="e-anio" name="anio" type="number" min="2000" inputmode="numeric" required value="{{$v.Anio}}"></div>
+      </div>
+      <div class="campo"><label for="e-nombre_es">{{.T "admin.nombre_es"}}</label>
+        <input id="e-nombre_es" name="nombre_es" type="text" required value="{{$v.NombreES}}"></div>
+      <div class="campo"><label for="e-nombre_en">{{.T "admin.nombre_en"}}</label>
+        <input id="e-nombre_en" name="nombre_en" type="text" required lang="en" value="{{$v.NombreEN}}"></div>
+    </fieldset>
+    {{- if .Administra}}<p><button class="boton" type="submit">{{.T "admin.guardar"}}</button></p>{{end}}
+  </form>
+</section>
+{{end}}
