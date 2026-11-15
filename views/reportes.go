@@ -104,12 +104,46 @@ func (m *Motor) presentar(idioma string, campo models.CampoDeReporte, valor stri
 	return valor
 }
 
+// CampoEtiquetado es un campo del catálogo de reportes con su etiqueta ya
+// traducida: lo que muestran la API y la pantalla del generador.
+type CampoEtiquetado struct {
+	Clave    string
+	Etiqueta string
+	Nivel    string
+}
+
+// CamposDeReporte es el catálogo de campos de una convocatoria con sus
+// etiquetas en el idioma pedido, en el orden del catálogo.
+func (m *Motor) CamposDeReporte(idioma string, cfg models.ConfiguracionConvocatoria, jurados []models.JuradoEnMatriz) []CampoEtiquetado {
+	var campos []CampoEtiquetado
+	for _, campo := range models.CatalogoDeReporte(cfg) {
+		campos = append(campos, CampoEtiquetado{Clave: campo.Clave, Etiqueta: m.etiquetaDeCampo(idioma, campo, jurados), Nivel: campo.Nivel})
+	}
+	return campos
+}
+
+// EnviosPorDia cuenta los primeros envíos por día de la Ciudad de México, en
+// orden: el ritmo de envíos del tablero (RF-DASH-01). La clave es la fecha
+// (AAAA-MM-DD).
+func EnviosPorDia(primerosEnvios []time.Time) []models.Cifra {
+	var dias []models.Cifra
+	for _, momento := range primerosEnvios {
+		dia := momento.In(zonaMexico).Format("2006-01-02")
+		if ultimo := len(dias) - 1; ultimo >= 0 && dias[ultimo].Clave == dia {
+			dias[ultimo].Cantidad++
+			continue
+		}
+		dias = append(dias, models.Cifra{Clave: dia, Cantidad: 1})
+	}
+	return dias
+}
+
 // CatalogoDeReporteJSON es el catálogo de campos de una convocatoria, con sus
 // etiquetas en el idioma pedido, para armar un reporte (RF-REP-02).
 func (m *Motor) CatalogoDeReporteJSON(idioma string, cfg models.ConfiguracionConvocatoria, jurados []models.JuradoEnMatriz) any {
 	campos := []map[string]any{}
-	for _, campo := range models.CatalogoDeReporte(cfg) {
-		campos = append(campos, map[string]any{"clave": campo.Clave, "etiqueta": m.etiquetaDeCampo(idioma, campo, jurados), "nivel": campo.Nivel})
+	for _, campo := range m.CamposDeReporte(idioma, cfg, jurados) {
+		campos = append(campos, map[string]any{"clave": campo.Clave, "etiqueta": campo.Etiqueta, "nivel": campo.Nivel})
 	}
 	return map[string]any{
 		"campos":                     campos,
@@ -265,13 +299,8 @@ func TableroJSON(convocatoriaID int64, t models.TableroDeConvocatoria, avance []
 	}
 	// Ritmo de envíos: primeros envíos por día de la Ciudad de México.
 	porDia := []map[string]any{}
-	for _, momento := range t.PrimerosEnvios {
-		dia := momento.In(zonaMexico).Format("2006-01-02")
-		if ultimo := len(porDia) - 1; ultimo >= 0 && porDia[ultimo]["clave"] == dia {
-			porDia[ultimo]["cantidad"] = porDia[ultimo]["cantidad"].(int) + 1
-			continue
-		}
-		porDia = append(porDia, cifraJSON(dia, 1, nil))
+	for _, dia := range EnviosPorDia(t.PrimerosEnvios) {
+		porDia = append(porDia, cifraJSON(dia.Clave, dia.Cantidad, nil))
 	}
 	jurados := []map[string]any{}
 	for _, a := range avance {

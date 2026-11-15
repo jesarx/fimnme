@@ -182,6 +182,21 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /administracion/usuarios", a.conSesion(a.crearCuentaDesdeAdmin))
 	mux.HandleFunc("POST /administracion/usuarios/{id}/activacion", a.conSesion(a.reenviarActivacionDesdeAdmin))
 
+	// Pantallas de supervisión (§5.13, §5.6, §5.7, §5.16): tablero, matriz de
+	// resultados, reportes, estadísticas y nómina. Las ven administrador y
+	// observador; el dictamen final y la nómina son del administrador.
+	mux.HandleFunc("GET /supervision", a.conSesion(a.portadaDeSupervision))
+	mux.HandleFunc("GET /supervision/convocatorias/{id}", a.conSesion(a.tableroDeSupervision))
+	mux.HandleFunc("GET /supervision/convocatorias/{id}/resultados", a.conSesion(a.resultadosDeSupervision))
+	mux.HandleFunc("POST /supervision/postulaciones/{id}/dictamen-final", a.conSesion(a.dictamenFinalDesdeSupervision))
+	mux.HandleFunc("GET /supervision/convocatorias/{id}/reporte", a.conSesion(a.generadorDeReportes))
+	mux.HandleFunc("GET /supervision/convocatorias/{id}/reporte.csv", a.conSesion(a.descargarReporte))
+	mux.HandleFunc("POST /supervision/convocatorias/{id}/reporte/plantillas", a.conSesion(a.guardarPlantillaDesdeSupervision))
+	mux.HandleFunc("POST /supervision/convocatorias/{id}/reporte/plantillas/{plantilla}/borrar", a.conSesion(a.borrarPlantillaDesdeSupervision))
+	mux.HandleFunc("GET /supervision/convocatorias/{id}/nomina", a.conSesion(a.nominaDeSupervision))
+	mux.HandleFunc("POST /supervision/convocatorias/{id}/nomina", a.conSesion(a.publicarNominaDesdeSupervision))
+	mux.HandleFunc("GET /supervision/ediciones/{id}/estadisticas", a.conSesion(a.estadisticasDeSupervision))
+
 	// Pantallas del jurado (§5.6): lista de trabajo y ficha de evaluación.
 	mux.HandleFunc("GET /evaluacion", a.conSesion(a.portadaDeEvaluacion))
 	mux.HandleFunc("GET /evaluacion/convocatorias/{id}", a.conSesion(a.listaDelJurado))

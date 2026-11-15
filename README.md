@@ -19,11 +19,11 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 13 de 14 (13a): pantallas de administración.** El backend está completo;
-postulante, revisor y jurado pueden hacerlo todo desde el navegador, y el administrador
-configura ediciones, convocatorias, jurados, revisores y cuentas desde
-`/administracion`. Faltan las pantallas de supervisión (13b) y de archivo (13c). Hoy el
-sistema tiene:
+**Paso 13 de 14 (13b): pantallas de supervisión.** El backend está completo;
+postulante, revisor y jurado pueden hacerlo todo desde el navegador; el administrador
+configura desde `/administracion` y supervisa —tablero, resultados, reportes,
+estadísticas y nómina— desde `/supervision`. Faltan las pantallas de archivo (13c). Hoy
+el sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
@@ -45,6 +45,10 @@ sistema tiene:
   calendario en hora de la Ciudad de México, dotaciones, requisitos documentales,
   criterios, jurados y revisores) y las cuentas internas. El observador lo ve todo sin
   poder cambiar nada.
+- **Supervisión** (`/supervision`): tablero de cada convocatoria con el avance de los
+  jurados sin puntajes; matriz de resultados con el resultado del proceso; generador de
+  reportes CSV con plantillas; estadísticas de la edición; y publicación de la nómina al
+  portal con vista previa.
 - **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
   imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
@@ -107,9 +111,9 @@ sistema tiene:
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La supervisión y el archivo aún se usan por la API.** El tablero, la matriz, los
-> reportes, el buscador, las descargas, la bitácora y la importación asistida tienen API
-> (ejemplos abajo); sus pantallas llegan en los pasos 13b y 13c.
+> **El archivo aún se usa por la API.** El buscador, las descargas masivas, los
+> expedientes, la bitácora y la importación asistida tienen API (ejemplos abajo); sus
+> pantallas llegan en el paso 13c.
 >
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
@@ -607,6 +611,7 @@ controllers/        CONTROLADOR
   revisor.go          páginas del revisor: bandeja y vista de revisión
   jurado.go           páginas del jurado: lista de trabajo y ficha de evaluación
   administracion.go   páginas de administración: ediciones, configuración, cuentas
+  supervision.go      páginas de supervisión: tablero, resultados, reportes, nómina
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados

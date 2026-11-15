@@ -1841,7 +1841,11 @@ main {
 }
 
 /* Las tablas anchas se desplazan dentro de su caja, no la página. */
+/* position: relative contiene a los textos .oculto (posición absoluta) de
+   la tabla: sin ella se posicionan respecto de la página y la ensanchan en el
+   teléfono aunque la tabla se desplace dentro de su caja. */
 .tabla-contenedor {
+  position: relative;
   overflow-x: auto;
   border: 1px solid var(--borde);
   border-radius: var(--radio);
@@ -2573,4 +2577,213 @@ main {
   .admin__celda-acciones .en-linea + .en-linea {
     margin-left: 0;
   }
+}
+
+/* --- Supervisión (paso 13b) ----------------------------------------------
+   Pestañas de cada convocatoria, distribuciones con barras (<meter>, sin
+   estilos en línea: la CSP no los admite) y la matriz de resultados. */
+
+.pestanas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e1) var(--e2);
+  margin: 0 0 var(--e5);
+  padding: 0 0 var(--e2);
+  border-bottom: 1px solid var(--borde);
+}
+
+.pestanas a {
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio) var(--radio) 0 0;
+  color: var(--tinta-suave);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pestanas a:hover {
+  color: var(--acento);
+}
+
+.pestanas a[aria-current="page"] {
+  background: var(--acento-fondo);
+  color: var(--acento-fuerte);
+  box-shadow: inset 0 -3px 0 var(--acento);
+}
+
+.barras {
+  width: 100%;
+}
+
+.barras caption {
+  padding: var(--e3) var(--e3) var(--e2);
+  font-weight: 600;
+  text-align: left;
+}
+
+.barras th[scope="row"] {
+  font-weight: 400;
+}
+
+.barras__numero {
+  width: 5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.barras__celda {
+  width: 45%;
+  min-width: 6rem;
+}
+
+.barras__barra {
+  display: block;
+  width: 100%;
+  height: 0.875rem;
+}
+
+.barras__barra::-webkit-meter-optimum-value {
+  background: var(--acento);
+}
+
+.barras__barra::-moz-meter-bar {
+  background: var(--acento);
+}
+
+.barras__celda .avance-jurado {
+  margin: 0;
+}
+
+.estadisticas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: var(--e4);
+  align-items: start;
+}
+
+.supervision__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e5);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.supervision__cabeza .campo__ayuda {
+  flex: 1 1 28rem;
+}
+
+/* La matriz es ancha (tres jurados por dos criterios): se desplaza a lo
+   ancho dentro de su contenedor, y la primera columna con el folio queda a la
+   vista. */
+.matriz th,
+.matriz td {
+  vertical-align: top;
+}
+
+.matriz__jurado {
+  text-align: center;
+  border-left: 1px solid var(--borde);
+}
+
+.matriz__criterio {
+  min-width: 6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+  text-transform: none;
+}
+
+.matriz__numero {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.matriz__postulante {
+  min-width: 13rem;
+}
+
+.matriz__excusa {
+  color: var(--tinta-suave);
+  font-style: italic;
+  text-align: center;
+}
+
+.matriz__observaciones {
+  margin-top: var(--e1);
+  font-size: 0.875rem;
+}
+
+.matriz__observaciones summary {
+  cursor: pointer;
+  color: var(--acento);
+}
+
+.matriz__observaciones dt {
+  margin-top: var(--e2);
+  font-weight: 600;
+}
+
+.matriz__observaciones dd {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.matriz__dictamen {
+  min-width: 12rem;
+}
+
+.matriz__formulario {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e1) var(--e2);
+  align-items: center;
+}
+
+.matriz__formulario select {
+  min-height: 2.25rem;
+  padding: var(--e1) var(--e2);
+  border: 1px solid var(--borde-fuerte);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--tinta);
+  font: inherit;
+}
+
+.reporte__campos {
+  margin-bottom: var(--e2);
+}
+
+.reporte__guardar {
+  display: grid;
+  gap: var(--e2);
+}
+
+.nomina {
+  display: grid;
+  gap: var(--e3);
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.nomina__nombre {
+  margin: 0;
+  font-weight: 600;
+}
+
+.nomina__obras {
+  margin: var(--e1) 0 0;
+  padding-left: 1.25rem;
+}
+
+.nomina__semblanza {
+  margin: var(--e1) 0 0;
+  color: var(--tinta-suave);
+  font-size: 0.9375rem;
+}
+
+.nomina__suma {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
 }

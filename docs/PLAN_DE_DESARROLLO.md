@@ -64,7 +64,7 @@ Con el paso 10c **el backend está completo**.
 | 12a | **Revisor documental.** Portada de revisión; bandeja con tablero por estado y filtros en la URL; vista de revisión con la postulación en sólo lectura, lo que cambió en el último reenvío, documentos con visor (PDF en un marco, audio, imagen) y dictamen, observaciones internas, subsanación, desbloqueos y dictamen. El observador lo ve todo sin actuar. | ✅ Hecho |
 | 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con la postulación y sus documentos en el visor (en Compositores, cada obra por separado), escala por criterio en borrador o enviada, observaciones y excusa por conflicto de interés. Ninguna página deja ver lo de otro jurado. | ✅ Hecho |
 | 13a | **Administración: configuración.** Ediciones; ficha de configuración de cada convocatoria (estado con lo que falta para avanzar, títulos y límites, bases en Markdown, PDF e imagen, calendario en hora de la Ciudad de México, dotaciones, requisitos documentales, criterios); jurados y revisores (búsqueda, alta con enlace de activación, retiro); cuentas internas. El observador lo ve todo sin poder cambiar nada. | ✅ Hecho |
-| 13b | **Supervisión.** Tablero de cada convocatoria; matriz de resultados y dictamen final; reportes CSV a la medida y sus plantillas; estadísticas de la edición; publicación de la nómina al portal. | Pendiente |
+| 13b | **Supervisión.** Tablero de cada convocatoria (por estado, documentos, subsanaciones, ritmo de envíos y avance de los jurados, sin puntajes); matriz de resultados con el resultado del proceso; generador de reportes CSV con plantillas; estadísticas de la edición; publicación y retiro de la nómina con vista previa. | ✅ Hecho |
 | 13c | **Archivo y operación.** Buscador global con filtros, vistas guardadas y CSV; descargas masivas; expedientes; bitácora; importación asistida; plantillas de correo. | Pendiente |
 
 ### Operación
@@ -99,6 +99,40 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 13b — qué se entregó
+
+Segunda entrega del paso 13: la supervisión ya no exige la API.
+
+**Decisiones:** [ADR 0022](adr/0022-pantallas-de-supervision.md).
+
+- **Supervisión** en el menú, para administrador y observador; cada convocatoria con
+  pestañas Tablero, Resultados, Reportes y (administrador) Nómina.
+- **Tablero**: postulaciones por estado (las de la revisión llevan a la bandeja filtrada),
+  documentos por dictaminar, subsanaciones, ritmo de envíos por día y avance de cada
+  jurado, sin un solo puntaje.
+- **Resultados**: la matriz con lugar, puntaje comparable, suma, promedio, resultado y lo
+  de cada jurado, con excusas y observaciones; el administrador captura el resultado del
+  proceso (una vez por postulación en Compositores). Descarga en CSV.
+- **Reportes**: generador con el catálogo de la convocatoria, granularidad, orden,
+  separador, idioma y filtros; descarga directa; plantillas que se guardan, cargan,
+  descargan y borran desde la misma página.
+- **Estadísticas** de la edición o de una convocatoria, con barras.
+- **Nómina**: vista previa exacta de lo que sale al portal, publicación y retiro con
+  confirmación, historial con SHA-256.
+- Corrige un desborde en el teléfono de toda tabla desplazable con textos ocultos.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra (jurado,
+revisora y postulante, 403; el observador ve todo menos la nómina y no dictamina), el
+tablero sin puntajes, la matriz con la excusa y el comparable, el resultado del proceso
+con su rechazo y su bitácora, el formulario único por postulación en Compositores, los
+reportes (descarga, rechazo con lo elegido, plantillas propias y ajenas, plantilla de
+otro tipo), las estadísticas y la nómina hasta el portal y su retiro. Tres mutaciones
+(permiso del dictamen, permiso de la nómina, borrado de plantillas ajenas) hacen fallar
+las pruebas. En un navegador real, en escritorio y teléfono: tres jurados (uno excusado),
+tablero, matriz, resultado, descarga de un CSV, plantilla, rechazo, estadísticas, cierre
+y publicación de la nómina, verificada en el JSON del portal.
 
 ## Paso 13a — qué se entregó
 
@@ -925,3 +959,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     operación nueva.
 79. **El observador ve la configuración completa** (bases, requisitos, criterios, jurados
     y revisores con sus correos), sin poder cambiarla.
+80. **La nómina (vista previa y publicación) es sólo del administrador**, como en la API.
+    Si el observador debe ver la vista previa, se abre en modo de consulta.
+81. **El observador ve en la matriz las observaciones de cada jurado**, además de sus
+    puntajes, conforme a «supervisión global de sólo lectura».
+82. **Las cifras del tablero que no son de la revisión** (borradores) todavía no llevan a
+    un listado: lo harán al buscador del archivo en el paso 13c.

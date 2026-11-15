@@ -1,0 +1,38 @@
+{{- /*
+  Portada de la supervisión (§5.13): las ediciones con sus convocatorias,
+  cada una hacia su tablero, y las estadísticas de cada edición. Recibe en
+  .Datos una vistaPortadaAdmin con los enlaces de supervisión.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "sitio.plataforma"}}</p>
+    <h1 class="banda__titulo">{{.T "supervision.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "supervision.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- range .Datos.Ediciones}}
+<section class="grupo" aria-labelledby="e-{{.ID}}">
+  <h2 class="titulo-seccion" id="e-{{.ID}}">{{.NombreES}}</h2>
+  <p><a href="{{.URL}}">{{$.T "supervision.estadisticas_de_la_edicion"}} →</a></p>
+  {{- if .Convocatorias}}
+  <ul class="tarjetas">
+    {{- range .Convocatorias}}
+    <li class="tarjeta">
+      <p class="tarjeta__meta"><span>{{$.T .Tipo}}</span><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></p>
+      <h3 class="tarjeta__titulo-chico"><a class="tarjeta__enlace" href="{{.URL}}">{{.Titulo}}</a></h3>
+      <p class="tarjeta__accion" aria-hidden="true">{{$.T "supervision.abrir_tablero"}} →</p>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{$.T "admin.sin_convocatorias"}}</p>
+  {{- end}}
+</section>
+{{- else}}
+<p class="vacio">{{.T "admin.sin_ediciones"}}</p>
+{{- end}}
+{{end}}

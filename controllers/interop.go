@@ -21,6 +21,7 @@ package controllers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -98,35 +99,39 @@ func (a *App) apiPublicarNomina(w http.ResponseWriter, r *http.Request) {
 	if !ok || !a.leerJSON(w, r, &entrada) {
 		return
 	}
-	cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), convocatoriaID)
-	if err == nil {
-		// Se valida antes de escribir nada en el almacén; el repositorio lo
-		// vuelve a validar dentro de la transacción.
-		err = erroresDe(models.ValidarPublicacionDeNomina(cfg.Convocatoria, entrada.Confirmo))
-	}
-	if a.falloDatos(w, r, err) {
+	if a.falloDatos(w, r, a.publicarNomina(r, convocatoriaID, entrada.Confirmo, entrada.Retirar)) {
 		return
 	}
+	a.apiPublicacion(w, r)
+}
+
+// publicarNomina publica la nómina de seleccionados de una convocatoria tal
+// como está en este momento, o la retira del portal (retirar). La comparten
+// la API y la pantalla de supervisión: se valida antes de escribir nada en el
+// almacén, y el repositorio lo vuelve a validar dentro de la transacción.
+func (a *App) publicarNomina(r *http.Request, convocatoriaID int64, confirmo, retirar bool) error {
+	cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), convocatoriaID)
+	if err != nil {
+		return err
+	}
+	if err := erroresDe(models.ValidarPublicacionDeNomina(cfg.Convocatoria, confirmo)); err != nil {
+		return err
+	}
 	nomina := models.InteropNomina{PublicadaAt: a.ahora().UTC().Format(time.RFC3339), Seleccionados: []models.InteropSeleccionado{}}
-	if !entrada.Retirar {
-		if nomina.Seleccionados, err = a.datos.SeleccionadosDe(r.Context(), convocatoriaID); a.falloDatos(w, r, err) {
-			return
+	if !retirar {
+		if nomina.Seleccionados, err = a.datos.SeleccionadosDe(r.Context(), convocatoriaID); err != nil {
+			return err
 		}
 	}
 	contenido, err := json.Marshal(nomina)
 	if err != nil {
-		a.log.Error("no se pudo componer la nómina", "error", err)
-		a.errorAPI(w, r, http.StatusInternalServerError, "error_interno")
-		return
+		return fmt.Errorf("componer la nómina: %w", err)
 	}
 	blob, err := a.almacen.Guardar(bytes.NewReader(contenido), int64(len(contenido)))
-	if a.falloDatos(w, r, err) {
-		return
+	if err != nil {
+		return err
 	}
-	if a.falloDatos(w, r, a.datos.PublicarNomina(r.Context(), a.actorDe(r), convocatoriaID, blob, len(nomina.Seleccionados), entrada.Confirmo)) {
-		return
-	}
-	a.apiPublicacion(w, r)
+	return a.datos.PublicarNomina(r.Context(), a.actorDe(r), convocatoriaID, blob, len(nomina.Seleccionados), confirmo)
 }
 
 // erroresDe convierte una lista de errores de validación en un error, o nil
