@@ -135,6 +135,20 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /cuenta/verificacion", a.conSesion(a.reenviarVerificacion))
 	mux.HandleFunc("POST /cuenta/salir", a.salir)
 
+	// Páginas del postulante: el panel y el formulario por pasos (§5.3).
+	// «/postulaciones/{ref}» admite el id o el folio: el enlace por folio es
+	// permanente (RNF-17).
+	mux.HandleFunc("GET /postulaciones", a.conSesion(a.misPostulaciones))
+	mux.HandleFunc("POST /postulaciones", a.conSesion(a.iniciarPostulacion))
+	mux.HandleFunc("GET /postulaciones/{ref}", a.conSesion(a.abrirPorReferencia))
+	mux.HandleFunc("GET /postulaciones/{id}/{seccion}", a.conSesion(a.pasoDePostulacion))
+	mux.HandleFunc("POST /postulaciones/{id}/campos", a.conSesion(a.guardarCamposDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/subcategoria", a.conSesion(a.cambiarSubcategoriaDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/integrantes", a.conSesion(a.integrantesDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/videos", a.conSesion(a.videosDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/obras", a.conSesion(a.agregarObraDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/obras/{obra}", a.conSesion(a.obraDelPaso))
+
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)
 

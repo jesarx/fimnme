@@ -59,7 +59,8 @@ Con el paso 10c **el backend está completo**.
 
 | # | Paso | Estado |
 |---|---|---|
-| 11 | **Postulante.** Panel «Mis postulaciones»; formulario por pasos con autoguardado e indicador de completitud; obras e integrantes dinámicos; subida con barra de progreso; revisión y envío; vista de subsanación con lo editable resaltado. Accesibilidad AA y móvil. | Pendiente |
+| 11a | **Postulante: panel y formulario.** Panel «Mis postulaciones» con el historial de todas las ediciones y las convocatorias abiertas; formulario por pasos (datos generales, propuesta de concierto, obras) pintado de la definición del modelo, con guardado automático por htmx y confirmación «Guardado a las…»; barra de pasos con lo que le falta a cada uno; integrantes, ligas de video y obras dinámicos; cambio de subcategoría; todo funciona sin JavaScript. Tema visual en un solo archivo, con rasgos del sitio del 48º. | ✅ Hecho |
+| 11b | **Postulante: documentos, envío y subsanación.** Subida con barra de progreso; revisión y envío con la lista de bloqueadores y la confirmación; acuses; vista de la postulación enviada; subsanación con lo editable resaltado y solicitudes de desbloqueo. | Pendiente |
 | 12 | **Revisor y jurado.** Bandeja con filtros; vista de revisión y dictámenes; solicitud de subsanación; ficha de evaluación; visor de PDF y reproductor de audio. | Pendiente |
 | 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
 
@@ -95,6 +96,47 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 11a — qué se entregó
+
+El paso 11 se parte en dos: **11a** (esto) y **11b** (documentos, revisión y envío,
+postulación enviada y subsanación).
+
+**Decisiones:** [ADR 0017](adr/0017-pantallas-del-postulante-y-tema-visual.md).
+
+- **Panel «Mis postulaciones»** (`/postulaciones`): el historial de la cuenta en todas las
+  ediciones, con su estado tal como lo ve el titular, y las convocatorias en las que puede
+  postular hoy (en Intérpretes, eligiendo solista o ensamble). El enlace por folio es
+  permanente.
+- **Formulario por pasos**: datos generales, propuesta de concierto (Intérpretes) y obras.
+  Los campos salen de la definición del modelo; un campo extendido nuevo aparece solo.
+  La barra de pasos dice cuánto falta en cada uno y cada paso lista lo suyo, con enlace al
+  control.
+- **Guardado automático** con htmx: «Guardado a las 14:32»; sólo se escribe lo que cambió;
+  una cola por paso; aviso si no se pudo guardar; lo no confirmado se envía al salir. El
+  error de cada campo aparece en su lugar.
+- **Listas dinámicas**: integrantes (un renglón a medias no se guarda, se avisa), ligas de
+  video con el resultado de su comprobación, y obras (añadir, mover, quitar, con el
+  máximo de la convocatoria).
+- **Sin JavaScript** todo funciona con botones; en **inglés**, con los nombres de los
+  países en inglés; en **móvil** y en **modo oscuro**.
+- **Tema visual** en `views/static/css/tema.css`: todos los colores y tipografías. Para
+  la imagen del 49º se cambian ese archivo, el logotipo y el icono. Rasgos tomados del
+  sitio del 48º: bandas de título, títulos de sección en versalitas, botones en píldora,
+  menú plegable en móvil.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de las páginas por sus dos
+caminos (htmx y sin JavaScript), comprobando en la base lo guardado: panel, permisos (lo
+ajeno da 404; una mutación que quita esa comprobación hace fallar las pruebas), guardado
+parcial con rechazos, entidad y sede que cambian de forma, integrantes, ligas, obras,
+cambio de subcategoría, inglés, campos extendidos y fuera de plazo. Otra prueba impide
+colores fuera de `tema.css`. En un navegador real (Playwright): el recorrido completo a
+1280 y a 390 px sin errores de consola, sin JavaScript y en modo oscuro; contraste AA de
+todos los pares de color medido en claro y en oscuro.
+
+**No se hizo:** los pasos de documentos y de revisión y envío (11b); una auditoría con
+lector de pantalla; incrustar tipografías (esperan la imagen del 49º).
 
 ## Paso 10c — qué se entregó
 
@@ -733,3 +775,10 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     cada cambio de configuración lleve el nombre de un administrador, se le añade.
 68. **`export-csv` genera reportes en nombre de una cuenta** de administrador o de la
     coordinación nacional (`--como`), con sus permisos, y así queda en la bitácora.
+69. **La imagen del 49º Foro** (colores, logotipo, tipografía) se aplica cambiando
+    `tema.css`, el logotipo y el icono. Mientras no exista, se usa la del 48º.
+70. **Sin JavaScript, cada lista del formulario es un formulario aparte**: lo escrito en
+    los datos generales se pierde si se pulsa «Añadir integrante» sin guardar antes. Con
+    JavaScript (el caso normal) no ocurre.
+71. **Los nombres de los países** son los de CLDR, con algunos ajustes a su forma corta.
+    México va primero en la lista.

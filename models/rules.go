@@ -1297,9 +1297,9 @@ func seccionDeRuta(ruta string) string {
 	return SeccionDatos
 }
 
-// condicionCumplida evalúa la condición de un campo condicional sobre los
+// CondicionCumplida evalúa la condición de un campo condicional sobre los
 // valores capturados.
-func condicionCumplida(condicion string, campos map[string]string) bool {
+func CondicionCumplida(condicion string, campos map[string]string) bool {
 	if condicion != CondicionFueraDeCDMX {
 		return false
 	}
@@ -1343,7 +1343,7 @@ func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usua
 			valor := strings.TrimSpace(valores[def.Ruta])
 			switch {
 			case valor == "":
-				if def.Obligatorio || condicionCumplida(def.Condicion, p.Campos) {
+				if def.Obligatorio || CondicionCumplida(def.Condicion, p.Campos) {
 					agregar(seccionDeRuta(def.Ruta), def.Ruta, obraID, "bloqueo.campo_requerido")
 				}
 			case ValidarValorDeCampo(def, valor, ctx) != "":

@@ -135,6 +135,14 @@ func (a *App) conSesion(manejador http.HandlerFunc) http.HandlerFunc {
 			// Tras ingresar se vuelve a la página que se pidió.
 			destino += "&volver=" + url.QueryEscape(r.URL.Path)
 		}
+		if r.Header.Get("HX-Request") == "true" {
+			// Un guardado automático con la sesión vencida no puede seguir
+			// la redirección a ciegas: quien escribe creería que se guardó.
+			// htmx lleva a la página de ingreso al recibir esta cabecera.
+			w.Header().Set("HX-Redirect", destino)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 		http.Redirect(w, r, destino, http.StatusSeeOther)
 	}
 }

@@ -62,3 +62,10 @@ oficiales. Sí aportó cifras útiles (numeralia de 2026):
 
 Los logotipos pertenecen a sus instituciones (Secretaría de Cultura, INBAL, CNMO) y se
 usan en un sistema de la propia CNMO. No quedan cubiertos por la licencia GPL del código.
+
+## Actualización (paso 11a)
+
+La identidad quedó reunida en `views/static/css/tema.css`, y una prueba impide colores
+fuera de él. Se añadieron rasgos del sitio del 48º (bandas de título, títulos de sección,
+botones en píldora, menú plegable). Noto Sans no se incrusta todavía: la tipografía
+espera la imagen del 49º. Véase el [ADR 0017](0017-pantallas-del-postulante-y-tema-visual.md).

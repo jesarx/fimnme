@@ -16,8 +16,12 @@
 {{- /* htmx sin estilos inyectados ni eval(), para que la CSP no necesite excepciones. */}}
 <meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowEval":false,"selfRequestsOnly":true}'>
 <link rel="icon" href="{{estatico "img/favicon.svg"}}" type="image/svg+xml">
+{{- /* tema.css lleva la identidad de la edición (colores y tipografía); fimnme.css, todo lo demás. */}}
+<link rel="stylesheet" href="{{estatico "css/tema.css"}}">
 <link rel="stylesheet" href="{{estatico "css/fimnme.css"}}">
 <script src="{{estatico "js/htmx.min.js"}}" defer></script>
+{{- /* fimnme.js es una mejora: todo funciona también sin él (y sin htmx). */}}
+<script src="{{estatico "js/fimnme.js"}}" defer></script>
 </head>
 <body>
 <a class="salto" href="#contenido">{{.T "sitio.saltar"}}</a>
@@ -31,9 +35,16 @@
       <span class="marca__logo">{{template "logo_foro"}}</span>
       <span class="marca__texto"><span>{{.T "marca.linea1"}}</span> <span>{{.T "marca.linea2"}}</span> <b>{{.T "marca.linea3"}}</b></span>
     </a>
-    <nav class="menu" aria-label="{{.T "nav.principal"}}">
+    {{- /* Botón del menú en pantallas angostas, como en el sitio del Foro. Nace
+         oculto y lo muestra fimnme.js: sin JavaScript el menú queda a la vista. */}}
+    <button class="menu-boton" type="button" aria-expanded="false" aria-controls="menu" hidden>
+      <span class="oculto">{{.T "nav.menu"}}</span>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+    </button>
+    <nav id="menu" class="menu" aria-label="{{.T "nav.principal"}}">
       <a href="/"{{if eq .Ruta "/"}} aria-current="page"{{end}}>{{.T "nav.convocatorias"}}</a>
       {{- if .Sesion}}
+      <a href="/postulaciones"{{if .EnSeccion "/postulaciones"}} aria-current="page"{{end}}>{{.T "nav.postulaciones"}}</a>
       <a href="/cuenta"{{if eq .Ruta "/cuenta"}} aria-current="page"{{end}}>{{.T "nav.cuenta"}}</a>
       {{- /* Salir es un POST: cerrar la sesión modifica estado. */}}
       <form method="post" action="/cuenta/salir">
@@ -52,8 +63,16 @@
   </div>
 </header>
 
-<main id="contenido" class="ancho" tabindex="-1">
+{{- /*
+  Una página puede abrir con una banda de título a todo lo ancho (bloque
+  "banda"), como las páginas divisorias del programa del Foro; debajo va su
+  contenido, a la medida de la página.
+*/}}
+<main id="contenido" tabindex="-1">
+{{block "banda" .}}{{end}}
+<div class="ancho cuerpo">
 {{template "contenido" .}}
+</div>
 </main>
 
 {{- /*

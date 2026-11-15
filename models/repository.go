@@ -6483,10 +6483,10 @@ func (r *Repositorio) CamposExtendidos(ctx context.Context) ([]CampoExtendido, e
 // definiciones de formulario.
 func definicionesExtendidas(dePostulacion, deObra []CampoExtendido) (definicionesDePostulacion, definicionesDeObra []DefinicionCampo) {
 	for _, c := range dePostulacion {
-		definicionesDePostulacion = append(definicionesDePostulacion, c.definicion())
+		definicionesDePostulacion = append(definicionesDePostulacion, c.Definicion())
 	}
 	for _, c := range deObra {
-		definicionesDeObra = append(definicionesDeObra, c.definicion())
+		definicionesDeObra = append(definicionesDeObra, c.Definicion())
 	}
 	return definicionesDePostulacion, definicionesDeObra
 }
@@ -6501,7 +6501,7 @@ func conExtendidosDelPostulante(buscar func(string) (DefinicionCampo, bool), ext
 		}
 		for _, c := range extendidos {
 			if c.Ruta() == ruta && c.LoCapturaElPostulante() {
-				return c.definicion(), true
+				return c.Definicion(), true
 			}
 		}
 		return DefinicionCampo{}, false
@@ -6636,7 +6636,7 @@ func (r *Repositorio) ValoresExtendidos(ctx context.Context, tabla string, id in
 	var definiciones []DefinicionCampo
 	for _, c := range todos {
 		if c.Tabla == tabla {
-			campos, definiciones = append(campos, c), append(definiciones, c.definicion())
+			campos, definiciones = append(campos, c), append(definiciones, c.Definicion())
 		}
 	}
 	// La tabla está en la lista blanca: su nombre puede ir en la consulta.
@@ -6686,7 +6686,7 @@ func (r *Repositorio) GuardarExtendidos(ctx context.Context, actor Actor, tabla 
 		buscar := func(ruta string) (DefinicionCampo, bool) {
 			for _, c := range capturables {
 				if c.Ruta() == ruta {
-					return c.definicion(), true
+					return c.Definicion(), true
 				}
 			}
 			return DefinicionCampo{}, false

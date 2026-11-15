@@ -9,8 +9,9 @@
  *   4. Componentes (botón, estado, aviso, tarjeta, panel, formulario…)
  *   5. Páginas (portada, convocatoria, error)
  *
- * Identidad: por ahora, la del 48º Foro (paleta, cabecera y pie institucional);
- * la del 49º la sustituirá cuando exista. Véase el ADR 0008.
+ * Identidad: esta hoja no contiene NINGÚN color ni tipografía. Todos viven en
+ * tema.css, que es lo único que cambia con la imagen de cada edición (hoy, la
+ * del 48º Foro). Véanse el ADR 0008 y el ADR 0017.
  *
  * Criterios: primero móvil (RNF-09), contraste WCAG 2.1 AA (RNF-08) y ningún
  * recurso externo: las tipografías son las del sistema del visitante.
@@ -18,43 +19,10 @@
 
 /* ---------- 1. Variables ---------- */
 
+/* Los colores y las tipografías NO están aquí: son la identidad de la
+   edición y viven en tema.css, que se carga antes. Aquí sólo queda lo que
+   no cambia con la imagen: la escala de espacio y el ancho de la página. */
 :root {
-  /* Color: la paleta del 48º Foro (verdes sobre fondo beige). Cuando exista
-     la imagen del 49º basta con cambiar estas variables. */
-  --fondo: #f4f1ea;
-  --superficie: #ffffff;
-  --tinta: #172b20;
-  --tinta-suave: #546b5c;
-  --borde: #b9cdbf;
-  --borde-fuerte: #7f9787;
-  --acento: #2a7350;
-  --acento-fuerte: #172b20;
-  --sobre-acento: #ffffff;
-  --foco: #3d9b6e;
-  --exito: #17603a;
-  --exito-fondo: #d2e8db;
-  --info: #1f4f7a;
-  --info-fondo: #e6eff7;
-  --espera: #75500a;
-  --espera-fondo: #f8eed6;
-  --error: #a3211b;
-  --error-fondo: #fbe9e7;
-  --neutro-fondo: #eae8df;
-
-  /* Cabecera y pie institucionales: oscuros siempre, también en modo claro. */
-  --cabecera-fondo: #111311;
-  --cabecera-texto: rgba(255, 255, 255, 0.8);
-  --logo-foro: #e6ae78;
-  --pie-fondo: #2b2b2b;
-  --pie2-fondo: #000000;
-
-  /* Tipografía: Noto Sans, la del programa del Foro, si el equipo la tiene;
-     si no, la del sistema. No se descarga ninguna fuente externa. */
-  --sans: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --serif: var(--sans);
-  --institucional: Montserrat, "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-
-  /* Escala de espacio. */
   --e1: 0.25rem;
   --e2: 0.5rem;
   --e3: 0.75rem;
@@ -64,34 +32,7 @@
   --e7: 3rem;
   --e8: 4.5rem;
 
-  --radio: 6px;
   --ancho-max: 71.25rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --fondo: #101a14;
-    --superficie: #17241c;
-    --tinta: #e2e6df;
-    --tinta-suave: #a5b9a8;
-    --borde: #2c3f33;
-    --borde-fuerte: #6f8a78;
-    --acento: #7cc9a0;
-    --acento-fuerte: #d2e8db;
-    --sobre-acento: #0c1a12;
-    --foco: #7cc9a0;
-    --exito: #8fd6aa;
-    --exito-fondo: #17301f;
-    --info: #9cc7ee;
-    --info-fondo: #16283a;
-    --espera: #e8c477;
-    --espera-fondo: #332709;
-    --error: #f5a199;
-    --error-fondo: #3a1613;
-    --neutro-fondo: #1f2e25;
-    --cabecera-fondo: #080a08;
-    --pie-fondo: #1b1b1b;
-  }
 }
 
 /* ---------- 2. Base ---------- */
@@ -245,7 +186,7 @@ main:focus {
    edición a la izquierda y menú en versalitas a la derecha. */
 .cabecera {
   background: var(--cabecera-fondo);
-  color: #fff;
+  color: var(--sobre-oscuro);
   font-family: var(--institucional);
 }
 
@@ -263,12 +204,12 @@ main:focus {
   display: flex;
   align-items: center;
   gap: var(--e3);
-  color: #fff;
+  color: var(--sobre-oscuro);
   text-decoration: none;
 }
 
 .marca:hover {
-  color: #fff;
+  color: var(--sobre-oscuro);
 }
 
 .marca__logo {
@@ -321,7 +262,7 @@ main:focus {
 .menu a:hover,
 .menu button:hover,
 .menu a[aria-current="page"] {
-  color: #fff;
+  color: var(--sobre-oscuro);
 }
 
 .menu a[aria-current="page"] {
@@ -330,12 +271,12 @@ main:focus {
 }
 
 .menu .menu__destacado {
-  border-color: rgba(255, 255, 255, 0.45);
-  color: #fff;
+  border-color: var(--sobre-oscuro-borde);
+  color: var(--sobre-oscuro);
 }
 
 .menu .menu__destacado:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--sobre-oscuro-realce);
 }
 
 .menu form {
@@ -344,7 +285,7 @@ main:focus {
 
 .menu__idioma {
   padding-left: var(--e2);
-  border-left: 1px solid rgba(255, 255, 255, 0.25);
+  border-left: 1px solid var(--sobre-oscuro-filete);
 }
 
 /* En pantallas angostas el menú baja a un segundo renglón: se compacta y el
@@ -366,8 +307,153 @@ main:focus {
   }
 }
 
+/* Botón del menú. Sólo existe con JavaScript (fimnme.js le quita «hidden»)
+   y sólo se ve en pantallas angostas, donde el menú se pliega tras él, como
+   en el sitio del Foro. Sin JavaScript el menú queda a la vista. */
+.menu-boton {
+  display: none;
+  padding: var(--e2);
+  border: 0;
+  border-radius: var(--radio);
+  background: none;
+  color: var(--sobre-oscuro);
+  cursor: pointer;
+}
+
+.menu-boton svg {
+  display: block;
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+@media (max-width: 56rem) {
+  .js .cabecera__interior {
+    flex-wrap: nowrap;
+    position: relative;
+  }
+
+  .js .menu-boton:not([hidden]) {
+    display: block;
+  }
+
+  .js .menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    flex-direction: column;
+    align-items: stretch;
+    width: auto;
+    padding: var(--e2) var(--e4) var(--e4);
+    background: var(--cabecera-fondo);
+  }
+
+  .js .menu--abierto {
+    display: flex;
+  }
+
+  .js .menu a,
+  .js .menu button {
+    width: 100%;
+    padding: var(--e3) 0;
+    border-radius: 0;
+    border-top: 1px solid var(--sobre-oscuro-realce);
+    text-align: left;
+  }
+
+  .js .menu .menu__destacado {
+    border-color: var(--sobre-oscuro-realce) transparent transparent;
+  }
+
+  .js .menu a[aria-current="page"] {
+    box-shadow: none;
+    color: var(--logo-foro);
+  }
+
+  .js .menu__idioma {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+}
+
+/* Texto sólo para lectores de pantalla. */
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Lo que sólo hace falta sin JavaScript: los botones de «Guardar» de cada
+   lista, que con htmx se guardan solas. */
+.js .solo-sin-js {
+  display: none;
+}
+
 main {
   flex: 1;
+}
+
+/* Banda de título de las páginas interiores, a todo lo ancho, como las
+   páginas divisorias del programa del Foro. */
+.banda {
+  padding-block: var(--e6) var(--e5);
+  background: radial-gradient(circle at 92% 0%, var(--banda-luz) 0, var(--banda-fondo) 62%);
+  color: var(--banda-texto);
+}
+
+.banda__ante {
+  margin: 0 0 var(--e3);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--banda-suave);
+}
+
+.banda__ante::before {
+  content: "";
+  display: block;
+  width: 3.5rem;
+  height: 2px;
+  margin-bottom: var(--e4);
+  background: var(--banda-suave);
+}
+
+.banda__titulo {
+  margin: 0;
+  font-size: clamp(1.75rem, 1.2rem + 2.4vw, 2.75rem);
+  color: var(--banda-texto);
+}
+
+.banda__folio {
+  display: inline-block;
+  font-size: 0.55em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--banda-suave);
+}
+
+.banda__entrada {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e2) var(--e4);
+  max-width: 46rem;
+  margin: var(--e3) 0 0;
+  color: var(--banda-suave);
+}
+
+/* El contenido de la página, bajo la banda de título si la hay. */
+.cuerpo {
   padding-block: var(--e6) var(--e8);
 }
 
@@ -376,13 +462,13 @@ main {
 .pie {
   padding-block: 2.75rem;
   background: var(--pie-fondo);
-  color: #fff;
+  color: var(--sobre-oscuro);
   font-family: var(--institucional);
   font-size: 0.875rem;
 }
 
 .pie a {
-  color: #fff;
+  color: var(--sobre-oscuro);
   text-decoration: none;
 }
 
@@ -406,7 +492,7 @@ main {
 }
 
 .pie__texto {
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--sobre-oscuro-suave);
   line-height: 1.7;
 }
 
@@ -430,16 +516,16 @@ main {
   width: 75%;
   margin: 0;
   padding: var(--e4) 0 0;
-  border-top: thin solid #444;
+  border-top: thin solid var(--pie-filete);
   list-style: none;
 }
 
 .pie__enlaces a {
-  color: #b5b5b5;
+  color: var(--pie-enlace);
 }
 
 .pie__enlaces a:hover {
-  color: #fff;
+  color: var(--sobre-oscuro);
   text-decoration: underline;
 }
 
@@ -459,7 +545,7 @@ main {
 
 .pie2 {
   background: var(--pie2-fondo);
-  color: rgba(255, 255, 255, 0.62);
+  color: var(--sobre-oscuro-tenue);
   font-family: var(--institucional);
   font-size: 0.75rem;
   font-weight: 600;
@@ -500,7 +586,7 @@ main {
   display: inline-block;
   padding: var(--e3) var(--e5);
   border: 2px solid var(--acento);
-  border-radius: var(--radio);
+  border-radius: var(--radio-boton);
   background: var(--acento);
   color: var(--sobre-acento);
   font: inherit;
@@ -918,6 +1004,523 @@ main {
   opacity: 1;
 }
 
+/* Título de sección en versalitas con una barra de acento, como en el
+   sitio del Foro. */
+.titulo-seccion {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin: 0 0 var(--e4);
+  padding: 0;
+  font-family: var(--sans);
+  font-size: 0.8438rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--acento);
+}
+
+.titulo-seccion::before {
+  content: "";
+  flex: none;
+  width: 3px;
+  height: 1.15em;
+  background: var(--acento);
+}
+
+.bloque {
+  margin-bottom: var(--e7);
+}
+
+.boton--menor {
+  padding: var(--e2) var(--e4);
+  font-size: 0.9063rem;
+}
+
+.boton[disabled] {
+  border-color: var(--borde);
+  background: var(--neutro-fondo);
+  color: var(--tinta-suave);
+  cursor: not-allowed;
+}
+
+/* Tarjeta con un formulario dentro: no es pulsable entera. */
+.tarjeta--formulario form {
+  margin-top: auto;
+  padding-top: var(--e3);
+}
+
+.opciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e5);
+  margin: 0 0 var(--e4);
+  padding: 0;
+  border: 0;
+}
+
+.opciones legend {
+  width: 100%;
+  margin-bottom: var(--e2);
+  padding: 0;
+  font-weight: 600;
+}
+
+.opciones label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e2);
+  min-height: 2.75rem;
+}
+
+.opciones input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--acento);
+}
+
+/* --- Formulario de postulación --- */
+
+/* Barra de pasos. En pantallas angostas se desplaza de lado: los cinco
+   pasos siempre están a la vista de uno en uno, sin apilarse. */
+.avance {
+  margin-bottom: var(--e5);
+  overflow-x: auto;
+}
+
+.avance ol {
+  display: flex;
+  gap: var(--e2);
+  min-width: max-content;
+  margin: 0;
+  padding: 0 0 var(--e1);
+  list-style: none;
+}
+
+.avance__paso {
+  flex: 1 0 auto;
+}
+
+.avance__paso > a,
+.avance__paso > span {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--e3);
+  align-items: center;
+  height: 100%;
+  padding: var(--e3) var(--e4);
+  border: 1px solid var(--borde);
+  border-bottom: 3px solid var(--borde-fuerte);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--tinta);
+  text-decoration: none;
+}
+
+.avance__paso > a:hover {
+  border-color: var(--borde-fuerte);
+}
+
+.avance__paso--completo > a,
+.avance__paso--completo > span {
+  border-bottom-color: var(--exito);
+}
+
+.avance__paso--actual > a {
+  border-color: var(--acento);
+  background: var(--acento-fondo);
+}
+
+.avance__sin-pantalla {
+  color: var(--tinta-suave);
+}
+
+.avance__numero {
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--neutro-fondo);
+  font-weight: 700;
+}
+
+.avance__paso--actual .avance__numero {
+  background: var(--acento);
+  color: var(--sobre-acento);
+}
+
+.avance__nombre {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.avance__estado {
+  font-size: 0.8125rem;
+  color: var(--tinta-suave);
+}
+
+.avance__paso--completo .avance__estado {
+  color: var(--exito);
+  font-weight: 600;
+}
+
+/* En pantallas angostas sólo el paso actual muestra su nombre: los demás
+   quedan en su número (el nombre sigue ahí para los lectores de pantalla), y
+   así los cinco caben en un renglón sin desplazarse. */
+@media (max-width: 48rem) {
+  .avance ol {
+    min-width: 0;
+  }
+
+  .avance__paso {
+    flex: 0 0 auto;
+  }
+
+  .avance__paso--actual {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .avance__paso > a,
+  .avance__paso > span {
+    padding: var(--e2);
+  }
+
+  .avance__paso:not(.avance__paso--actual) > a,
+  .avance__paso:not(.avance__paso--actual) > span {
+    display: block;
+  }
+
+  .avance__paso:not(.avance__paso--actual) .avance__nombre,
+  .avance__paso:not(.avance__paso--actual) .avance__estado {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.paso {
+  max-width: 46rem;
+}
+
+.paso__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e2) var(--e5);
+  margin-bottom: var(--e5);
+}
+
+.paso__cabeza h2 {
+  margin: 0;
+}
+
+.paso__numero {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--tinta-suave);
+}
+
+/* Confirmación del guardado. Se queda pegada arriba al desplazar un
+   formulario largo: quien escribe siempre sabe si lo suyo ya se guardó. */
+.guardado {
+  position: sticky;
+  top: var(--e2);
+  z-index: 3;
+  margin: 0;
+  padding: var(--e1) var(--e3);
+  border-radius: var(--radio);
+  background: var(--exito-fondo);
+  color: var(--exito);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.guardado:empty {
+  display: none;
+}
+
+.guardado--error {
+  background: var(--error-fondo);
+  color: var(--error);
+}
+
+.grupo {
+  min-width: 0;
+  margin: 0 0 var(--e5);
+  padding: var(--e5);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.grupo > :last-child {
+  margin-bottom: 0;
+}
+
+/* El título de un grupo es su <legend>: se saca del borde del fieldset. */
+.grupo > legend {
+  float: left;
+  width: 100%;
+}
+
+.grupo > legend + * {
+  clear: both;
+}
+
+.campo textarea {
+  min-height: 9rem;
+  resize: vertical;
+}
+
+/* El párrafo del error existe siempre, vacío mientras no hay error: ahí
+   escribe htmx el motivo cuando el servidor rechaza un valor. */
+.campo__error:empty {
+  display: none;
+}
+
+.campo:has(> .campo__error:not(:empty)) input:not([type="checkbox"]),
+.campo:has(> .campo__error:not(:empty)) select,
+.campo:has(> .campo__error:not(:empty)) textarea {
+  border: 2px solid var(--error);
+}
+
+/* Un dato que no puede modificarse: se lee, no se edita. */
+.campo__rotulo {
+  margin: 0 0 var(--e1);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--tinta-suave);
+}
+
+.campo__valor {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.campo__vacio {
+  color: var(--tinta-suave);
+  font-style: italic;
+}
+
+.enlace-estado:empty {
+  display: none;
+}
+
+/* Listas que crecen: integrantes y ligas de video. */
+.lista {
+  margin: 0;
+}
+
+.renglones {
+  margin: 0 0 var(--e3);
+  padding: 0;
+  list-style: none;
+}
+
+.renglon {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--e2) var(--e4);
+  align-items: end;
+  padding-block: var(--e4);
+  border-top: 1px solid var(--borde);
+}
+
+.renglon:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.renglon .campo {
+  margin: 0;
+}
+
+.renglon__quitar {
+  justify-self: start;
+}
+
+@media (min-width: 40rem) {
+  .renglon {
+    grid-template-columns: 1fr 1fr auto;
+  }
+}
+
+.lista__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e3);
+  margin: 0;
+}
+
+.lista-fija {
+  margin: 0;
+  padding-left: var(--e5);
+}
+
+.lista-fija__detalle {
+  color: var(--tinta-suave);
+}
+
+.lista-fija__detalle::before {
+  content: "· ";
+}
+
+/* Cambio de subcategoría: plegado, porque borra datos. */
+.cambio {
+  margin-bottom: var(--e5);
+  font-size: 0.9375rem;
+}
+
+.cambio summary {
+  color: var(--acento);
+  cursor: pointer;
+}
+
+.cambio form {
+  margin-top: var(--e3);
+  padding: var(--e4);
+  border: 1px solid var(--espera);
+  border-radius: var(--radio);
+  background: var(--espera-fondo);
+  color: var(--espera);
+}
+
+.cambio .campo {
+  margin-bottom: var(--e3);
+}
+
+/* Lo que falta en el paso. */
+.faltantes {
+  margin-bottom: var(--e5);
+  padding: var(--e4) var(--e5);
+  border-left: 4px solid var(--espera);
+  border-radius: var(--radio);
+  background: var(--espera-fondo);
+}
+
+.faltantes:has(.faltantes__listo) {
+  border-left-color: var(--exito);
+  background: var(--exito-fondo);
+}
+
+.faltantes .titulo-seccion {
+  color: var(--espera);
+}
+
+.faltantes .titulo-seccion::before {
+  background: var(--espera);
+}
+
+.faltantes ul {
+  margin: 0;
+  padding-left: var(--e5);
+}
+
+.faltantes a {
+  color: var(--espera);
+}
+
+.faltantes__listo {
+  margin: 0;
+  color: var(--exito);
+  font-weight: 600;
+}
+
+.paso__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e4);
+}
+
+.paso__acciones > :only-child {
+  margin-left: auto;
+}
+
+/* Programa de obras. */
+.obras {
+  margin-bottom: var(--e5);
+}
+
+.obras__lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.obra {
+  margin-bottom: var(--e5);
+  padding: var(--e5);
+  border: 1px solid var(--borde);
+  border-left: 4px solid var(--acento);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.obra__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  margin-bottom: var(--e5);
+  padding-bottom: var(--e4);
+  border-bottom: 1px solid var(--borde);
+}
+
+.obra__cabeza h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.obra__titulo {
+  font-weight: 400;
+  color: var(--tinta-suave);
+}
+
+.obra__titulo::before {
+  content: "· ";
+}
+
+.obra__acciones,
+.obra__acciones form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  margin: 0;
+}
+
+.obra__campos > :last-child {
+  margin-bottom: 0;
+}
+
+.obras__agregar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e3);
+  margin: 0;
+}
+
+.obras__agregar .nota {
+  margin: 0;
+}
+
 /* ---------- 5. Páginas ---------- */
 
 .portada {
@@ -1010,8 +1613,9 @@ main {
     display: none;
   }
 
+  /* El papel no es identidad: negro sobre blanco. */
   body {
-    background: #fff;
-    color: #000;
+    background: white;
+    color: black;
   }
 }

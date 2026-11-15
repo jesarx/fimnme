@@ -632,3 +632,40 @@ func TestExpedientePDF(t *testing.T) {
 		t.Error("expediente individual en inglés mal compuesto")
 	}
 }
+
+// La identidad visual vive en tema.css y sólo ahí: la hoja fimnme.css no
+// puede llevar ningún color, y toda variable que use debe estar definida.
+// Así, cambiar a la imagen de otra edición es cambiar un archivo (ADR 0017).
+func TestElTemaConcentraLaIdentidad(t *testing.T) {
+	leer := func(ruta string) string {
+		datos, err := fs.ReadFile(contenido, ruta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(datos)
+	}
+	tema, hoja := leer("static/css/tema.css"), leer("static/css/fimnme.css")
+	color := regexp.MustCompile(`#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|color-mix)\(`)
+	for _, literal := range color.FindAllString(hoja, -1) {
+		t.Errorf("fimnme.css lleva un color (%s): debe ser una variable de tema.css", literal)
+	}
+	if strings.Contains(hoja, "font-family: \"") {
+		t.Error("fimnme.css nombra una tipografía: debe usar las variables --sans, --serif o --institucional")
+	}
+	definidas := make(map[string]bool)
+	for _, m := range regexp.MustCompile(`(--[a-z0-9-]+)\s*:`).FindAllStringSubmatch(tema+hoja, -1) {
+		definidas[m[1]] = true
+	}
+	for _, m := range regexp.MustCompile(`var\((--[a-z0-9-]+)`).FindAllStringSubmatch(tema+hoja, -1) {
+		if !definidas[m[1]] {
+			t.Errorf("se usa la variable %s, que no está definida", m[1])
+		}
+	}
+	// El modo oscuro redefine los colores de la página, no su forma.
+	oscuro := tema[strings.Index(tema, "prefers-color-scheme: dark"):]
+	for _, variable := range []string{"--fondo", "--superficie", "--tinta", "--acento", "--sobre-acento", "--error", "--error-fondo"} {
+		if !strings.Contains(oscuro, variable+":") {
+			t.Errorf("el modo oscuro no redefine %s", variable)
+		}
+	}
+}

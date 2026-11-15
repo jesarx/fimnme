@@ -19,10 +19,17 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 10c de 14: modo interactivo y reportes desde la terminal.** Con él el backend
-está completo; siguen las pantallas (pasos 11 a 13) y la operación (paso 14). Hoy el
-sistema tiene:
+**Paso 11a de 14: pantallas del postulante, primera parte.** El backend está completo y
+empiezan las pantallas. Hoy el sistema tiene:
 
+- **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
+  convocatorias abiertas, para iniciar una postulación.
+- **Formulario por pasos** con **guardado automático** («Guardado a las 14:32»): datos
+  generales, propuesta de concierto y obras, con integrantes, ligas de video y obras
+  dinámicos, y lo que le falta a cada paso. Funciona en móvil, en inglés y sin
+  JavaScript. Los pasos de documentos y de envío llegan en el 11b.
+- **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
+  imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
   convocatorias, calendario, dotaciones, requisitos, criterios y jurados y revisores, con
   las mismas reglas que el panel.
@@ -573,6 +580,7 @@ controllers/        CONTROLADOR
   api.go              API REST /api/v1: sesión y bitácora
   configuracion.go    API de configuración de ediciones y convocatorias
   postulaciones.go    API de captura de postulaciones
+  postulante.go       páginas del postulante: panel y formulario por pasos
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados
@@ -601,8 +609,9 @@ views/              VISTA (todo incrustado con //go:embed)
   fotografia.go       reducción de la fotografía para el PDF
   reportes.go         CSV de reportes y respuestas de tableros
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
-  templates/          html/template
-  static/             CSS propio, htmx, iconos
+  templates/          html/template (páginas y parciales)
+  static/css/         tema.css (identidad de la edición) y fimnme.css (todo lo demás)
+  static/js/          htmx y fimnme.js (mejoras opcionales: todo funciona sin ellos)
   i18n/               es.json, en.json
 deploy/             systemd, proxy inverso y guiones de instalación y actualización
 internal/
@@ -981,6 +990,19 @@ del tipo de la plantilla) o con `--convocatoria ID`.
 - `--idioma en` pone encabezados y valores en inglés.
 
 Decisiones: [ADR 0016](docs/adr/0016-modo-interactivo-y-export-csv.md).
+
+### Cambiar la imagen de la edición
+
+La plataforma lleva por ahora la identidad del 48º Foro. Para la del 49º —o la de
+cualquier edición— se cambian tres archivos y se recompila:
+
+1. `views/static/css/tema.css`: colores (claro y oscuro), tipografía, radios. Su
+   encabezado lista los pares de color que deben conservar el contraste AA.
+2. `views/templates/parciales/logos.html`: el dibujo `logo_foro` (SVG).
+3. `views/static/img/favicon.svg`.
+
+Ningún otro archivo tiene colores: `make verificar` falla si alguien los añade a
+`fimnme.css`. Detalles en el [ADR 0017](docs/adr/0017-pantallas-del-postulante-y-tema-visual.md).
 
 ### Anonimizar una postulación (solicitud ARCO)
 

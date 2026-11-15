@@ -149,10 +149,10 @@ func (c CampoExtendido) LoCapturaElPostulante() bool {
 	return NodoDePostulacion(c.Tabla) && slices.Contains(c.VisibleEn, PerfilPostulante)
 }
 
-// definicion convierte el campo en una definición de formulario, para que lo
+// Definicion convierte el campo en una definición de formulario, para que lo
 // valide y lo guarde el mismo código que a los campos nativos. Siempre es
 // opcional.
-func (c CampoExtendido) definicion() DefinicionCampo {
+func (c CampoExtendido) Definicion() DefinicionCampo {
 	def := DefinicionCampo{Ruta: c.Ruta(), tabla: c.Tabla, columna: c.Columna, llave: llaveDeNodo(c.Tabla)}
 	switch c.Tipo {
 	case ExtendidoEntero:
