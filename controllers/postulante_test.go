@@ -123,10 +123,10 @@ func TestPanelDelPostulante(t *testing.T) {
 	// El enlace por id lleva al primer paso. Lo ajeno y lo inexistente, 404.
 	redirige(t, ana.get(base), base+"/datos")
 	luis := e.postulante("luis@ejemplo.mx")
-	for _, ruta := range []string{base, base + "/datos", "/postulaciones/999/datos", "/postulaciones/FIM50-INT-0099", base + "/inventado", base + "/documentos"} {
+	for _, ruta := range []string{base, base + "/datos", "/postulaciones/999/datos", "/postulaciones/FIM50-INT-0099", base + "/inventado"} {
 		quien := luis
-		if strings.HasSuffix(ruta, "inventado") || strings.HasSuffix(ruta, "documentos") {
-			quien = ana // suya, pero ese paso no existe (o aún no tiene pantalla)
+		if strings.HasSuffix(ruta, "inventado") {
+			quien = ana // suya, pero ese paso no existe
 		}
 		if w := quien.get(ruta); w.Code != http.StatusNotFound {
 			t.Errorf("GET %s: estado %d, se esperaba 404", ruta, w.Code)

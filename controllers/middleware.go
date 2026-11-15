@@ -20,6 +20,7 @@ package controllers
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -45,7 +46,8 @@ func encadenar(h http.Handler, capas ...middleware) http.Handler {
 }
 
 // cuerpoMaximo acota el tamaño de los formularios. Las subidas de archivos
-// tendrán su propio límite por requisito documental cuando se implementen.
+// tienen su propio límite, el de cada requisito documental: véase
+// cuerpoDeSubida.
 const cuerpoMaximo = 1 << 20 // 1 MiB
 
 // politicaContenido es la CSP estricta (RNF-10): todo recurso sale del propio
@@ -151,12 +153,36 @@ func (a *App) protegerOrigen(siguiente http.Handler) http.Handler {
 	return proteccion.Handler(siguiente)
 }
 
-// limitarCuerpo impide que un cuerpo desmesurado agote la memoria.
+// claveCuerpoOriginal es la llave privada, en el contexto de la petición, del
+// cuerpo tal como llegó, antes de acotarlo.
+type claveCuerpoOriginal struct{}
+
+// limitarCuerpo impide que un cuerpo desmesurado agote la memoria: ninguna
+// petición puede leer más de cuerpoMaximo.
+//
+// La única excepción son las subidas de archivos, que miden hasta 100 MB y
+// tienen el límite de su requisito. Para ellas se guarda el cuerpo original
+// en el contexto, y sólo cuerpoDeSubida —con un límite explícito— lo
+// recupera. Envolver un límite con otro más amplio no lo amplía: el de 1 MiB
+// seguía mandando, y toda partitura de más de 1 MiB se rechazaba.
 func limitarCuerpo(siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), claveCuerpoOriginal{}, r.Body)
+		r = r.WithContext(ctx)
 		r.Body = http.MaxBytesReader(w, r.Body, cuerpoMaximo)
 		siguiente.ServeHTTP(w, r)
 	})
+}
+
+// cuerpoDeSubida devuelve el cuerpo original de la petición, acotado a
+// tamanoMax en lugar de a cuerpoMaximo. Sólo lo usa abrirSubida, que ya sabe
+// cuánto puede medir el archivo que espera.
+func cuerpoDeSubida(w http.ResponseWriter, r *http.Request, tamanoMax int64) io.ReadCloser {
+	original, ok := r.Context().Value(claveCuerpoOriginal{}).(io.ReadCloser)
+	if !ok {
+		original = r.Body // sin el middleware (no ocurre en el servidor)
+	}
+	return http.MaxBytesReader(w, original, tamanoMax)
 }
 
 // --- Idioma ---------------------------------------------------------------

@@ -19,15 +19,18 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 11a de 14: pantallas del postulante, primera parte.** El backend está completo y
-empiezan las pantallas. Hoy el sistema tiene:
+**Paso 11 de 14: pantallas del postulante.** El backend está completo y el postulante
+ya puede hacerlo todo desde el navegador. Hoy el sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
 - **Formulario por pasos** con **guardado automático** («Guardado a las 14:32»): datos
-  generales, propuesta de concierto y obras, con integrantes, ligas de video y obras
-  dinámicos, y lo que le falta a cada paso. Funciona en móvil, en inglés y sin
-  JavaScript. Los pasos de documentos y de envío llegan en el 11b.
+  generales, propuesta de concierto, obras y **documentos** (subida con barra de
+  progreso), con lo que le falta a cada paso. Funciona en móvil, en inglés y sin
+  JavaScript.
+- **Revisión y envío** con la postulación completa; después, su **estado** y sus
+  **acuses**. Durante una **subsanación**, lo que puede corregirse aparece resaltado con
+  su motivo, y se puede pedir que se desbloquee algo más.
 - **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
   imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
@@ -581,6 +584,7 @@ controllers/        CONTROLADOR
   configuracion.go    API de configuración de ediciones y convocatorias
   postulaciones.go    API de captura de postulaciones
   postulante.go       páginas del postulante: panel y formulario por pasos
+  postulante_envio.go páginas del postulante: documentos, envío, estado y subsanación
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados

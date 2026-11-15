@@ -1286,6 +1286,19 @@ func SeccionesDe(tipo TipoConvocatoria) []string {
 	return []string{SeccionDatos, SeccionObras, SeccionDocumentos, SeccionEnvio}
 }
 
+// SeccionDeElemento devuelve el paso del formulario en el que se captura un
+// elemento señalable: un documento, una lista o un campo. Es el paso al que
+// lleva el enlace de un problema de subsanación.
+func SeccionDeElemento(clase ClaseProblema, campo string) string {
+	switch {
+	case clase == ProblemaDocumento:
+		return SeccionDocumentos
+	case campo == CampoObras:
+		return SeccionObras
+	}
+	return seccionDeRuta(campo)
+}
+
 // seccionDeRuta devuelve la sección a la que pertenece un campo.
 func seccionDeRuta(ruta string) string {
 	switch {

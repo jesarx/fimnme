@@ -107,6 +107,19 @@ func (t *Traducciones) Fecha(idioma string, momento time.Time) string {
 	return t.T(idioma, "fecha.formato", local.Day(), mes, local.Year())
 }
 
+// FechaCivil formatea una fecha sin hora («1990-05-17»), como la de
+// nacimiento o la de un concierto, en el idioma pedido. No se convierte de
+// zona horaria: un día del calendario es el mismo en todas. Si el texto no es
+// una fecha, se devuelve tal cual.
+func (t *Traducciones) FechaCivil(idioma, texto string) string {
+	dia, err := time.Parse(time.DateOnly, texto)
+	if err != nil {
+		return texto
+	}
+	mes := t.T(idioma, fmt.Sprintf("fecha.mes.%d", int(dia.Month())))
+	return t.T(idioma, "fecha.formato", dia.Day(), mes, dia.Year())
+}
+
 // Hora formatea sólo la hora, con la zona horaria explícita.
 func (t *Traducciones) Hora(idioma string, momento time.Time) string {
 	local := momento.In(zonaMexico)

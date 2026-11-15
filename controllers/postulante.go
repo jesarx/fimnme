@@ -52,9 +52,11 @@ import (
 // Permisos: cada cuenta sólo sobre SUS postulaciones. Lo que no es suyo
 // responde 404, igual que lo que no existe.
 
-// seccionesConPagina son los pasos del formulario que ya tienen pantalla. Los
-// de documentos y de revisión y envío llegan con la entrega 11b del plan.
-var seccionesConPagina = []string{models.SeccionDatos, models.SeccionConcierto, models.SeccionObras}
+// seccionesConPagina son los pasos del formulario que tienen pantalla: todos.
+// La lista existe para que un paso nuevo del modelo no aparezca enlazado
+// antes de tener la suya.
+var seccionesConPagina = []string{models.SeccionDatos, models.SeccionConcierto, models.SeccionObras,
+	models.SeccionDocumentos, models.SeccionEnvio}
 
 // esHTMX indica si la petición la hizo htmx, que espera fragmentos.
 func esHTMX(r *http.Request) bool {
@@ -107,6 +109,10 @@ type vistaCampo struct {
 	Opciones      []vistaOpcion
 	Editable      bool
 	Error         string
+	// Durante una subsanación, lo que puede modificarse se resalta, con el
+	// motivo que dio el revisor (RF-POST-13).
+	Resaltado bool
+	Senalado  string
 }
 
 // vistaGrupo es un bloque de campos con su título.
@@ -208,6 +214,14 @@ type vistaPostulacion struct {
 	VideosEditable      bool
 	NotaVideos          string
 
+	// Subsanación abierta, si la hay: se anuncia en todos los pasos.
+	Subsanacion *vistaSubsanacion
+
+	// Paso de documentos.
+	Documentos []vistaGrupoDocumentos
+	// Paso de revisión y envío (o estado de una postulación enviada).
+	Envio *vistaEnvio
+
 	Obras            []vistaObra
 	ObrasEditable    bool
 	PuedeAgregarObra bool
@@ -264,6 +278,15 @@ type postulacionAbierta struct {
 	permiso          models.PermisoDeEdicion
 	motivo           string // clave de por qué no puede modificarse nada; vacía si algo se puede
 	bloqueadores     []models.Bloqueador
+	// subsanacion es la que el postulante puede atender ahora, o nil; y
+	// senalados, el motivo de cada elemento que señaló el revisor.
+	subsanacion *models.Subsanacion
+	senalados   map[string]string
+}
+
+// claveDeSenalado identifica un elemento señalado en una subsanación.
+func claveDeSenalado(clase models.ClaseProblema, campo string, obraID int64) string {
+	return fmt.Sprintf("%s|%s|%d", clase, campo, obraID)
 }
 
 // abrirPostulacion carga la postulación de la ruta ({id}). Si no existe o no
@@ -317,6 +340,12 @@ func (a *App) abrirPostulacionPorID(w http.ResponseWriter, r *http.Request, id i
 		ab.motivo = errores[0].Clave
 	}
 	ab.bloqueadores = models.ValidarParaEnvio(ab.p, cfg, sesion.Usuario, ahora)
+	ab.senalados = make(map[string]string)
+	if ab.subsanacion = ab.p.SubsanacionAbierta(ahora); ab.subsanacion != nil {
+		for _, problema := range ab.subsanacion.Problemas {
+			ab.senalados[claveDeSenalado(problema.Clase, problema.Campo, problema.ObraID)] = problema.Problema
+		}
+	}
 	return ab, true
 }
 
@@ -370,6 +399,9 @@ func (a *App) campoDeVista(idioma string, ab *postulacionAbierta, def models.Def
 		Control: "texto", Tipo: "text", Valor: valores[def.Ruta], Longitud: def.Longitud,
 		Editable: ab.permiso.Campo(def.Ruta, obraID),
 	}
+	if c.Editable && !ab.permiso.Total {
+		c.Resaltado, c.Senalado = true, ab.senalados[claveDeSenalado(models.ProblemaCampo, def.Ruta, obraID)]
+	}
 	c.Obligatorio = def.Obligatorio || models.CondicionCumplida(def.Condicion, ab.p.Campos)
 	c.Condicional = def.Condicion != "" && !c.Obligatorio
 	c.Texto = c.Valor
@@ -384,9 +416,9 @@ func (a *App) campoDeVista(idioma string, ab *postulacionAbierta, def models.Def
 	case models.CampoDecimal:
 		c.Longitud = 30
 	case models.CampoFecha:
-		c.Tipo = "date"
+		c.Tipo, c.Texto = "date", a.vistas.FechaCivil(idioma, c.Valor)
 	case models.CampoFechaNacimiento:
-		c.Tipo, c.Autocompletar = "date", "bday"
+		c.Tipo, c.Autocompletar, c.Texto = "date", "bday", a.vistas.FechaCivil(idioma, c.Valor)
 	case models.CampoHora:
 		c.Tipo = "time"
 	case models.CampoCorreo:
@@ -550,6 +582,9 @@ func (a *App) vistaDe(r *http.Request, ab *postulacionAbierta, seccion string) *
 	if etapa, ok := c.Etapa(models.EtapaPostulacion); ok {
 		v.TieneCierre, v.Cierre = true, etapa.TerminaAt
 	}
+	if ab.subsanacion != nil {
+		v.Subsanacion = a.subsanacionDeVista(idioma, ab)
+	}
 	// Cambiar de subcategoría sólo tiene sentido en un borrador de Intérpretes.
 	if v.Total && v.EsInterpretes {
 		v.OtraSubcategoria = string(models.SubcategoriaEnsamble)
@@ -598,8 +633,11 @@ func (a *App) vistaDe(r *http.Request, ab *postulacionAbierta, seccion string) *
 			}
 		}
 		ancla := idDeCampo(b.Campo, b.ObraID)
-		if b.Campo == models.CampoObras {
+		switch {
+		case b.Campo == models.CampoObras:
 			ancla = "obras"
+		case b.Requisito != nil:
+			ancla = anclaDeDocumento(b.Requisito.Clave, b.ObraID)
 		}
 		v.Faltantes = append(v.Faltantes, vistaFaltante{Mensaje: mensaje, Ancla: ancla})
 	}
@@ -622,6 +660,8 @@ func (a *App) vistaDe(r *http.Request, ab *postulacionAbierta, seccion string) *
 		}
 	case models.SeccionConcierto:
 		v.Grupos = a.gruposDe(idioma, ab, seccion)
+	case models.SeccionDocumentos:
+		v.Documentos = a.documentosDeVista(idioma, ab)
 	case models.SeccionObras:
 		v.ObrasEditable = ab.permiso.Campo(models.CampoObras, 0)
 		v.PuedeAgregarObra = v.ObrasEditable && len(models.ValidarNuevaObra(c, len(ab.p.Obras))) == 0
@@ -646,7 +686,7 @@ func (a *App) videosDeVista(idioma string, ab *postulacionAbierta, escritas []st
 			videos[i].URL = guardado.URL
 			videos[i].Estado, videos[i].Clase = a.vistas.T(idioma, "enlace.estado."+string(guardado.Estado)), string(guardado.Estado)
 			if guardado.Detalle != "" {
-				videos[i].Estado += " " + a.vistas.T(idioma, "enlace.detalle."+guardado.Detalle)
+				videos[i].Estado += " — " + a.vistas.T(idioma, "enlace.detalle."+guardado.Detalle)
 			}
 		}
 		if escritas != nil {
@@ -810,8 +850,8 @@ func (a *App) iniciarPostulacion(w http.ResponseWriter, r *http.Request) {
 
 // GET /postulaciones/{ref}   — abre una postulación por su id o por su folio
 //
-// El enlace por folio es permanente (RNF-17). Lleva al primer paso; la
-// pantalla de estado de una postulación ya enviada llega con la entrega 11b.
+// El enlace por folio es permanente (RNF-17): es el que lleva el correo del
+// acuse.
 func (a *App) abrirPorReferencia(w http.ResponseWriter, r *http.Request) {
 	ref := r.PathValue("ref")
 	id, err := strconv.ParseInt(ref, 10, 64)
@@ -825,9 +865,17 @@ func (a *App) abrirPorReferencia(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, ok := a.abrirPostulacionPorID(w, r, id); ok {
-		http.Redirect(w, r, fmt.Sprintf("/postulaciones/%d/%s", id, models.SeccionDatos), http.StatusSeeOther)
+	ab, ok := a.abrirPostulacionPorID(w, r, id)
+	if !ok {
+		return
 	}
+	// Un borrador se retoma por el principio; una postulación enviada, en la
+	// subsanación o en su estado, que están en el paso de envío.
+	seccion := models.SeccionEnvio
+	if ab.p.Estado == models.PostulacionBorrador {
+		seccion = models.SeccionDatos
+	}
+	http.Redirect(w, r, fmt.Sprintf("/postulaciones/%d/%s", id, seccion), http.StatusSeeOther)
 }
 
 // --- Pasos del formulario ------------------------------------------------------
@@ -836,6 +884,9 @@ func (a *App) abrirPorReferencia(w http.ResponseWriter, r *http.Request) {
 // muestren en el paso al que lleva (?aviso=…).
 var avisosDePaso = map[string]views.Aviso{
 	"subcategoria": {Tipo: "exito", Clave: "postulacion.subcategoria_cambiada"},
+	"enviada":      {Tipo: "exito", Clave: "envio.enviada"},
+	"reenviada":    {Tipo: "exito", Clave: "envio.reenviada"},
+	"desbloqueo":   {Tipo: "exito", Clave: "subsanacion.solicitud_enviada"},
 }
 
 // GET /postulaciones/{id}/{seccion}   — un paso del formulario
@@ -850,6 +901,9 @@ func (a *App) pasoDePostulacion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := a.vistaDe(r, ab, seccion)
+	if seccion == models.SeccionEnvio {
+		v.Envio = a.envioDeVista(r, ab)
+	}
 	// Tras «Añadir integrante» sin JavaScript se vuelve aquí con un renglón más.
 	if r.URL.Query().Get("integrante") == "nuevo" && v.IntegrantesEditable {
 		v.Integrantes = append(v.Integrantes, vistaIntegrante{Nuevo: true})

@@ -167,6 +167,20 @@ func TestFechasEnHoraDeMexico(t *testing.T) {
 	}
 }
 
+// Una fecha sin hora no se corre de día al mostrarse: el 17 de mayo es el 17
+// de mayo en cualquier zona horaria.
+func TestFechaCivil(t *testing.T) {
+	m := motorDePrueba(t)
+	for idioma, esperado := range map[string]string{models.IdiomaES: "17 de mayo de 1990", models.IdiomaEN: "May 17, 1990"} {
+		if got := m.FechaCivil(idioma, "1990-05-17"); got != esperado {
+			t.Errorf("FechaCivil(%s) = %q, se esperaba %q", idioma, got, esperado)
+		}
+	}
+	if got := m.FechaCivil(models.IdiomaES, "no es fecha"); got != "no es fecha" {
+		t.Errorf("un texto que no es fecha debe devolverse tal cual: %q", got)
+	}
+}
+
 // Una clave inexistente se devuelve tal cual: hueco visible, no página rota.
 func TestClaveInexistenteNoRompe(t *testing.T) {
 	m := motorDePrueba(t)

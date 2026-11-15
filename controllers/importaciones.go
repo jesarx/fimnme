@@ -61,8 +61,8 @@ func (a *App) responderImportacion(w http.ResponseWriter, r *http.Request, estad
 // «archivo» (.csv o .xlsx, hasta 2 MB). Responde 201 con la importación y sus
 // conflictos. No escribe nada en el dominio.
 func (a *App) apiAnalizarImportacion(w http.ResponseWriter, r *http.Request) {
-	subida, ok := a.abrirSubida(w, r, models.TamanoMaxImportacion)
-	if !ok {
+	subida, err := a.abrirSubida(w, r, models.TamanoMaxImportacion)
+	if a.falloDeSubida(w, r, err) {
 		return
 	}
 	convocatoriaID, err := strconv.ParseInt(subida.campos["convocatoria_id"], 10, 64)

@@ -1285,6 +1285,22 @@ main {
   resize: vertical;
 }
 
+/* Al llegar a un control por su enlace («lo que falta», «lo señalado»), se
+   ve también su etiqueta y el motivo, no sólo la caja. */
+.campo input,
+.campo select,
+.campo textarea {
+  scroll-margin-top: 9rem;
+}
+
+.requisito,
+.obra,
+.lista,
+.grupo,
+#obras {
+  scroll-margin-top: var(--e5);
+}
+
 /* El párrafo del error existe siempre, vacío mientras no hay error: ahí
    escribe htmx el motivo cuando el servidor rechaza un valor. */
 .campo__error:empty {
@@ -1519,6 +1535,242 @@ main {
 
 .obras__agregar .nota {
   margin: 0;
+}
+
+/* --- Subsanación: lo que puede modificarse se resalta (RF-POST-13) --- */
+
+.campo--resaltado,
+.lista--resaltada .grupo,
+.requisito--resaltado {
+  padding: var(--e3);
+  border-left: 4px solid var(--espera);
+  border-radius: var(--radio);
+  background: var(--espera-fondo);
+}
+
+.campo--fijo {
+  opacity: 0.85;
+}
+
+.senalado {
+  margin: 0 0 var(--e2);
+  color: var(--espera);
+  font-size: 0.9063rem;
+}
+
+.senalado__rotulo {
+  font-weight: 700;
+}
+
+.subsanacion-aviso time {
+  font-weight: 600;
+}
+
+.subsanacion__mensaje {
+  margin: 0 0 var(--e5);
+  font-size: 0.9375rem;
+}
+
+.subsanacion__mensaje summary {
+  color: var(--acento);
+  cursor: pointer;
+}
+
+.subsanacion__mensaje .prosa {
+  margin-top: var(--e3);
+  padding: var(--e3) var(--e4);
+  border-left: 3px solid var(--borde-fuerte);
+  background: var(--neutro-fondo);
+}
+
+.problemas,
+.solicitudes {
+  margin: 0 0 var(--e5);
+  padding-left: var(--e5);
+}
+
+.problemas li,
+.solicitudes li {
+  margin-bottom: var(--e2);
+}
+
+.problemas__motivo,
+.solicitudes__texto,
+.solicitudes__respuesta {
+  display: block;
+  color: var(--tinta-suave);
+  font-size: 0.9375rem;
+  white-space: pre-line;
+}
+
+.desbloqueo {
+  padding-top: var(--e4);
+  border-top: 1px solid var(--borde);
+}
+
+/* --- Documentos --- */
+
+.requisitos {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.requisito {
+  margin-bottom: var(--e4);
+  padding-bottom: var(--e4);
+  border-bottom: 1px solid var(--borde);
+}
+
+.requisito:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.requisito--resaltado:last-child {
+  padding-bottom: var(--e3);
+}
+
+.requisito__titulo {
+  margin: 0 0 var(--e1);
+  font-size: 1.0625rem;
+}
+
+.requisito__titulo:focus {
+  outline: none;
+}
+
+.entregados {
+  margin: 0 0 var(--e3);
+  padding: 0;
+  list-style: none;
+}
+
+.entregado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e1) var(--e3);
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio);
+  background: var(--neutro-fondo);
+}
+
+.entregado a {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.entregado__detalle {
+  color: var(--tinta-suave);
+  font-size: 0.875rem;
+}
+
+.entregado__quitar {
+  margin: 0 0 0 auto;
+}
+
+.subida {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e2) var(--e3);
+  margin: var(--e2) 0 0;
+}
+
+.subida__etiqueta {
+  width: 100%;
+  margin: 0;
+  font-weight: 600;
+}
+
+.subida__archivo {
+  flex: 1 1 14rem;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: var(--e2);
+  border: 1px dashed var(--borde-fuerte);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--tinta);
+  font: inherit;
+}
+
+.subida__progreso {
+  flex: 1 1 100%;
+  height: 0.75rem;
+  accent-color: var(--acento);
+}
+
+/* Mientras sube, el formulario no admite otra subida. */
+.subida.htmx-request .boton,
+.subida.htmx-request .subida__archivo {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* --- Revisión y envío --- */
+
+.estado-postulacion__folio {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.envio {
+  border-color: var(--acento);
+}
+
+.faltantes__lista {
+  margin: 0 0 var(--e4);
+  padding-left: var(--e5);
+}
+
+.resumen {
+  margin-bottom: var(--e5);
+}
+
+.resumen__paso {
+  margin-bottom: var(--e4);
+  padding: var(--e4) var(--e5);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+}
+
+.resumen__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--e2) var(--e3);
+  margin-bottom: var(--e4);
+}
+
+.resumen__cabeza h4 {
+  margin: 0;
+}
+
+.resumen__cabeza a {
+  margin-left: auto;
+}
+
+.resumen .campo {
+  margin-bottom: var(--e3);
+}
+
+.resumen .campo--fijo {
+  opacity: 1;
+}
+
+.resumen__obra {
+  margin-bottom: var(--e4);
+  padding-left: var(--e4);
+  border-left: 3px solid var(--borde);
+}
+
+.resumen__obra-titulo {
+  font-weight: 700;
 }
 
 /* ---------- 5. Páginas ---------- */

@@ -79,8 +79,11 @@
 */ -}}
 {{define "pcampo"}}
 {{- $c := .C}}{{$p := .P}}
-<div class="campo{{if not $c.Editable}} campo--fijo{{end}}" id="c-{{$c.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
+<div class="campo{{if not $c.Editable}} campo--fijo{{end}}{{if $c.Resaltado}} campo--resaltado{{end}}" id="c-{{$c.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
   {{- if $c.Editable}}
+  {{- if $c.Resaltado}}
+  <p class="senalado" id="s-{{$c.ID}}"><span class="senalado__rotulo">{{$p.T "subsanacion.por_corregir"}}</span>{{if $c.Senalado}} {{$c.Senalado}}{{end}}</p>
+  {{- end}}
   <label for="{{$c.ID}}">{{$c.Etiqueta}}
     {{- if $c.Condicional}} <span class="campo__opcional">{{$p.T "form.si_aplica"}}</span>
     {{- else if not $c.Obligatorio}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span>{{end}}</label>
@@ -89,10 +92,10 @@
   {{- end}}
   {{- if eq $c.Control "area"}}
   <textarea id="{{$c.ID}}" name="{{$c.Ruta}}" rows="6"{{if $c.Longitud}} maxlength="{{$c.Longitud}}"{{end}}
-    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">{{$c.Valor}}</textarea>
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">{{$c.Valor}}</textarea>
   {{- else if eq $c.Control "seleccion"}}
   <select id="{{$c.ID}}" name="{{$c.Ruta}}"
-    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
     <option value="">{{$p.T "form.elige"}}</option>
     {{- range $c.Opciones}}
     <option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>
@@ -103,7 +106,7 @@
     {{- if $c.Numerico}} inputmode="numeric"{{end}}
     {{- if $c.Autocompletar}} autocomplete="{{$c.Autocompletar}}"{{end}}
     {{- if $c.Longitud}} maxlength="{{$c.Longitud}}"{{end}}
-    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
   {{- end}}
   <p class="campo__error" id="e-{{$c.ID}}">{{$c.Error}}</p>
   {{- else}}
@@ -133,7 +136,7 @@
   botones la envían.
 */ -}}
 {{define "integrantes"}}
-<form id="integrantes" class="lista" method="post" action="{{.Datos.Base}}/integrantes" novalidate
+<form id="integrantes" class="lista{{if and .Datos.IntegrantesEditable (not .Datos.Total)}} lista--resaltada{{end}}" method="post" action="{{.Datos.Base}}/integrantes" novalidate
   {{- if .Datos.IntegrantesEditable}} data-autoguardado hx-post="{{.Datos.Base}}/integrantes" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all"{{end}}>
   <fieldset class="grupo">
     <legend class="titulo-seccion">{{.T "campo.integrantes"}}</legend>
@@ -181,7 +184,7 @@
   Bajo cada liga va el resultado de su comprobación en red.
 */ -}}
 {{define "videos"}}
-<form id="videos" class="lista" method="post" action="{{.Datos.Base}}/videos" novalidate
+<form id="videos" class="lista{{if and .Datos.VideosEditable (not .Datos.Total)}} lista--resaltada{{end}}" method="post" action="{{.Datos.Base}}/videos" novalidate
   {{- if .Datos.VideosEditable}} data-autoguardado hx-post="{{.Datos.Base}}/videos" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all"{{end}}>
   <fieldset class="grupo">
     <legend class="titulo-seccion">{{.T "campo.videos"}}</legend>
@@ -277,6 +280,102 @@
 </section>
 {{end}}
 
+{{- /*
+  "subsanacion_aviso": durante una subsanación, en todos los pasos: qué pasa,
+  hasta cuándo y dónde está la lista de lo señalado (RF-POST-13).
+*/ -}}
+{{define "subsanacion_aviso"}}
+{{- with .Datos.Subsanacion}}
+<div class="aviso aviso--espera subsanacion-aviso">
+  <p class="aviso__titulo">{{$.T "subsanacion.titulo"}}</p>
+  <p>{{$.T "subsanacion.explicacion"}} {{$.T "subsanacion.plazo"}} <time datetime="{{$.ISO .FechaLimite}}">{{$.FechaHora .FechaLimite}}</time>.</p>
+  {{- if ne $.Datos.Paso "envio"}}
+  <p><a href="{{$.Datos.Base}}/envio#subsanacion">{{$.T "subsanacion.ver_y_reenviar"}}</a></p>
+  {{- end}}
+</div>
+{{- end}}
+{{end}}
+
+{{- /*
+  "requisito": la ranura de un documento: qué se pide, lo entregado y, si se
+  puede, el formulario para subir. Argumentos: P y R.
+
+  La subida es un formulario multipart normal: sin JavaScript se envía con su
+  botón. Con htmx se envía igual y fimnme.js llena la barra de progreso con
+  el avance de la petición (RF-POST-07). Los campos ocultos van antes del
+  archivo: el servidor los lee primero para saber cuánto puede medir.
+*/ -}}
+{{define "requisito"}}
+{{- $p := .P}}{{$r := .R}}
+<li class="requisito{{if $r.Resaltado}} requisito--resaltado{{end}}{{if $r.Error}} requisito--error{{end}}" id="{{$r.Ancla}}">
+  <h4 class="requisito__titulo" id="t-{{$r.Ancla}}"{{if $r.Foco}} tabindex="-1" autofocus{{end}}>{{$r.Etiqueta}}
+    {{- if not $r.Obligatorio}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span>{{end}}</h4>
+  {{- if $r.Resaltado}}
+  <p class="senalado"><span class="senalado__rotulo">{{$p.T "subsanacion.por_corregir"}}</span>{{if $r.Senalado}} {{$r.Senalado}}{{end}}</p>
+  {{- end}}
+  {{- if $r.Ayuda}}
+  <p class="campo__ayuda">{{$r.Ayuda}}</p>
+  {{- end}}
+  <p class="campo__ayuda" id="f-{{$r.Ancla}}">{{$p.T "documentos.formatos" $r.Formatos $r.TamanoMax}}{{if gt $r.MaxArchivos 1}} {{$p.T "documentos.hasta_n" $r.MaxArchivos}}{{end}}</p>
+  {{- if $r.Documentos}}
+  <ul class="entregados">
+    {{- range $r.Documentos}}
+    <li class="entregado">
+      <a href="{{.URL}}" rel="noopener">{{.Nombre}}</a>
+      <span class="entregado__detalle">{{.Tamano}} · {{$p.FechaHora .Subido}}</span>
+      {{- if .Quitar}}
+      <form class="entregado__quitar" method="post" action="{{$p.Datos.Base}}/documentos/{{.ID}}/quitar"
+        hx-post="{{$p.Datos.Base}}/documentos/{{.ID}}/quitar" hx-target="#documentos" hx-swap="outerHTML" hx-confirm="{{$p.T "documentos.confirmar_quitar"}}">
+        <button class="boton boton--menor boton--secundario" type="submit">{{$p.T "postulacion.quitar"}}<span class="oculto"> {{.Nombre}}</span></button>
+      </form>
+      {{- end}}
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="campo__valor"><span class="campo__vacio">{{$p.T "documentos.sin_entregar"}}</span></p>
+  {{- end}}
+  <p class="campo__error" id="e-{{$r.Ancla}}">{{$r.Error}}</p>
+  {{- if $r.PuedeSubir}}
+  <form class="subida" method="post" action="{{$p.Datos.Base}}/documentos" enctype="multipart/form-data"
+    hx-post="{{$p.Datos.Base}}/documentos" hx-encoding="multipart/form-data" hx-target="#documentos" hx-swap="outerHTML">
+    <input type="hidden" name="clave" value="{{$r.Clave}}">
+    {{- if $r.ObraID}}<input type="hidden" name="obra_id" value="{{$r.ObraID}}">{{end}}
+    {{- if $r.Reemplaza}}<input type="hidden" name="reemplaza" value="{{$r.Reemplaza}}">{{end}}
+    <label class="subida__etiqueta" for="a-{{$r.Ancla}}">{{if $r.Reemplaza}}{{$p.T "documentos.reemplazar"}}{{else}}{{$p.T "documentos.elegir"}}{{end}}</label>
+    <input class="subida__archivo" id="a-{{$r.Ancla}}" name="archivo" type="file" accept="{{$r.Accept}}" required aria-describedby="f-{{$r.Ancla}} e-{{$r.Ancla}}">
+    <progress class="subida__progreso" max="100" value="0" hidden aria-label="{{$p.T "documentos.progreso"}}"></progress>
+    <button class="boton boton--menor" type="submit">{{$p.T "documentos.subir"}}</button>
+  </form>
+  {{- else if and $r.Editable (not $r.PuedeSubir)}}
+  <p class="nota">{{$p.T "documentos.lleno"}}</p>
+  {{- end}}
+</li>
+{{end}}
+
+{{- /* "documentos": el paso de documentos, agrupado por postulación y por obra. */ -}}
+{{define "documentos"}}
+<section id="documentos" class="documentos" aria-label="{{.T "seccion.documentos"}}">
+  {{- range .Datos.Documentos}}
+  <section class="grupo" id="{{.ID}}" aria-labelledby="t-{{.ID}}">
+    <h3 class="titulo-seccion" id="t-{{.ID}}">{{.Titulo}}</h3>
+    {{- if .Nota}}
+    <p class="nota">{{.Nota}}</p>
+    {{- end}}
+    {{- if .Requisitos}}
+    <ul class="requisitos">
+      {{- range .Requisitos}}
+      {{template "requisito" (dict "P" $ "R" .)}}
+      {{- end}}
+    </ul>
+    {{- else}}
+    <p class="nota">{{$.T "documentos.nada_que_entregar"}}</p>
+    {{- end}}
+  </section>
+  {{- end}}
+</section>
+{{end}}
+
 {{- /* --- Fragmentos: lo que se le responde a htmx --------------------------------- */ -}}
 
 {{- /*
@@ -332,6 +431,14 @@
 {{define "f_obras"}}
 {{- template "obras" .}}
 {{- template "obras_resumen" .}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{end}}
+
+{{- /* "f_documentos": los documentos enteros, tras subir o quitar uno. */ -}}
+{{define "f_documentos"}}
+{{- template "documentos" .}}
 {{- template "guardado" .}}
 {{- template "avance" .}}
 {{- template "faltantes" .}}

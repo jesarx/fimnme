@@ -25,6 +25,7 @@
 <p class="migas"><a href="/postulaciones">← {{.T "nav.postulaciones"}}</a></p>
 {{template "avance" .}}
 {{template "aviso" .}}
+{{template "subsanacion_aviso" .}}
 {{- if not .Datos.Editable}}
 <div class="aviso aviso--info"><p>{{.T .Datos.Motivo}}</p></div>
 {{- end}}
@@ -32,12 +33,16 @@
 <div class="paso">
   <div class="paso__cabeza">
     <h2>{{range .Datos.Pasos}}{{if .Actual}}<span class="paso__numero">{{$.T "postulacion.paso_n" .Numero (len $.Datos.Pasos)}}</span> {{.Etiqueta}}{{end}}{{end}}</h2>
-    {{- if .Datos.Editable}}
+    {{- if and .Datos.Editable (ne .Datos.Paso "envio")}}
     {{template "guardado" .}}
     {{- end}}
   </div>
 
-  {{- if eq .Datos.Paso "obras"}}
+  {{- if eq .Datos.Paso "envio"}}
+  {{template "envio" .}}
+  {{- else if eq .Datos.Paso "documentos"}}
+  {{template "documentos" .}}
+  {{- else if eq .Datos.Paso "obras"}}
   {{template "obras_resumen" .}}
   {{template "obras" .}}
   {{- else}}
@@ -73,7 +78,7 @@
   {{- end}}
   {{- end}}
 
-  {{- if .Datos.Editable}}
+  {{- if and .Datos.Editable (ne .Datos.Paso "envio")}}
   {{template "faltantes" .}}
   {{- end}}
 
@@ -81,17 +86,14 @@
     {{- if .Datos.Anterior}}
     <a class="boton boton--secundario" href="{{.Datos.Anterior}}"><span aria-hidden="true">←</span> {{.T "postulacion.anterior"}}</a>
     {{- end}}
-    {{- if and .Datos.Editable (ne .Datos.Paso "obras")}}
+    {{- if and .Datos.Editable (or (eq .Datos.Paso "datos") (eq .Datos.Paso "concierto"))}}
     <button class="boton" type="submit" form="f-campos" name="ir" value="siguiente">
       {{- if .Datos.Siguiente}}{{.T "postulacion.guardar_y_continuar"}} <span aria-hidden="true">→</span>{{else}}{{.T "postulacion.guardar_y_salir"}}{{end}}</button>
     {{- else if .Datos.Siguiente}}
     <a class="boton" href="{{.Datos.Base}}/{{.Datos.Siguiente}}">{{.T "postulacion.siguiente"}} <span aria-hidden="true">→</span></a>
     {{- else}}
-    <a class="boton" href="/postulaciones">{{.T "postulacion.volver_al_panel"}}</a>
+    <a class="boton boton--secundario" href="/postulaciones">{{.T "postulacion.volver_al_panel"}}</a>
     {{- end}}
   </nav>
-  {{- if not .Datos.Siguiente}}
-  <p class="nota">{{.T "postulacion.pasos_proximos"}}</p>
-  {{- end}}
 </div>
 {{end}}

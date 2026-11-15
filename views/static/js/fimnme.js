@@ -7,7 +7,8 @@
  * negocio ni validación: eso vive una sola vez, en el servidor.
  *
  *   1. Marca el documento como «con JavaScript» y activa el menú móvil.
- *   2. Avisa cuando un guardado automático falla, y no deja ir lo capturado.
+ *   2. Avisa cuando un guardado automático falla, y no deja ir lo capturado;
+ *      llena la barra de progreso de las subidas.
  *   3. Muestra las horas en la hora local de quien mira.
  *
  * La CSP no admite código en línea: por eso todo está aquí, y htmx se usa
@@ -91,6 +92,18 @@
       }
     });
     pendientes.clear();
+  });
+
+  /* --- Barra de progreso de las subidas (RF-POST-07) ------------------- */
+
+  // htmx avisa del avance de la petición; aquí sólo se llena la barra del
+  // formulario que sube. Sin JavaScript el navegador muestra el suyo.
+  document.addEventListener("htmx:xhr:progress", function (evento) {
+    var formulario = evento.detail.elt;
+    var barra = formulario && formulario.querySelector ? formulario.querySelector(".subida__progreso") : null;
+    if (!barra || !evento.detail.lengthComputable) return;
+    barra.hidden = false;
+    barra.value = Math.round((evento.detail.loaded / evento.detail.total) * 100);
   });
 
   /* --- 3. Horas en la hora local --------------------------------------- */

@@ -192,6 +192,12 @@ func (m *Motor) RenderFragmento(w http.ResponseWriter, estado int, plantilla, bl
 	return err
 }
 
+// FechaCivil formatea una fecha sin hora en el idioma dado (véase
+// Traducciones.FechaCivil).
+func (m *Motor) FechaCivil(idioma, texto string) string {
+	return m.textos.FechaCivil(idioma, texto)
+}
+
 // TextoOpcional traduce una clave que puede no existir, como la ayuda de un
 // campo: si no hay texto en ningún idioma devuelve "", no la propia clave.
 func (m *Motor) TextoOpcional(idioma, clave string) string {

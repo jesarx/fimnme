@@ -148,6 +148,10 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /postulaciones/{id}/videos", a.conSesion(a.videosDelPaso))
 	mux.HandleFunc("POST /postulaciones/{id}/obras", a.conSesion(a.agregarObraDelPaso))
 	mux.HandleFunc("POST /postulaciones/{id}/obras/{obra}", a.conSesion(a.obraDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/documentos", a.conSesion(a.subirDocumentoDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/documentos/{documento}/quitar", a.conSesion(a.quitarDocumentoDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/envio", a.conSesion(a.enviarDelPaso))
+	mux.HandleFunc("POST /postulaciones/{id}/desbloqueos", a.conSesion(a.solicitarDesbloqueoDelPaso))
 
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)

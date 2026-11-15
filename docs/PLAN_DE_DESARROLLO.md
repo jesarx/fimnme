@@ -60,7 +60,7 @@ Con el paso 10c **el backend está completo**.
 | # | Paso | Estado |
 |---|---|---|
 | 11a | **Postulante: panel y formulario.** Panel «Mis postulaciones» con el historial de todas las ediciones y las convocatorias abiertas; formulario por pasos (datos generales, propuesta de concierto, obras) pintado de la definición del modelo, con guardado automático por htmx y confirmación «Guardado a las…»; barra de pasos con lo que le falta a cada uno; integrantes, ligas de video y obras dinámicos; cambio de subcategoría; todo funciona sin JavaScript. Tema visual en un solo archivo, con rasgos del sitio del 48º. | ✅ Hecho |
-| 11b | **Postulante: documentos, envío y subsanación.** Subida con barra de progreso; revisión y envío con la lista de bloqueadores y la confirmación; acuses; vista de la postulación enviada; subsanación con lo editable resaltado y solicitudes de desbloqueo. | Pendiente |
+| 11b | **Postulante: documentos, envío y subsanación.** Documentos por postulación y por obra según la dotación, con subida con barra de progreso, reemplazo y retiro; revisión y envío con la postulación completa en sólo lectura, lo que falta con su enlace y las dos declaraciones; estado de la postulación enviada con sus acuses; subsanación con lo editable resaltado y su motivo, solicitudes de desbloqueo y reenvío. Corrige el límite que rechazaba toda subida de más de 1 MiB. | ✅ Hecho |
 | 12 | **Revisor y jurado.** Bandeja con filtros; vista de revisión y dictámenes; solicitud de subsanación; ficha de evaluación; visor de PDF y reproductor de audio. | Pendiente |
 | 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
 
@@ -96,6 +96,38 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 11b — qué se entregó
+
+Segunda y última entrega del paso 11: con ella están completas las pantallas del
+postulante.
+
+**Decisiones:** [ADR 0018](adr/0018-documentos-envio-y-subsanacion-del-postulante.md).
+
+- **Documentos**: lo que se pide de la postulación y de cada obra, según su dotación, con
+  formato y tamaño; lo entregado, con descarga; **subida con barra de progreso**,
+  reemplazo y retiro. El error se dice en la ranura misma.
+- **Revisión y envío**: la postulación completa en sólo lectura, lo que falta con un
+  enlace al control exacto, las dos declaraciones y el envío. Después, el **estado**:
+  folio, fecha, en qué va y los acuses. El enlace del correo lleva aquí.
+- **Subsanación**: un aviso en todos los pasos; lo editable resaltado con el motivo del
+  revisor; la lista de lo señalado con enlaces; **solicitud de desbloqueo** con
+  justificación y su respuesta; reenvío con nuevo acuse.
+- **Defecto corregido**: desde el paso 6, toda subida de más de 1 MiB se rechazaba (el
+  límite general de los formularios seguía mandando). Ahora cada subida tiene el límite
+  de su requisito; una prueba con una partitura de 25 MB lo vigila.
+- La subida y el envío de la API pasaron a funciones compartidas con las páginas; la API
+  no cambia.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de las tres pantallas, con
+htmx y sin JavaScript, y de la subsanación entera. En un navegador real: el recorrido
+completo en escritorio y en móvil con archivos de 2 y 12 MB, una revisora que pide la
+subsanación y la postulante que la atiende y reenvía; la subida sin JavaScript en modo
+oscuro.
+
+**No se hizo:** una auditoría con lector de pantalla (queda para el cierre del frontal);
+el visor de PDF y el reproductor de audio integrados son del revisor y el jurado (paso 12).
 
 ## Paso 11a — qué se entregó
 
@@ -782,3 +814,8 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     JavaScript (el caso normal) no ocurre.
 71. **Los nombres de los países** son los de CLDR, con algunos ajustes a su forma corta.
     México va primero en la lista.
+72. **Qué ve el postulante después de enviar**: «validada», «en evaluación» y «evaluada»
+    se le muestran, con el aviso de que el resultado se comunica por los medios oficiales
+    del Foro. El descarte no se le muestra (aparece «en revisión»).
+73. **Durante una subsanación**, el mensaje completo del correo se ofrece plegado en la
+    página, además de la lista de lo señalado.
