@@ -387,6 +387,15 @@ func EstadoSiguiente(estado EstadoConvocatoria) (EstadoConvocatoria, bool) {
 	return ordenEstados[i+1], true
 }
 
+// EstadoAnterior devuelve el estado que precede en el ciclo de vida.
+func EstadoAnterior(estado EstadoConvocatoria) (EstadoConvocatoria, bool) {
+	i := posicionEstado(estado)
+	if i < 1 {
+		return "", false
+	}
+	return ordenEstados[i-1], true
+}
+
 // requerido añade el error de dato obligatorio o demasiado largo de un texto.
 func requerido(errores []ErrorCampo, campo, valor string, maximo int) []ErrorCampo {
 	switch {

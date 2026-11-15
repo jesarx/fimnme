@@ -32,10 +32,10 @@
 //	fimnme-cli import         importación asistida en dos fases
 //	fimnme-cli schema         campos extendidos: añadir y quitar sin recompilar
 //	fimnme-cli export-json    exportación sanitizada para el portal público
+//	fimnme-cli export-csv     reporte desde una plantilla guardada
 //	fimnme-cli arco           anonimización ante una solicitud ARCO
 //	fimnme-cli version        muestra la versión
-//
-// El modo interactivo (--tui) y export-csv llegan en el paso 10c del plan.
+//	fimnme-cli --tui          modo interactivo: ediciones, convocatorias y su configuración
 package main
 
 import (
@@ -92,8 +92,12 @@ func ayuda(banderas *flag.FlagSet) {
 
 Uso:
   fimnme-cli [--datos DIRECTORIO] ORDEN [opciones de la orden]
+  fimnme-cli [--datos DIRECTORIO] --tui
 
 Sin ORDEN, y si el directorio de datos aún no tiene base, la inicializa.
+Con --tui abre el modo interactivo: un diálogo para administrar ediciones,
+convocatorias, calendario, dotaciones, requisitos documentales, criterios de
+evaluación y jurados y revisores.
 
 Órdenes:
   init           Inicializa la base de datos: la crea y aplica el esquema.
@@ -125,6 +129,11 @@ Sin ORDEN, y si el directorio de datos aún no tiene base, la inicializa.
                    drop --tabla NODO --nombre NOMBRE
   export-json    Exportación sanitizada para el portal público.
                  Opciones: --edicion N, --salida ARCHIVO.
+  export-csv --plantilla ID|NOMBRE (--edicion N | --convocatoria ID)
+             --como CORREO [--salida ARCHIVO] [--idioma es|en]
+                 Genera un reporte CSV desde una plantilla guardada en el
+                 panel, en nombre de una cuenta de administrador o de la
+                 coordinación nacional. Con --listar muestra las plantillas.
   arco anonimizar FOLIO --fundamento TEXTO [--con-cuenta]
                  Borra los datos personales de una postulación (solicitud
                  ARCO). Pide confirmación doble. No se puede deshacer.
@@ -156,9 +165,18 @@ func main() {
 	banderas := flag.NewFlagSet("fimnme-cli", flag.ContinueOnError)
 	dirDatos := banderas.String("datos", entorno("FIMNME_DATOS", "data"),
 		"directorio de datos: base SQLite y acervo de archivos (FIMNME_DATOS)")
+	tui := banderas.Bool("tui", false, "modo interactivo: administra ediciones, convocatorias y su configuración")
 	banderas.Usage = func() { ayuda(banderas) }
 	if err := banderas.Parse(os.Args[1:]); err != nil {
 		os.Exit(salidaUso)
+	}
+	if *tui {
+		// El modo interactivo no lleva orden: es un diálogo.
+		if err := conRepositorio(*dirDatos, modoInteractivo); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(salidaError)
+		}
+		return
 	}
 	if banderas.NArg() < 1 {
 		// Sin argumentos, y sobre un directorio de datos que aún no tiene
@@ -196,6 +214,8 @@ func main() {
 		err = conRepositorio(*dirDatos, verificar(*dirDatos, banderas.Args()[1:]))
 	case "export-json":
 		err = conRepositorio(*dirDatos, exportarJSON(*dirDatos, banderas.Args()[1:]))
+	case "export-csv":
+		err = conRepositorio(*dirDatos, exportarCSV(banderas.Args()[1:]))
 	case "import":
 		err = conRepositorio(*dirDatos, importar(*dirDatos, banderas.Args()[1:]))
 	case "schema":

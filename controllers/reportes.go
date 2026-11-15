@@ -19,6 +19,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -68,6 +69,15 @@ func decimalOpcional(texto string) (*float64, bool) {
 	return &valor, err == nil
 }
 
+// ReporteGenerado es un reporte ya armado: el nombre propuesto para el
+// archivo, el separador pedido y las celdas, listas para escribirse.
+type ReporteGenerado struct {
+	Nombre      string
+	Separador   string
+	Encabezados []string
+	Filas       [][]string
+}
+
 // GET /api/v1/convocatorias/{id}/reporte   — genera un reporte CSV
 //
 // Parámetros:
@@ -86,27 +96,48 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sesion := sesionDe(r)
-	cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), convocatoriaID)
+	reporte, err := GenerarReporte(r.Context(), a.datos, a.vistas, sesionDe(r), a.actorDe(r), convocatoriaID, r.URL.Query(), idiomaDelReporte(r))
 	if a.falloDatos(w, r, err) {
 		return
+	}
+	if err := views.CSVConSeparador(w, reporte.Nombre, reporte.Separador, reporte.Encabezados, reporte.Filas); err != nil {
+		a.log.Error("no se pudo escribir el reporte", "error", err)
+	}
+}
+
+// GenerarReporte arma un reporte de una convocatoria a partir de sus
+// parámetros (los de la ruta de arriba, ya separados) y lo deja asentado en
+// la bitácora. No sabe nada de HTTP: la usan la API y «fimnme-cli
+// export-csv», para que un reporte programado desde la terminal pase por las
+// mismas validaciones, el mismo alcance y la misma puerta a las
+// calificaciones que uno pedido desde el navegador.
+//
+// sesion es la de quien lo pide. Aquí mismo se comprueba que pueda generar
+// reportes: quien llama desde fuera de la API no pasa por su control de
+// acceso.
+func GenerarReporte(ctx context.Context, datos models.Persistencia, vistas *views.Motor, sesion *models.Sesion,
+	actor models.Actor, convocatoriaID int64, consulta url.Values, idioma string) (ReporteGenerado, error) {
+	if !models.PuedeGenerarReportes(sesion) {
+		return ReporteGenerado{}, ErrSinSupervision
+	}
+	cfg, err := datos.ConfiguracionDeConvocatoria(ctx, convocatoriaID)
+	if err != nil {
+		return ReporteGenerado{}, err
 	}
 	var errores []models.ErrorCampo
 	falla := func(campo, clave string) { errores = append(errores, models.ErrorCampo{Campo: campo, Clave: clave}) }
 
 	// 1. Los parámetros: los de la plantilla, si se pide una, y encima los de
 	//    la petición.
-	consulta := r.URL.Query()
 	if texto := consulta.Get("plantilla"); texto != "" {
 		plantillaID, _ := strconv.ParseInt(texto, 10, 64)
-		plantilla, err := a.datos.PlantillaDeReportePorID(r.Context(), plantillaID)
-		if a.falloDatos(w, r, err) {
-			return
+		plantilla, err := datos.PlantillaDeReportePorID(ctx, plantillaID)
+		if err != nil {
+			return ReporteGenerado{}, err
 		}
 		guardados, err := url.ParseQuery(plantilla.Consulta)
 		if err != nil || plantilla.Tipo != cfg.Convocatoria.Tipo {
-			a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "plantilla", Clave: "error.plantilla_de_otro_tipo"}}})
-			return
+			return ReporteGenerado{}, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "plantilla", Clave: "error.plantilla_de_otro_tipo"}}}
 		}
 		for nombre, valores := range consulta {
 			guardados[nombre] = valores
@@ -124,18 +155,24 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 	}
 	// El orden por puntaje es propio de los reportes: el listado del archivo
 	// no lo conoce, porque el puntaje no es para todos los que lo consultan.
+	// Se retira de una copia: los parámetros de quien llama no se tocan.
 	descendente := false
 	if orden := consulta.Get("orden"); orden == "puntaje" || orden == "-puntaje" {
 		def.PorPuntaje, descendente = true, orden == "-puntaje"
-		consulta.Del("orden")
+		sinOrden := make(url.Values, len(consulta))
+		for nombre, valores := range consulta {
+			if nombre != "orden" {
+				sinOrden[nombre] = valores
+			}
+		}
+		consulta = sinOrden
 	}
 	filtro, erroresDeFiltro := filtroDeLaConsulta(consulta)
 	filtro.ConvocatoriaID, filtro.Pagina, filtro.Tamano = convocatoriaID, 0, 0
 	def.Filtro = filtro
 	campos, erroresDeReporte := models.ValidarReporte(&def, cfg)
 	if errores = append(append(errores, erroresDeFiltro...), erroresDeReporte...); len(errores) > 0 {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
-		return
+		return ReporteGenerado{}, &models.ErrorValidacion{Errores: errores}
 	}
 
 	// 2. Qué hace falta leer, según los campos pedidos.
@@ -149,9 +186,9 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 	resultados := make(map[unidad]*models.FilaDeResultado)
 	lugares := make(map[unidad]int)
 	if conEvaluacion {
-		matriz, err := matrizDeSupervision(r.Context(), a.datos, sesion, a.actorDe(r), convocatoriaID)
-		if a.falloDatos(w, r, err) {
-			return
+		matriz, err := matrizDeSupervision(ctx, datos, sesion, actor, convocatoriaID)
+		if err != nil {
+			return ReporteGenerado{}, err
 		}
 		lugar := models.LugaresDeLaMatriz(matriz.Filas)
 		for i := range matriz.Filas {
@@ -162,27 +199,27 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Los renglones: las postulaciones del filtro, una fila cada una o una
 	//    por obra.
-	listado, _, err := a.datos.ListarPostulaciones(r.Context(), models.AlcanceDe(sesion), filtro)
-	if a.falloDatos(w, r, err) {
-		return
+	listado, _, err := datos.ListarPostulaciones(ctx, models.AlcanceDe(sesion), filtro)
+	if err != nil {
+		return ReporteGenerado{}, err
 	}
 	jurados, cierre := models.JuradosDe(cfg), models.CierreDePostulacion(cfg.Convocatoria)
 	var renglones []models.FilaDeReporte
 	for _, renglon := range listado {
-		p, err := a.datos.PostulacionPorID(r.Context(), renglon.ID)
-		if a.falloDatos(w, r, err) {
-			return
+		p, err := datos.PostulacionPorID(ctx, renglon.ID)
+		if err != nil {
+			return ReporteGenerado{}, err
 		}
-		titular, err := a.datos.UsuarioPorID(r.Context(), p.UsuarioID)
-		if a.falloDatos(w, r, err) {
-			return
+		titular, err := datos.UsuarioPorID(ctx, p.UsuarioID)
+		if err != nil {
+			return ReporteGenerado{}, err
 		}
 		base := models.FilaDeReporte{Postulacion: p, Titular: models.TitularParaMostrar(p, titular.Usuario), Jurados: jurados,
 			Dotaciones: cfg.Dotaciones, Cierre: cierre}
 		if conObservaciones {
-			revision, err := a.datos.RevisionDe(r.Context(), p.ID)
-			if a.falloDatos(w, r, err) {
-				return
+			revision, err := datos.RevisionDe(ctx, p.ID)
+			if err != nil {
+				return ReporteGenerado{}, err
 			}
 			base.Observaciones = revision.Observaciones
 		}
@@ -231,16 +268,16 @@ func (a *App) apiReporte(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 4. El archivo. Generar un reporte queda en la bitácora.
-	idioma := idiomaDelReporte(r)
-	encabezados, filas := a.vistas.ReporteCSV(idioma, campos, renglones, jurados)
-	if a.falloDatos(w, r, a.datos.RegistrarReporte(r.Context(), a.actorDe(r), convocatoriaID, def.Campos, len(filas))) {
-		return
+	// 4. Las celdas. Generar un reporte queda en la bitácora.
+	encabezados, filas := vistas.ReporteCSV(idioma, campos, renglones, jurados)
+	if err := datos.RegistrarReporte(ctx, actor, convocatoriaID, def.Campos, len(filas)); err != nil {
+		return ReporteGenerado{}, err
 	}
-	nombre := fmt.Sprintf("fimnme_%d_%s_reporte.csv", cfg.Convocatoria.Edicion.Numero, cfg.Convocatoria.Tipo)
-	if err := views.CSVConSeparador(w, nombre, def.Separador, encabezados, filas); err != nil {
-		a.log.Error("no se pudo escribir el reporte", "error", err)
-	}
+	return ReporteGenerado{
+		Nombre:      fmt.Sprintf("fimnme_%d_%s_reporte.csv", cfg.Convocatoria.Edicion.Numero, cfg.Convocatoria.Tipo),
+		Separador:   def.Separador,
+		Encabezados: encabezados, Filas: filas,
+	}, nil
 }
 
 // puntajeDe devuelve el puntaje comparable de una unidad, y si lo tiene: una

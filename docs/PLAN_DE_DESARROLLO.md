@@ -51,12 +51,9 @@ páginas de manual.
 | 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con catálogo de campos, granularidad por postulación u obra, filtros, rango de puntaje y plantillas reutilizables; reporte de resultados con empates; expediente PDF individual y por convocatoria, **recortado según quién lo pide**, con fotografía, índice y marcadores; tablero de la convocatoria y estadísticas de la edición, con cifras navegables. | ✅ Hecho |
 | 10a | **Continuidad, portal público y anonimización.** `fimnme-cli verify` del acervo; espejo con `VACUUM INTO`, manifiesto firmado con HMAC-SHA256 y acervo replicado por contenido; alerta de espacio en disco; exportación sanitizada al portal público (lista blanca hecha tipo) con publicación explícita de la nómina; anonimización ARCO con confirmación doble. | ✅ Hecho |
 | 10b | **Extensión de campos e importación asistida.** `fimnme-cli schema add` / `drop` sobre la lista blanca de nodos, con columnas `x_…`, diccionario y DDL auditado; los campos aparecen solos en el formulario, los reportes y el expediente. Importación en dos fases (Analyze → Commit) de dotaciones y de cuentas de jurado y revisor, desde `.csv` o `.xlsx`, por la API y por `fimnme-cli import`: nada entra sin que una persona resuelva cada conflicto. | ✅ Hecho |
+| 10c | **Modo interactivo y `export-csv`.** `fimnme-cli --tui`: un diálogo por menús para administrar ediciones, convocatorias (bases, calendario, estado), dotaciones, requisitos, criterios y jurados y revisores, con las mismas reglas y los mismos mensajes que el panel. `fimnme-cli export-csv`: un reporte desde una plantilla guardada, con el mismo generador que la API y en nombre de una cuenta que supervisa. | ✅ Hecho |
 
-### Backend
-
-| # | Paso | Requerimientos | Estado |
-|---|---|---|---|
-| 10c | **Modo interactivo y `export-csv`.** `fimnme-cli --tui` para administrar ediciones, convocatorias, dotaciones, requisitos, criterios y asignaciones; `export-csv` desde una plantilla de reporte. | §5.14 (RF-CLI-02 y 05) | Pendiente |
+Con el paso 10c **el backend está completo**.
 
 ### Frontal
 
@@ -98,6 +95,43 @@ páginas de manual.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 10c — qué se entregó
+
+Tercera y última entrega del paso 10. Con ella termina el backend.
+
+**Decisiones:** [ADR 0016](adr/0016-modo-interactivo-y-export-csv.md).
+
+- **Modo interactivo** (`fimnme-cli --tui`, RF-CLI-02): administra ediciones,
+  convocatorias (títulos, límites, bases desde un archivo Markdown, calendario y cambio
+  de estado), dotaciones, requisitos documentales, criterios de evaluación y jurados y
+  revisores. También crea una convocatoria copiando la configuración de otra edición.
+- Es un **diálogo por renglones**, no una pantalla dibujada: sin `golang.org/x/term` ni
+  ninguna otra dependencia, funciona igual por SSH, en `podman exec` o con un lector de
+  pantalla, y se prueba entero.
+- **No tiene reglas propias**: cada cambio llama a la misma operación del repositorio que
+  la API, y lo que el modelo rechaza se explica con los textos del panel.
+- **`fimnme-cli export-csv`** (RF-CLI-05): genera un reporte desde una plantilla guardada.
+  El armado del reporte salió del manejador HTTP a `controllers.GenerarReporte`, que usan
+  la API y la herramienta: el mismo reporte sale idéntico por los dos caminos.
+- `export-csv` exige `--como`, la cuenta de un administrador o de la coordinación
+  nacional: se genera con sus permisos y queda en la bitácora a su nombre.
+- Sin migraciones, sin dependencias nuevas y sin operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Una prueba recorre el modo interactivo de punta a punta
+(alta de edición y convocatoria, rechazo al publicarla incompleta, bases, calendario,
+dotaciones, requisitos, criterios, asignaciones, publicación, copia desde otra edición,
+entrada que se acaba a media ficha y bitácora) comprobando en la base lo que cada diálogo
+dejó. Otra recorre `export-csv`: rechazos, salida estándar byte por byte, archivo con
+permisos `0600`, y bitácora a nombre de la cuenta. Dos mutaciones sembradas —quitar la
+comprobación de permisos del generador y la de la herramienta— hacen fallar las pruebas.
+En vivo, con los binarios: el modo interactivo en una terminal real (pty) sobre la base
+de las entregas anteriores, y `export-csv` a la salida estándar y a un archivo, en
+español y en inglés.
+
+**No se hizo:** una interfaz de terminal a pantalla completa (véase el ADR, §1); editar
+plantillas de correo y de reporte desde la terminal; y el ejemplo de temporizador para
+programar un reporte, que irá con los demás en el paso 14.
 
 ## Paso 10b — qué se entregó
 
@@ -692,3 +726,10 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 65. **Columnas de las hojas**: dotaciones, `nombre_es` (obligatoria), `nombre_en`,
     `descripcion_es`, `descripcion_en`; cuentas, `email`, `nombre`, `apellidos`
     (obligatorias) e `idioma`.
+66. **El modo interactivo es un diálogo por menús**, no una pantalla dibujada: la
+    especificación preveía `golang.org/x/term` y no se usó (ADR 0016, §1).
+67. **Lo que se hace en el modo interactivo queda en la bitácora con el usuario del
+    sistema**, no con una cuenta del panel: no pide `--como`. Si la CNMO prefiere que
+    cada cambio de configuración lleve el nombre de un administrador, se le añade.
+68. **`export-csv` genera reportes en nombre de una cuenta** de administrador o de la
+    coordinación nacional (`--como`), con sus permisos, y así queda en la bitácora.

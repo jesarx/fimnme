@@ -37,10 +37,12 @@ import (
 // GENERARLO (RN-26), porque el archivo sale del sistema: lo que una persona
 // no puede ver no llega a imprimirse.
 
-// errSinSupervision indica que alguien sin perfil de supervisión intentó
-// llegar a lo que cruza a los jurados. No debería ocurrir nunca: es la
-// segunda cerradura.
-var errSinSupervision = errors.New("los resultados de la evaluación son sólo de la supervisión")
+// ErrSinSupervision indica que alguien sin perfil de supervisión intentó
+// llegar a lo que cruza a los jurados, o generar un reporte. Tras el control
+// de acceso de la API no debería ocurrir nunca: es la segunda cerradura. Es
+// público porque «fimnme-cli export-csv» llama al generador sin pasar por la
+// API.
+var ErrSinSupervision = errors.New("los resultados de la evaluación son sólo de la supervisión")
 
 // matrizDeSupervision es LA puerta de los controladores a la matriz de
 // resultados, que es lo único que reúne las calificaciones de los tres
@@ -52,7 +54,7 @@ var errSinSupervision = errors.New("los resultados de la evaluación son sólo d
 // en cualquier otra función.
 func matrizDeSupervision(ctx context.Context, datos models.Persistencia, visor *models.Sesion, actor models.Actor, convocatoriaID int64) (models.MatrizDeResultados, error) {
 	if !models.PuedeSupervisar(visor) {
-		return models.MatrizDeResultados{}, errSinSupervision
+		return models.MatrizDeResultados{}, ErrSinSupervision
 	}
 	return datos.Supervision().Matriz(ctx, actor, convocatoriaID)
 }
@@ -62,7 +64,7 @@ func matrizDeSupervision(ctx context.Context, datos models.Persistencia, visor *
 // también comprueba aquí que quien lo pide supervise.
 func avanceDeJurados(ctx context.Context, datos models.Persistencia, visor *models.Sesion, convocatoriaID int64) ([]models.AvanceDeJurado, error) {
 	if !models.PuedeSupervisar(visor) {
-		return nil, errSinSupervision
+		return nil, ErrSinSupervision
 	}
 	return datos.Supervision().Avance(ctx, convocatoriaID)
 }

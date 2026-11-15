@@ -8,14 +8,19 @@ fimnme-cli \- mantenimiento de la plataforma de postulaciones FIMNME
 .B fimnme-cli
 [\fB\-\-datos\fR \fIDIRECTORIO\fR]
 [\fIORDEN\fR [\fIOPCIONES\fR]]
+.br
+.B fimnme-cli
+[\fB\-\-datos\fR \fIDIRECTORIO\fR]
+.B \-\-tui
 .SH DESCRIPCIÓN
 .B fimnme-cli
 concentra todo lo que no es atender peticiones HTTP: inicializar la base de
 datos, aplicar las migraciones del esquema, dar de alta las cuentas internas,
 verificar el acervo de archivos, producir y comprobar las instantáneas del
 servidor espejo, exportar para el portal público, anonimizar postulaciones,
-añadir campos sin recompilar e importar catálogos y cuentas desde una hoja de
-cálculo.
+añadir campos sin recompilar, importar catálogos y cuentas desde una hoja de
+cálculo, generar reportes desde una plantilla y administrar la configuración
+de las convocatorias en un modo interactivo.
 Comparte el modelo con
 .BR fimnme-web (1)
 y no duplica ninguna regla de negocio.
@@ -199,6 +204,40 @@ nada: la nómina se publica desde la API. Sin
 .B \-\-salida
 escribe en la salida estándar.
 .TP
+.B export\-csv \-\-plantilla \fIID\fR|\fINOMBRE\fR \fR(\fB\-\-edicion\fR \fIN\fR | \fB\-\-convocatoria\fR \fIID\fR) \fB\-\-como\fR \fICORREO\fR
+Genera un reporte CSV desde una plantilla guardada en el generador de reportes
+del panel, sin pasar por el navegador. Es el mismo generador: mismos campos,
+mismas validaciones y mismo archivo. Sirve para programar un reporte.
+.RS
+.TP
+.BR \-\-plantilla " \fIID\fR|\fINOMBRE\fR"
+La plantilla, por su id o por su nombre exacto.
+.TP
+.BR \-\-edicion " \fIN\fR"
+Número de la edición. La convocatoria es la del tipo de la plantilla.
+.TP
+.BR \-\-convocatoria " \fIID\fR"
+Id de la convocatoria, en lugar de
+.BR \-\-edicion .
+.TP
+.BR \-\-como " \fICORREO\fR"
+Cuenta en cuyo nombre se genera: de un administrador o de la coordinación
+nacional, activa. El reporte se arma con sus permisos y queda en la bitácora a
+su nombre. Es obligatoria: un reporte puede llevar las calificaciones del
+jurado.
+.TP
+.BR \-\-salida " \fIARCHIVO\fR"
+Archivo de destino. Nace con permisos 0600 y nunca queda a medias. Sin esta
+opción el CSV va a la salida estándar, y nada más.
+.TP
+.BR \-\-idioma " \fBes\fR|\fBen\fR"
+Idioma de los encabezados y de los valores. Por omisión,
+.BR es .
+.TP
+.B \-\-listar
+Muestra las plantillas guardadas y termina.
+.RE
+.TP
 .B arco anonimizar \fIFOLIO\fR \-\-fundamento \fITEXTO\fR \fR[\fB\-\-con\-cuenta\fR]
 Borra los datos personales de una postulación ante una solicitud ARCO,
 conservando la obra, el dictamen, las evaluaciones y los datos estadísticos.
@@ -225,12 +264,53 @@ entornos de desarrollo.
 .TP
 .B version
 Muestra la versión y la licencia.
+.SH MODO INTERACTIVO
+Con
+.B \-\-tui
+y sin orden, la herramienta abre un diálogo por menús para administrar las
+fichas institucionales: ediciones; convocatorias, con sus títulos y límites,
+sus bases, su calendario y su estado; dotaciones; requisitos documentales;
+criterios de evaluación; y jurados y revisores. También crea una convocatoria
+copiando la configuración de la de otra edición.
+.PP
+Es para cuando el panel web no está a la mano: una instalación nueva, una
+sesión remota, el servicio detenido. Puede usarse con el servicio en marcha.
+No dibuja pantallas ni necesita un tipo de terminal: muestra un menú, hace una
+pregunta y lee una respuesta.
+.PP
+Aplica las mismas reglas que el panel y explica cada rechazo con sus mismos
+textos. Cada cambio se guarda al terminar su ficha.
+.TP
+.B Intro
+Conserva el valor actual, que se muestra entre corchetes.
+.TP
+.B \-
+Deja vacío un dato opcional.
+.TP
+.B Fechas
+Se escriben
+.IR "AAAA\-MM\-DD HH:MM" ,
+en hora de la Ciudad de México.
+.TP
+.B Bases
+Se cargan de un archivo Markdown (UTF\-8, hasta 1 MB): se indica su ruta.
+.TP
+.B Cuentas nuevas
+Nacen sin contraseña. Su enlace de activación se muestra en la terminal, con
+la dirección de
+.BR FIMNME_URL_BASE .
+.PP
+Si la entrada se acaba a media ficha (Ctrl+D), esa ficha no se guarda y el
+modo interactivo termina sin error.
 .SH OPCIONES
 .TP
 .BR \-\-datos " \fIDIRECTORIO\fR"
 Directorio de datos: la base SQLite y el acervo de archivos. Por omisión
 .IR data .
 .RB ( FIMNME_DATOS )
+.TP
+.B \-\-tui
+Abre el modo interactivo (véase arriba). No lleva orden.
 .TP
 .BR \-h ", " \-\-help
 Muestra la ayuda y termina.
@@ -239,6 +319,12 @@ Muestra la ayuda y termina.
 .B FIMNME_DATOS
 Directorio de datos, si no se da
 .BR \-\-datos .
+.TP
+.B FIMNME_URL_BASE
+Dirección pública del sitio, para armar los enlaces de activación que muestran
+.B crear\-usuario
+y el modo interactivo. Por omisión
+.IR http://127.0.0.1:8080 .
 .TP
 .B FIMNME_ESPEJO
 Directorio del espejo, si no se da

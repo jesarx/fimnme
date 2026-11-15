@@ -19,8 +19,15 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 10b de 14: extensión de campos e importación asistida.** Hoy el sistema tiene:
+**Paso 10c de 14: modo interactivo y reportes desde la terminal.** Con él el backend
+está completo; siguen las pantallas (pasos 11 a 13) y la operación (paso 14). Hoy el
+sistema tiene:
 
+- **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
+  convocatorias, calendario, dotaciones, requisitos, criterios y jurados y revisores, con
+  las mismas reglas que el panel.
+- **Reportes programables**: `fimnme-cli export-csv` genera un reporte desde una plantilla
+  guardada, sin pasar por el navegador.
 - **Campos extendidos**: `fimnme-cli schema` añade campos a ciertas tablas sin recompilar;
   aparecen solos en el formulario, los reportes y el expediente. Las tablas del proceso
   (evaluaciones, acuses, bitácora) no se dejan tocar.
@@ -543,7 +550,8 @@ crean sus propias bases SQLite temporales; no tocan `./data`.
 cmd/
   fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
   fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, verify, mirror,
-                      export-json, arco, schema, import, sembrar-demo)
+                      export-json, export-csv, arco, schema, import, sembrar-demo)
+                      y modo interactivo (--tui)
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
@@ -817,6 +825,8 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Verificar el acervo (rápido) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify --rapido` |
 | Verificar el acervo (completo) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify` |
 | Exportación para el portal | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-json --salida /tmp/convocatoria.json` |
+| Administrar la configuración | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui` |
+| Plantillas de reporte | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --listar` |
 
 > **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
 > `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
@@ -932,6 +942,45 @@ hacer (vincular, crear u omitir). Al final dice lo que va a ocurrir y pide escri
 el correo del administrador que resuelve: queda registrado en cada decisión. Las cuentas
 nuevas (`--tipo usuarios_jurado` o `usuarios_revisor`) nacen sin contraseña y sus enlaces
 de activación se muestran al terminar.
+
+### Administrar la configuración desde la terminal
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui
+```
+
+Abre un diálogo por menús para administrar ediciones, convocatorias (títulos, límites,
+bases, calendario y estado), dotaciones, requisitos documentales, criterios de evaluación
+y jurados y revisores. Sirve cuando el panel no está a la mano: una instalación nueva, una
+sesión por SSH, el servicio detenido.
+
+- **Intro** conserva el valor que se muestra entre corchetes; **`-`** vacía un dato opcional.
+- Las fechas se escriben `AAAA-MM-DD HH:MM`, en hora de la Ciudad de México.
+- Las bases se cargan de un archivo Markdown: se indica su ruta.
+- Aplica **las mismas reglas que el panel** y explica cada rechazo con sus mismos textos:
+  no publica sin bases ni calendario, no pasa a evaluación sin tres jurados.
+- Cada cambio se guarda al terminar su ficha y queda en la bitácora con el usuario del
+  sistema que lo hizo. Puede usarse con el servicio en marcha.
+- Una cuenta nueva de jurado o revisor nace sin contraseña; su enlace de activación se
+  muestra en la terminal (defina `FIMNME_URL_BASE` para que lleve la dirección pública).
+
+### Generar un reporte desde la terminal
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --plantilla "Avance" --edicion 49 --como admin@ejemplo.mx --salida /tmp/avance.csv
+```
+
+Genera el mismo CSV que el generador de reportes del panel, desde una plantilla guardada
+allí (`export-csv --listar` las muestra). La convocatoria se indica con `--edicion N` (la
+del tipo de la plantilla) o con `--convocatoria ID`.
+
+- `--como` es el correo de una cuenta de **administrador o de la coordinación nacional**:
+  el reporte se genera con sus permisos y queda en la bitácora a su nombre.
+- Sin `--salida` el CSV va a la salida estándar. Con `--salida`, el archivo nace con
+  permisos `0600` y nunca queda a medias.
+- `--idioma en` pone encabezados y valores en inglés.
+
+Decisiones: [ADR 0016](docs/adr/0016-modo-interactivo-y-export-csv.md).
 
 ### Anonimizar una postulación (solicitud ARCO)
 

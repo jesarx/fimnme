@@ -21,6 +21,7 @@ package views
 import (
 	"bytes"
 	"encoding/csv"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -185,12 +186,13 @@ func (m *Motor) ResultadosCSV(idioma string, matriz models.MatrizDeResultados) (
 	return encabezados, filas
 }
 
-// CSVConSeparador escribe una descarga CSV conforme a RF-REP-05: UTF-8 con
-// BOM (para que Excel en Windows abra bien los acentos), separador a elegir
-// («coma» o «punto_y_coma», que es el que espera Excel en español), comillas
-// según RFC 4180 y fin de línea CRLF. Se arma en memoria: si algo falla no se
-// envía medio archivo.
-func CSVConSeparador(w http.ResponseWriter, archivo, separador string, encabezados []string, filas [][]string) error {
+// EscribirCSV escribe un CSV conforme a RF-REP-05: UTF-8 con BOM (para que
+// Excel en Windows abra bien los acentos), separador a elegir («coma» o
+// «punto_y_coma», que es el que espera Excel en español), comillas según
+// RFC 4180 y fin de línea CRLF. Se arma en memoria: si algo falla no se
+// escribe medio archivo. Lo usan la descarga de la API y «fimnme-cli
+// export-csv», para que el mismo reporte salga idéntico por los dos caminos.
+func EscribirCSV(w io.Writer, separador string, encabezados []string, filas [][]string) error {
 	var salida bytes.Buffer
 	salida.WriteString("\xEF\xBB\xBF") // marca de orden de bytes (BOM) de UTF-8
 	escritor := csv.NewWriter(&salida)
@@ -202,6 +204,17 @@ func CSVConSeparador(w http.ResponseWriter, archivo, separador string, encabezad
 		return err
 	}
 	if err := escritor.WriteAll(filas); err != nil {
+		return err
+	}
+	_, err := salida.WriteTo(w)
+	return err
+}
+
+// CSVConSeparador envía un CSV como descarga: lo arma con EscribirCSV y, sólo
+// si salió completo, pone las cabeceras y lo manda.
+func CSVConSeparador(w http.ResponseWriter, archivo, separador string, encabezados []string, filas [][]string) error {
+	var salida bytes.Buffer
+	if err := EscribirCSV(&salida, separador, encabezados, filas); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")

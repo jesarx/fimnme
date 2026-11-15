@@ -22,9 +22,11 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -418,6 +420,22 @@ func TestReportes(t *testing.T) {
 			if estado, _ := c.api("GET", ruta, nil); estado != http.StatusForbidden {
 				t.Errorf("%s en %s: estado %d, se esperaba 403", nombre, ruta, estado)
 			}
+		}
+	}
+	// El generador comprueba por sí mismo quién lo pide: quien lo llama desde
+	// fuera de la API («fimnme-cli export-csv») no pasa por su control de
+	// acceso. Se pide sin campos de evaluación, para que no sea la puerta de
+	// la matriz la que lo detenga: un reporte lleva datos personales aunque
+	// no lleve calificaciones.
+	sesionDelJurado, err := x.e.repo.SesionDeUsuario(context.Background(), x.idsInt[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for nombre, sesion := range map[string]*models.Sesion{"un jurado": sesionDelJurado, "nadie": nil} {
+		_, err := GenerarReporte(context.Background(), x.e.repo, x.e.vistas(), sesion, models.Actor{}, x.interpretes,
+			url.Values{"campos": {"folio,usuario.email"}}, models.IdiomaES)
+		if !errors.Is(err, ErrSinSupervision) {
+			t.Errorf("GenerarReporte para %s: se esperaba ErrSinSupervision, se obtuvo %v", nombre, err)
 		}
 	}
 	// Cada reporte queda en la bitácora: qué campos, cuántos renglones, y

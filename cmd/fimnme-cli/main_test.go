@@ -20,7 +20,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -630,5 +632,340 @@ func TestOrdenDeImportacion(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// dialogo abre el modo interactivo, da las respuestas, una por renglón, y
+// devuelve lo que la herramienta escribió. Al acabarse las respuestas el
+// diálogo termina solo, sin error.
+func dialogo(t *testing.T, dir string, respuestas ...string) string {
+	t.Helper()
+	texto := capturar(t)
+	responder(t, respuestas...)
+	if err := conRepositorio(dir, modoInteractivo); err != nil {
+		t.Fatalf("modo interactivo: %v\n%s", err, texto)
+	}
+	return texto.String()
+}
+
+// El modo interactivo administra las fichas con las mismas reglas que el
+// panel: crea una edición y una convocatoria, la configura, no la publica
+// hasta que está completa, y deja cada cambio en la bitácora.
+func TestModoInteractivo(t *testing.T) {
+	dir, _ := datosConArchivos(t)
+	ctx := context.Background()
+	const intro = ""
+	// leer abre la base para comprobar lo que el diálogo dejó.
+	leer := func(consulta func(repositorio *models.Repositorio) error) {
+		t.Helper()
+		err := conRepositorio(dir, func(_ context.Context, repositorio *models.Repositorio) error { return consulta(repositorio) })
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// nueva devuelve la configuración de la convocatoria de Compositores de la edición 50.
+	var edicion50 int64
+	nueva := func() (cfg models.ConfiguracionConvocatoria) {
+		t.Helper()
+		leer(func(repositorio *models.Repositorio) error {
+			convocatorias, err := repositorio.ConvocatoriasDeEdicion(ctx, edicion50)
+			if err != nil || len(convocatorias) == 0 {
+				return fmt.Errorf("la edición 50 no tiene convocatorias (%v)", err)
+			}
+			cfg, err = repositorio.ConfiguracionDeConvocatoria(ctx, convocatorias[0].ID)
+			return err
+		})
+		return cfg
+	}
+
+	// 1. Una edición nueva. Con un año imposible no se guarda, y se dice por qué.
+	salio := dialogo(t, dir, "n", "50", "28", "Edición 50 · 2028", intro)
+	if !strings.Contains(salio, "No se guardó nada") || !strings.Contains(salio, "anio: ") {
+		t.Errorf("una edición con año inválido debió rechazarse:\n%s", salio)
+	}
+	salio = dialogo(t, dir, "n", "cincuenta", "50", "2028", "Edición 50 · 2028", intro, "s")
+	if !strings.Contains(salio, "Escriba un número entero") || !strings.Contains(salio, "Edición creada") {
+		t.Errorf("alta de la edición:\n%s", salio)
+	}
+	leer(func(repositorio *models.Repositorio) error {
+		ediciones, err := repositorio.ListarEdiciones(ctx)
+		if err != nil || len(ediciones) != 2 || ediciones[0].Numero != 50 || ediciones[0].Anio != 2028 {
+			return fmt.Errorf("ediciones tras el alta: %+v (%v)", ediciones, err)
+		}
+		edicion50 = ediciones[0].ID
+		return nil
+	})
+
+	// 2. Su convocatoria de Compositores, en blanco: nace en borrador con los
+	//    requisitos y criterios iniciales, y no se publica sin bases ni calendario.
+	salio = dialogo(t, dir, "1", "n", "compositores", "Convocatoria de Compositores 50", intro,
+		"1", "4", "a", "s")
+	if !strings.Contains(salio, "Convocatoria creada en borrador") || !strings.Contains(salio, "No se guardó nada") ||
+		!strings.Contains(salio, "bases_md_es: ") || !strings.Contains(salio, "etapas: ") {
+		t.Errorf("publicar una convocatoria incompleta debió rechazarse con sus motivos:\n%s", salio)
+	}
+	if cfg := nueva(); cfg.Convocatoria.Estado != models.EstadoBorrador || cfg.Convocatoria.MaxObras != models.MaxObrasCompositores ||
+		len(cfg.Requisitos) == 0 || len(cfg.Criterios) != 2 {
+		t.Fatalf("convocatoria recién creada: %+v", cfg.Convocatoria)
+	}
+
+	// 3. Bases desde un archivo y calendario en hora de la Ciudad de México.
+	bases := filepath.Join(t.TempDir(), "bases.md")
+	if err := os.WriteFile(bases, []byte("# Bases\n\nTexto de las bases.\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	salio = dialogo(t, dir, "1", "1",
+		"2", filepath.Join(t.TempDir(), "no-existe.md"),
+		"2", bases, intro,
+		"3", "2027-11-01 00:00", "2028-01-31 23:59", "2028-02-01 00:00", "2028-02-28 23:59", "31/03/2028", "2028-03-01 00:00", "2028-03-31 23:59")
+	if !strings.Contains(salio, "No se pudo leer el archivo") || !strings.Contains(salio, "Bases actualizadas") ||
+		!strings.Contains(salio, "Escriba la fecha como") || !strings.Contains(salio, "Calendario actualizado") {
+		t.Errorf("bases y calendario:\n%s", salio)
+	}
+	cfg := nueva()
+	postulacion, _ := cfg.Convocatoria.Etapa(models.EtapaPostulacion)
+	if cfg.Convocatoria.BasesMDES != "# Bases\n\nTexto de las bases.\n" || len(cfg.Convocatoria.Etapas) != 3 ||
+		!postulacion.IniciaAt.Equal(utc(2027, 11, 1, 6, 0)) || !postulacion.TerminaAt.Equal(utc(2028, 2, 1, 5, 59)) {
+		t.Fatalf("bases o calendario mal guardados: %q, %+v", cfg.Convocatoria.BasesMDES, cfg.Convocatoria.Etapas)
+	}
+
+	// 4. Dotaciones: alta, rechazo de una sin nombre y baja lógica.
+	salio = dialogo(t, dir, "1", "1", "5",
+		"n", "Trío de cuerdas", "String trio", intro, intro, intro, intro,
+		"n", intro, intro, intro, intro, intro, intro,
+		"1", intro, intro, intro, intro, intro, "n")
+	if !strings.Contains(salio, "Dotación creada") || !strings.Contains(salio, "nombre_es: ") || !strings.Contains(salio, "[inactiva]") {
+		t.Errorf("dotaciones:\n%s", salio)
+	}
+	if cfg = nueva(); len(cfg.Dotaciones) != 1 || cfg.Dotaciones[0].NombreEN != "String trio" || cfg.Dotaciones[0].Activa {
+		t.Fatalf("dotaciones tras el diálogo: %+v", cfg.Dotaciones)
+	}
+
+	// 5. Requisitos: alta ligada a la dotación, edición y eliminación (en borrador).
+	requisitos := len(cfg.Requisitos)
+	ultimo := fmt.Sprint(requisitos + 1)
+	salio = dialogo(t, dir, "1", "1", "6",
+		"n", "carta", "Carta de motivos", intro, intro, intro, "obra", "7", "1", "s", "application/pdf, image/png", "5", intro, intro,
+		ultimo, "e", intro, intro, intro, intro, intro, intro, "0", "n", intro, "12", "2", intro)
+	if !strings.Contains(salio, "Elija un número de la lista") || !strings.Contains(salio, "Requisito creado") || !strings.Contains(salio, "Requisito actualizado") {
+		t.Errorf("requisitos:\n%s", salio)
+	}
+	cfg = nueva()
+	if carta := cfg.Requisitos[len(cfg.Requisitos)-1]; len(cfg.Requisitos) != requisitos+1 || carta.Clave != "carta" || carta.DotacionID != 0 ||
+		carta.Obligatorio || carta.TamanoMaxBytes != 12<<20 || carta.MaxArchivos != 2 || len(carta.MimesPermitidos) != 2 {
+		t.Fatalf("requisito tras editarlo: %+v", carta)
+	}
+	salio = dialogo(t, dir, "1", "1", "6", ultimo, "b", "n", ultimo, "b", "s")
+	if cfg = nueva(); !strings.Contains(salio, "Requisito eliminado") || len(cfg.Requisitos) != requisitos {
+		t.Errorf("eliminar un requisito (primero sin confirmar, luego confirmando): quedan %d\n%s", len(cfg.Requisitos), salio)
+	}
+
+	// 6. Criterios: uno nuevo con su escala.
+	salio = dialogo(t, dir, "1", "1", "7", "n", "originalidad", "Originalidad", intro, intro, intro, intro, "10", intro, intro)
+	if cfg = nueva(); !strings.Contains(salio, "Criterio creado") || len(cfg.Criterios) != 3 || cfg.Criterios[2].EscalaMax != 10 || !cfg.Criterios[2].Obligatorio {
+		t.Errorf("criterios: %+v\n%s", cfg.Criterios, salio)
+	}
+
+	// 7. Jurados y revisores: una cuenta nueva con su enlace, una existente
+	//    que elige quien opera, y el retiro.
+	leer(func(repositorio *models.Repositorio) error {
+		_, err := repositorio.CrearUsuario(ctx, actorCLI(), models.NuevoUsuario{Email: "revisora@ejemplo.mx", Nombre: "Rita", Apellidos: "Revisora",
+			Idioma: models.IdiomaES, PasswordHash: "x"}, nil)
+		return err
+	})
+	salio = dialogo(t, dir, "1", "1", "8",
+		"c", "j", "no-es-correo", "Julia", "Jurado", intro,
+		"c", "j", "Julia.Jurado@ejemplo.mx", "Julia", "Jurado", "en",
+		"a", "nadie-con-ese-nombre",
+		"a", "revisora", "1", "r")
+	if !strings.Contains(salio, "email: ") || !strings.Contains(salio, "/cuenta/activar?token=") || !strings.Contains(salio, "Jurado asignado") ||
+		!strings.Contains(salio, "Ninguna cuenta coincide") || !strings.Contains(salio, "Revisor documental asignado") ||
+		!strings.Contains(salio, "[cuenta sin activar]") {
+		t.Errorf("asignaciones:\n%s", salio)
+	}
+	if cfg = nueva(); cfg.Activos(models.PerfilJurado) != 1 || cfg.Activos(models.PerfilRevisorDocumental) != 1 {
+		t.Fatalf("asignaciones tras el diálogo: %+v", cfg.Asignaciones)
+	}
+	salio = dialogo(t, dir, "1", "1", "8", "1", "s")
+	if cfg = nueva(); !strings.Contains(salio, "Asignación retirada") || cfg.Activos(models.PerfilJurado) != 0 {
+		t.Errorf("retirar al jurado: %+v\n%s", cfg.Asignaciones, salio)
+	}
+
+	// 8. Ya completa, se publica; retroceder exige un motivo.
+	salio = dialogo(t, dir, "1", "1", "4", "a", "s", "4", "r", intro, "s")
+	if cfg = nueva(); !strings.Contains(salio, "La convocatoria está ahora en: publicada") || !strings.Contains(salio, "motivo: ") ||
+		cfg.Convocatoria.Estado != models.EstadoPublicada {
+		t.Errorf("publicar y retroceder sin motivo: estado %s\n%s", cfg.Convocatoria.Estado, salio)
+	}
+
+	// 9. La otra convocatoria se trae del año anterior: copia la
+	//    configuración, no el calendario.
+	salio = dialogo(t, dir, "1", "d", "1")
+	leer(func(repositorio *models.Repositorio) error {
+		convocatorias, err := repositorio.ConvocatoriasDeEdicion(ctx, edicion50)
+		if err != nil || len(convocatorias) != 2 || convocatorias[1].Tipo != models.TipoInterpretes ||
+			convocatorias[1].Estado != models.EstadoBorrador || len(convocatorias[1].Etapas) != 0 || convocatorias[1].BasesMDES == "" {
+			return fmt.Errorf("convocatoria duplicada: %+v (%v)\n%s", convocatorias, err, salio)
+		}
+		return nil
+	})
+
+	// 10. Si la entrada se acaba a media ficha no se guarda nada, y no es un error.
+	salio = dialogo(t, dir, "1", "e", "77")
+	leer(func(repositorio *models.Repositorio) error {
+		edicion, err := repositorio.EdicionPorID(ctx, edicion50)
+		if err != nil || edicion.Numero != 50 || !strings.Contains(salio, "Fin de la entrada") {
+			return fmt.Errorf("una ficha a medias no debe guardarse: %+v (%v)\n%s", edicion, err, salio)
+		}
+		// Todo lo hecho quedó en la bitácora, a nombre de la herramienta.
+		for accion, minimo := range map[string]int{"edicion.crear": 1, "convocatoria.etapas": 1, "convocatoria.estado": 1} {
+			asientos, _, err := repositorio.ConsultarAuditoria(ctx, models.FiltroAuditoria{Accion: accion, Pagina: 1, Tamano: 50})
+			if err != nil {
+				return err
+			}
+			deLaHerramienta := 0
+			for _, asiento := range asientos {
+				if asiento.ActorPerfil == string(models.ActorCLI) && strings.Contains(asiento.Agente, "usuario del sistema: ") {
+					deLaHerramienta++
+				}
+			}
+			if deLaHerramienta < minimo {
+				return fmt.Errorf("la bitácora no tiene «%s» a nombre de la herramienta (%d asientos)", accion, len(asientos))
+			}
+		}
+		return nil
+	})
+}
+
+// «export-csv» genera un reporte desde una plantilla guardada, en nombre de
+// una cuenta que supervisa, y lo deja en la bitácora a su nombre.
+func TestExportarCSV(t *testing.T) {
+	dir, _ := datosConArchivos(t)
+	texto := capturar(t)
+	exportar := func(args ...string) error { return conRepositorio(dir, exportarCSV(args)) }
+
+	// Sin plantillas, lo dice.
+	if err := exportar("--listar"); err != nil || !strings.Contains(texto.String(), "No hay plantillas") {
+		t.Fatalf("listar sin plantillas: %v\n%s", err, texto)
+	}
+
+	// Un administrador, un observador, una cuenta sin perfil, una postulación
+	// en Intérpretes y dos plantillas.
+	var administrador, interpretes int64
+	err := conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+		cuentas := make(map[string]int64)
+		for correo, perfil := range map[string]models.Perfil{"admin@ejemplo.mx": models.PerfilAdminSistema,
+			"observa@ejemplo.mx": models.PerfilCoordinacionNacional, "eva@ejemplo.mx": ""} {
+			id, err := repositorio.CrearUsuario(ctx, actorCLI(), models.NuevoUsuario{Email: correo, Nombre: "Eva", Apellidos: "Luna",
+				Idioma: models.IdiomaES, PasswordHash: "x", Perfil: perfil}, nil)
+			if err != nil {
+				return err
+			}
+			cuentas[correo] = id
+		}
+		administrador = cuentas["admin@ejemplo.mx"]
+		convocatoria, err := repositorio.ConvocatoriaPublica(ctx, 49, models.TipoInterpretes)
+		if err != nil {
+			return err
+		}
+		interpretes = convocatoria.ID
+		postulacion, err := repositorio.CrearPostulacion(ctx, actorCLI(), interpretes, cuentas["eva@ejemplo.mx"], models.SubcategoriaSolista)
+		if err != nil {
+			return err
+		}
+		if _, err := repositorio.GuardarCamposDePostulacion(ctx, cuentas["eva@ejemplo.mx"], postulacion, map[string]string{"datos.nombre_completo": "Eva Luna; pianista"}); err != nil {
+			return err
+		}
+		actor := actorCLI()
+		actor.UsuarioID = administrador
+		for nombre, consulta := range map[string]string{
+			"Avance":     "campos=estado,usuario.email,datos.nombre_completo&separador=punto_y_coma",
+			"Resultados": "campos=folio,eval.puntaje&orden=-puntaje",
+		} {
+			tipo := models.TipoInterpretes
+			if _, err := repositorio.GuardarPlantillaDeReporte(ctx, actor, models.PlantillaDeReporte{Nombre: nombre, Tipo: tipo, Consulta: consulta}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	texto.Reset()
+	if err := exportar("--listar"); err != nil || !strings.Contains(texto.String(), "Avance") || !strings.Contains(texto.String(), "interpretes") {
+		t.Fatalf("listar las plantillas: %v\n%s", err, texto)
+	}
+
+	// Lo que falta o no puede ser, con su explicación.
+	for motivo, args := range map[string][]string{
+		"uso: fimnme-cli export-csv":          {"--plantilla", "Avance"},
+		"indique con --como":                  {"--plantilla", "Avance", "--edicion", "49"},
+		"no existe ninguna cuenta":            {"--plantilla", "Avance", "--edicion", "49", "--como", "fantasma@ejemplo.mx"},
+		"no puede generar reportes":           {"--plantilla", "Avance", "--edicion", "49", "--como", "eva@ejemplo.mx"},
+		"no existe ninguna plantilla llamada": {"--plantilla", "Inventada", "--edicion", "49", "--como", "admin@ejemplo.mx"},
+		"no existe la plantilla 999":          {"--plantilla", "999", "--edicion", "49", "--como", "admin@ejemplo.mx"},
+		"no existe la edición 12":             {"--plantilla", "Avance", "--edicion", "12", "--como", "admin@ejemplo.mx"},
+		"--idioma debe ser":                   {"--plantilla", "Avance", "--edicion", "49", "--como", "admin@ejemplo.mx", "--idioma", "fr"},
+		"el reporte no puede generarse":       {"--plantilla", "Avance", "--convocatoria", fmt.Sprint(interpretes + 1), "--como", "admin@ejemplo.mx"},
+		"no existe la convocatoria 999":       {"--plantilla", "Avance", "--convocatoria", "999", "--como", "admin@ejemplo.mx"},
+	} {
+		if err := exportar(args...); err == nil || !strings.Contains(err.Error(), motivo) {
+			t.Errorf("%v: se esperaba «%s», se obtuvo: %v", args, motivo, err)
+		}
+	}
+
+	// A la salida estándar: el CSV y nada más, con BOM, separador de la
+	// plantilla, comillas donde hacen falta y CRLF.
+	texto.Reset()
+	if err := exportar("--plantilla", "Avance", "--edicion", "49", "--como", "Admin@Ejemplo.mx"); err != nil {
+		t.Fatal(err)
+	}
+	if esperado := "\xEF\xBB\xBFEstado;Correo de la cuenta;Nombre completo\r\nBorrador;eva@ejemplo.mx;\"Eva Luna; pianista\"\r\n"; texto.String() != esperado {
+		t.Errorf("reporte a la salida estándar:\n%q\nse esperaba\n%q", texto.String(), esperado)
+	}
+
+	// A un archivo, en inglés y por id de convocatoria, como observador: nace
+	// privado y no deja restos.
+	archivo := filepath.Join(t.TempDir(), "avance.csv")
+	texto.Reset()
+	if err := exportar("--plantilla", "Avance", "--convocatoria", fmt.Sprint(interpretes), "--como", "observa@ejemplo.mx", "--salida", archivo, "--idioma", "en"); err != nil {
+		t.Fatal(err)
+	}
+	contenido, err := os.ReadFile(archivo)
+	if err != nil || !strings.Contains(string(contenido), "Draft;eva@ejemplo.mx") || !strings.Contains(texto.String(), "1 renglón.") {
+		t.Errorf("reporte a un archivo: %v\n%s\n%s", err, contenido, texto)
+	}
+	if info, err := os.Stat(archivo); err != nil || info.Mode().Perm() != 0o600 {
+		t.Errorf("el reporte debe nacer privado (0600): %v", info.Mode())
+	}
+	if _, err := os.Stat(archivo + ".parcial"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("quedó el archivo parcial: %v", err)
+	}
+
+	// Una plantilla con calificaciones pasa por la puerta de la supervisión, y
+	// cada generación queda en la bitácora a nombre de la cuenta.
+	texto.Reset()
+	if err := exportar("--plantilla", "Resultados", "--edicion", "49", "--como", "admin@ejemplo.mx"); err != nil || !strings.Contains(texto.String(), "Folio") {
+		t.Errorf("reporte con calificaciones: %v\n%s", err, texto)
+	}
+	err = conRepositorio(dir, func(ctx context.Context, repositorio *models.Repositorio) error {
+		asientos, total, err := repositorio.ConsultarAuditoria(ctx, models.FiltroAuditoria{ActorID: administrador, Entidad: "convocatoria", EntidadID: interpretes, Pagina: 1, Tamano: 50})
+		if err != nil {
+			return err
+		}
+		reportes := 0
+		for _, asiento := range asientos {
+			if strings.HasPrefix(asiento.Accion, "reporte.") && asiento.ActorPerfil == string(models.ActorCLI) {
+				reportes++
+			}
+		}
+		if reportes != 2 {
+			return fmt.Errorf("se esperaban 2 reportes del administrador en la bitácora, hay %d de %d asientos: %+v", reportes, total, asientos)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
 	}
 }
