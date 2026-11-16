@@ -16,7 +16,13 @@
 
 {{define "contenido"}}
 {{template "aviso" .}}
-<p class="admin__atajos"><a href="/administracion/usuarios">{{.T "admin.cuentas"}} →</a></p>
+<nav class="admin__atajos" aria-label="{{.T "admin.herramientas"}}">
+  <a href="/administracion/usuarios">{{.T "admin.cuentas"}}</a>
+  {{- if .Administra}} · <a href="/administracion/correos">{{.T "correo.titulo"}}</a>
+  · <a href="/administracion/importaciones">{{.T "importacion.titulo"}}</a>
+  · <a href="/administracion/arco">{{.T "arco.titulo"}}</a>{{end}}
+  · <a href="/administracion/bitacora">{{.T "bitacora.titulo"}}</a>
+</nav>
 
 {{- if .Datos.Ediciones}}
 {{- range .Datos.Ediciones}}

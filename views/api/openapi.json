@@ -5978,6 +5978,663 @@
         }
       }
     },
+    "/api/v1/plantillas-correo": {
+      "get": {
+        "tags": [
+          "Plantillas de correo"
+        ],
+        "summary": "Catálogo de plantillas con su versión vigente en cada idioma",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantillas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plantillas": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "clave": {
+                            "type": "string"
+                          },
+                          "variables": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "obligatorias": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "vigentes": {
+                            "type": "object",
+                            "properties": {
+                              "es": {
+                                "oneOf": [
+                                  {
+                                    "type": "null"
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "version": {
+                                        "type": "integer"
+                                      },
+                                      "asunto": {
+                                        "type": "string"
+                                      },
+                                      "cuerpo_md": {
+                                        "type": "string",
+                                        "description": "Markdown con variables {{nombre}}"
+                                      },
+                                      "creado_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "description": "ISO-8601 con desfase; se guarda en UTC"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              "en": {
+                                "oneOf": [
+                                  {
+                                    "type": "null"
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "version": {
+                                        "type": "integer"
+                                      },
+                                      "asunto": {
+                                        "type": "string"
+                                      },
+                                      "cuerpo_md": {
+                                        "type": "string",
+                                        "description": "Markdown con variables {{nombre}}"
+                                      },
+                                      "creado_at": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "description": "ISO-8601 con desfase; se guarda en UTC"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            "description": "null si no hay versión en ese idioma: se usa la española"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plantillas-correo/{clave}/{idioma}": {
+      "get": {
+        "tags": [
+          "Plantillas de correo"
+        ],
+        "summary": "Historial de versiones de una plantilla",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Plantilla",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaCorreo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clave",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "verificar_email",
+                "reset_password",
+                "activacion",
+                "cambio_email",
+                "acuse",
+                "recordatorio_borrador",
+                "subsanacion",
+                "acuse_subsanacion",
+                "aviso_subsanada",
+                "exportacion_lista",
+                "alerta_disco"
+              ]
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "es",
+                "en"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Plantillas de correo"
+        ],
+        "summary": "Guarda una versión nueva, que pasa a ser la vigente",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "201": {
+            "description": "Plantilla con la versión nueva",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaCorreo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ninguna versión se edita ni se borra; volver a una anterior es guardarla de nuevo. Se rechaza si usa una variable que la plantilla no recibe o le falta una indispensable. Los correos ya encolados no cambian. Queda en la bitácora.",
+        "parameters": [
+          {
+            "name": "clave",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "verificar_email",
+                "reset_password",
+                "activacion",
+                "cambio_email",
+                "acuse",
+                "recordatorio_borrador",
+                "subsanacion",
+                "acuse_subsanacion",
+                "aviso_subsanada",
+                "exportacion_lista",
+                "alerta_disco"
+              ]
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "es",
+                "en"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "asunto": {
+                    "type": "string",
+                    "description": "Una sola línea, hasta 200 caracteres"
+                  },
+                  "cuerpo_md": {
+                    "type": "string",
+                    "description": "Markdown, hasta 20 000 caracteres"
+                  }
+                },
+                "required": [
+                  "asunto",
+                  "cuerpo_md"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
+    "/api/v1/plantillas-correo/{clave}/{idioma}/prueba": {
+      "post": {
+        "tags": [
+          "Plantillas de correo"
+        ],
+        "summary": "Envía un correo de prueba a quien lo pide",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "202": {
+            "description": "Encolado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "destinatario": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Una regla no se cumple",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cuerpo opcional {asunto, cuerpo_md} para probar un texto sin guardarlo; sin cuerpo, la versión vigente. Lleva valores de muestra y una marca en el asunto; sale por la bandeja de salida como cualquier correo.",
+        "parameters": [
+          {
+            "name": "clave",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "verificar_email",
+                "reset_password",
+                "activacion",
+                "cambio_email",
+                "acuse",
+                "recordatorio_borrador",
+                "subsanacion",
+                "acuse_subsanacion",
+                "aviso_subsanada",
+                "exportacion_lista",
+                "alerta_disco"
+              ]
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "es",
+                "en"
+              ]
+            }
+          }
+        ],
+        "security": [
+          {
+            "sesion": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "asunto": {
+                    "type": "string",
+                    "description": "Una sola línea, hasta 200 caracteres"
+                  },
+                  "cuerpo_md": {
+                    "type": "string",
+                    "description": "Markdown, hasta 20 000 caracteres"
+                  }
+                },
+                "required": [
+                  "asunto",
+                  "cuerpo_md"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plantillas-correo/{clave}/{idioma}/vista-previa": {
+      "post": {
+        "tags": [
+          "Plantillas de correo"
+        ],
+        "summary": "Arma el correo con valores de muestra",
+        "x-perfiles": [
+          "admin_sistema"
+        ],
+        "responses": {
+          "200": {
+            "description": "Correo armado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "asunto": {
+                      "type": "string"
+                    },
+                    "html": {
+                      "type": "string",
+                      "description": "Cuerpo HTML, con los valores escapados"
+                    },
+                    "texto": {
+                      "type": "string"
+                    },
+                    "variables_desconocidas": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "variables_faltantes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Petición mal formada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sin sesión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sin permiso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "No guarda nada.",
+        "parameters": [
+          {
+            "name": "clave",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "verificar_email",
+                "reset_password",
+                "activacion",
+                "cambio_email",
+                "acuse",
+                "recordatorio_borrador",
+                "subsanacion",
+                "acuse_subsanacion",
+                "aviso_subsanada",
+                "exportacion_lista",
+                "alerta_disco"
+              ]
+            }
+          },
+          {
+            "name": "idioma",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "es",
+                "en"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "asunto": {
+                    "type": "string",
+                    "description": "Una sola línea, hasta 200 caracteres"
+                  },
+                  "cuerpo_md": {
+                    "type": "string",
+                    "description": "Markdown, hasta 20 000 caracteres"
+                  }
+                },
+                "required": [
+                  "asunto",
+                  "cuerpo_md"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          }
+        ]
+      }
+    },
     "/api/v1/postulaciones": {
       "get": {
         "tags": [
@@ -12584,6 +13241,55 @@
                 "type": "integer"
               }
             }
+          }
+        }
+      },
+      "PlantillaCorreo": {
+        "type": "object",
+        "properties": {
+          "clave": {
+            "type": "string"
+          },
+          "idioma": {
+            "type": "string"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Las que el sistema pasa al armar el correo"
+          },
+          "obligatorias": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Las que una versión no puede omitir"
+          },
+          "versiones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer"
+                },
+                "asunto": {
+                  "type": "string"
+                },
+                "cuerpo_md": {
+                  "type": "string",
+                  "description": "Markdown con variables {{nombre}}"
+                },
+                "creado_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "ISO-8601 con desfase; se guarda en UTC"
+                }
+              }
+            },
+            "description": "De la más reciente (la vigente) a la más antigua"
           }
         }
       }

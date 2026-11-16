@@ -3251,3 +3251,123 @@ func TitularParaMostrar(p Postulacion, titular Usuario) Usuario {
 	}
 	return Usuario{ID: titular.ID, Nombre: TextoAnonimizado, Idioma: titular.Idioma}
 }
+
+// --- Plantillas de correo (§5.8, RF-NOT) ----------------------------------------
+
+// DefinicionDePlantilla es lo que el sistema sabe de una plantilla de correo:
+// qué variables le pasa al armar el mensaje y cuáles no pueden faltar porque
+// sin ellas el correo no cumple su propósito (el enlace de activación, la
+// lista de lo que hay que corregir).
+type DefinicionDePlantilla struct {
+	Clave        string
+	Variables    []string
+	Obligatorias []string
+}
+
+// PlantillasDeCorreo es el catálogo de las plantillas editables, en el orden
+// en que se presentan. Las variables son exactamente las que los
+// controladores y trabajadores pasan al armar cada mensaje: una prueba lo
+// vigila, para que una plantilla editada no use una que nunca llega.
+var PlantillasDeCorreo = []DefinicionDePlantilla{
+	{Clave: PlantillaVerificarEmail, Variables: []string{"nombre", "liga"}, Obligatorias: []string{"liga"}},
+	{Clave: PlantillaResetPassword, Variables: []string{"nombre", "liga"}, Obligatorias: []string{"liga"}},
+	{Clave: PlantillaActivacion, Variables: []string{"nombre", "liga"}, Obligatorias: []string{"liga"}},
+	{Clave: PlantillaCambioEmail, Variables: []string{"nombre", "email_nuevo"}, Obligatorias: []string{"email_nuevo"}},
+	{Clave: PlantillaAcuse, Variables: []string{"nombre", "folio", "convocatoria", "edicion", "liga"}, Obligatorias: []string{"folio"}},
+	{Clave: PlantillaRecordatorio, Variables: []string{"nombre", "convocatoria", "edicion", "cierre", "liga"}, Obligatorias: []string{"cierre"}},
+	{Clave: PlantillaSubsanacion, Variables: []string{"nombre", "folio", "convocatoria", "edicion", "lista_problemas", "fecha_limite", "nota", "liga"},
+		Obligatorias: []string{"lista_problemas", "fecha_limite"}},
+	{Clave: PlantillaAcuseSubsanacion, Variables: []string{"nombre", "folio", "convocatoria", "edicion", "liga"}, Obligatorias: []string{"folio"}},
+	{Clave: PlantillaAvisoSubsanada, Variables: []string{"nombre", "folio", "convocatoria", "edicion", "liga"}, Obligatorias: []string{"folio"}},
+	{Clave: PlantillaExportacionLista, Variables: []string{"nombre", "numero", "liga", "vence"}, Obligatorias: []string{"liga"}},
+	{Clave: PlantillaAlertaDisco, Variables: []string{"nombre", "libre", "umbral", "datos"}, Obligatorias: []string{"libre"}},
+}
+
+// DefinicionDePlantillaCorreo busca una plantilla en el catálogo.
+func DefinicionDePlantillaCorreo(clave string) (DefinicionDePlantilla, bool) {
+	i := slices.IndexFunc(PlantillasDeCorreo, func(d DefinicionDePlantilla) bool { return d.Clave == clave })
+	if i < 0 {
+		return DefinicionDePlantilla{}, false
+	}
+	return PlantillasDeCorreo[i], true
+}
+
+// VariableDeCorreo reconoce una variable en el texto de una plantilla:
+// {{nombre}}. La comparten la validación y el armado del mensaje.
+var VariableDeCorreo = regexp.MustCompile(`\{\{([a-z_]+)\}\}`)
+
+// VariablesUsadas devuelve las variables que aparecen en un texto, sin
+// repetir, en orden de aparición.
+func VariablesUsadas(texto string) []string {
+	var usadas []string
+	for _, marca := range VariableDeCorreo.FindAllStringSubmatch(texto, -1) {
+		if !slices.Contains(usadas, marca[1]) {
+			usadas = append(usadas, marca[1])
+		}
+	}
+	return usadas
+}
+
+// VariablesDesconocidas son las que el texto usa y la plantilla no recibe:
+// quedarían escritas tal cual en el correo.
+func (d DefinicionDePlantilla) VariablesDesconocidas(texto string) []string {
+	var desconocidas []string
+	for _, v := range VariablesUsadas(texto) {
+		if !slices.Contains(d.Variables, v) {
+			desconocidas = append(desconocidas, v)
+		}
+	}
+	return desconocidas
+}
+
+// VariablesFaltantes son las obligatorias que el texto no usa.
+func (d DefinicionDePlantilla) VariablesFaltantes(texto string) []string {
+	usadas := VariablesUsadas(texto)
+	var faltantes []string
+	for _, v := range d.Obligatorias {
+		if !slices.Contains(usadas, v) {
+			faltantes = append(faltantes, v)
+		}
+	}
+	return faltantes
+}
+
+// Límites de una plantilla de correo.
+const (
+	largoMaxAsuntoCorreo = 200
+	largoMaxCuerpoCorreo = 20000
+)
+
+// ValidarVersionDePlantilla valida una versión nueva de una plantilla de
+// correo antes de guardarla: que exista, el idioma, el asunto en una sola
+// línea, el cuerpo, y que las variables sean las que la plantilla recibe y
+// estén las indispensables.
+func ValidarVersionDePlantilla(p PlantillaCorreo) []ErrorCampo {
+	definicion, existe := DefinicionDePlantillaCorreo(p.Clave)
+	if !existe {
+		return []ErrorCampo{{Campo: "clave", Clave: "error.plantilla_desconocida"}}
+	}
+	var errores []ErrorCampo
+	if p.Idioma != IdiomaES && p.Idioma != IdiomaEN {
+		errores = append(errores, ErrorCampo{Campo: "idioma", Clave: "error.idioma_invalido"})
+	}
+	switch asunto := strings.TrimSpace(p.Asunto); {
+	case asunto == "":
+		errores = append(errores, ErrorCampo{Campo: "asunto", Clave: "error.requerido"})
+	case utf8.RuneCountInString(asunto) > largoMaxAsuntoCorreo || strings.ContainsAny(p.Asunto, "\r\n"):
+		errores = append(errores, ErrorCampo{Campo: "asunto", Clave: "error.asunto_invalido"})
+	}
+	switch cuerpo := strings.TrimSpace(p.CuerpoMD); {
+	case cuerpo == "":
+		errores = append(errores, ErrorCampo{Campo: "cuerpo_md", Clave: "error.requerido"})
+	case utf8.RuneCountInString(cuerpo) > largoMaxCuerpoCorreo:
+		errores = append(errores, ErrorCampo{Campo: "cuerpo_md", Clave: "error.texto_largo_campo"})
+	}
+	if len(definicion.VariablesDesconocidas(p.Asunto+"\n"+p.CuerpoMD)) > 0 {
+		errores = append(errores, ErrorCampo{Campo: "cuerpo_md", Clave: "error.variable_desconocida"})
+	}
+	if len(definicion.VariablesFaltantes(p.Asunto+"\n"+p.CuerpoMD)) > 0 {
+		errores = append(errores, ErrorCampo{Campo: "cuerpo_md", Clave: "error.variable_obligatoria"})
+	}
+	return errores
+}

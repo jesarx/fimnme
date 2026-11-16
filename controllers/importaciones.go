@@ -61,29 +61,38 @@ func (a *App) responderImportacion(w http.ResponseWriter, r *http.Request, estad
 // «archivo» (.csv o .xlsx, hasta 2 MB). Responde 201 con la importación y sus
 // conflictos. No escribe nada en el dominio.
 func (a *App) apiAnalizarImportacion(w http.ResponseWriter, r *http.Request) {
-	subida, err := a.abrirSubida(w, r, models.TamanoMaxImportacion)
-	if a.falloDeSubida(w, r, err) {
+	id, err := a.analizarImportacion(w, r)
+	if errors.Is(err, errSubidaInvalida) {
+		a.falloDeSubida(w, r, err)
 		return
 	}
-	convocatoriaID, err := strconv.ParseInt(subida.campos["convocatoria_id"], 10, 64)
-	if err != nil || convocatoriaID < 1 {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "convocatoria_id", Clave: "error.convocatoria_requerida"}}})
-		return
-	}
-	contenido, err := io.ReadAll(io.LimitReader(subida.cuerpo, models.TamanoMaxImportacion+1))
-	if err != nil {
-		a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-		return
-	}
-	if len(contenido) > models.TamanoMaxImportacion {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "archivo", Clave: "error.archivo_grande"}}})
-		return
-	}
-	id, err := models.AnalizarImportacion(r.Context(), a.datos, a.almacen, a.actorDe(r), subida.campos["tipo"], convocatoriaID, subida.nombre, contenido)
 	if a.falloDeHoja(w, r, err) {
 		return
 	}
 	a.responderImportacion(w, r, http.StatusCreated, id)
+}
+
+// analizarImportacion lee la hoja de una petición multipart (tipo,
+// convocatoria_id, archivo) y la analiza. La comparten la API y la pantalla.
+// Una hoja que no se puede leer devuelve models.ErrHojaIlegible; una subida
+// cortada, errSubidaInvalida.
+func (a *App) analizarImportacion(w http.ResponseWriter, r *http.Request) (int64, error) {
+	subida, err := a.abrirSubida(w, r, models.TamanoMaxImportacion)
+	if err != nil {
+		return 0, err
+	}
+	convocatoriaID, err := strconv.ParseInt(subida.campos["convocatoria_id"], 10, 64)
+	if err != nil || convocatoriaID < 1 {
+		return 0, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "convocatoria_id", Clave: "error.convocatoria_requerida"}}}
+	}
+	contenido, err := io.ReadAll(io.LimitReader(subida.cuerpo, models.TamanoMaxImportacion+1))
+	if err != nil {
+		return 0, errSubidaInvalida
+	}
+	if len(contenido) > models.TamanoMaxImportacion {
+		return 0, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "archivo", Clave: "error.archivo_grande"}}}
+	}
+	return models.AnalizarImportacion(r.Context(), a.datos, a.almacen, a.actorDe(r), subida.campos["tipo"], convocatoriaID, subida.nombre, contenido)
 }
 
 // GET /api/v1/importaciones/{id}   — estado de una importación
@@ -162,28 +171,35 @@ func (a *App) apiConfirmarImportacion(w http.ResponseWriter, r *http.Request) {
 		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "confirmo", Clave: "error.confirmacion_requerida"}}})
 		return
 	}
-	importacion, err := a.datos.ImportacionPorID(r.Context(), id)
-	if a.falloDatos(w, r, err) {
-		return
-	}
-	filas, err := models.FilasDeLaImportacion(a.almacen, importacion)
-	if a.falloDeHoja(w, r, err) {
-		return
-	}
-	// Cada cuenta nueva necesita su enlace de activación y el correo que lo
-	// lleva: se preparan aquí y se encolan dentro de la misma transacción.
-	activaciones := make(map[int]models.ActivacionDeCuenta)
-	for _, fila := range models.CuentasPorCrear(importacion, filas) {
-		token, correo, err := a.correoDeActivacion(r, fila.Valores["email"], fila.Valores["nombre"], fila.Valores["idioma"])
-		if a.falloDatos(w, r, err) {
-			return
-		}
-		activaciones[fila.Numero] = models.ActivacionDeCuenta{Token: token, Correo: &correo}
-	}
-	if _, err := a.datos.ConfirmarImportacion(r.Context(), a.actorDe(r), id, filas, activaciones); a.falloDatos(w, r, err) {
+	if a.falloDeHoja(w, r, a.confirmarImportacion(r, id)) {
 		return
 	}
 	a.responderImportacion(w, r, http.StatusOK, id)
+}
+
+// confirmarImportacion aplica una importación (fase Commit). Cada cuenta
+// nueva necesita su enlace de activación y el correo que lo lleva: se
+// preparan aquí y se encolan dentro de la misma transacción. La comparten la
+// API y la pantalla.
+func (a *App) confirmarImportacion(r *http.Request, id int64) error {
+	importacion, err := a.datos.ImportacionPorID(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	filas, err := models.FilasDeLaImportacion(a.almacen, importacion)
+	if err != nil {
+		return err
+	}
+	activaciones := make(map[int]models.ActivacionDeCuenta)
+	for _, fila := range models.CuentasPorCrear(importacion, filas) {
+		token, correo, err := a.correoDeActivacion(r, fila.Valores["email"], fila.Valores["nombre"], fila.Valores["idioma"])
+		if err != nil {
+			return err
+		}
+		activaciones[fila.Numero] = models.ActivacionDeCuenta{Token: token, Correo: &correo}
+	}
+	_, err = a.datos.ConfirmarImportacion(r.Context(), a.actorDe(r), id, filas, activaciones)
+	return err
 }
 
 // DELETE /api/v1/importaciones/{id}   — cancela una importación sin aplicarla

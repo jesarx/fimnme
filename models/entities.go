@@ -352,6 +352,15 @@ type PlantillaCorreo struct {
 	CuerpoMD string
 }
 
+// VersionDePlantilla es una versión guardada de una plantilla de correo. Las
+// versiones no se editan ni se borran: una nueva reemplaza a la anterior, y
+// volver a una vieja es guardarla de nuevo como la más reciente.
+type VersionDePlantilla struct {
+	PlantillaCorreo
+	ID       int64
+	CreadoAt time.Time
+}
+
 // CorreoSaliente es un mensaje de la bandeja de salida (email_outbox). La
 // transacción de negocio lo escribe; un trabajador lo envía después (§5.8).
 type CorreoSaliente struct {

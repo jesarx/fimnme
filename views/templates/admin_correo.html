@@ -1,0 +1,94 @@
+{{- /*
+  Editor de una plantilla de correo en un idioma (§5.8): asunto y cuerpo en
+  Markdown con variables, la vista previa con valores de muestra, el correo
+  de prueba y el historial de versiones. Recibe en .Datos una
+  vistaEditorDePlantilla.
+
+  Un solo formulario con tres botones (accion): vista previa, guardar como
+  versión nueva y enviarme una prueba. Para el observador, todo en sólo
+  lectura.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "correo.titulo"}} · {{if eq .Datos.Idioma "en"}}{{.T "cuenta.idioma_en"}}{{else}}{{.T "cuenta.idioma_es"}}{{end}}</p>
+    <h1 class="banda__titulo">{{.T .Datos.Nombre}}</h1>
+    <p class="banda__entrada">{{.T .Datos.Proposito}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion/correos">← {{.T "correo.titulo"}}</a> · <a href="{{$v.OtroIdioma}}">{{if eq $v.Idioma "en"}}{{.T "correo.ver_es"}}{{else}}{{.T "correo.ver_en"}}{{end}}</a></p>
+{{template "aviso" .}}
+{{- if $v.FaltaEnIdioma}}<div class="aviso aviso--espera"><p>{{.T "correo.falta_idioma_aviso"}}</p></div>{{end}}
+{{- if $v.Cargada}}<div class="aviso aviso--espera"><p>{{.T "correo.version_cargada" $v.Cargada $v.Vigente}}</p></div>{{end}}
+
+<div class="correo">
+  <section class="grupo correo__editor" id="editor" aria-labelledby="t-editor">
+    <h2 class="titulo-seccion" id="t-editor">{{.T "correo.editar"}}</h2>
+    {{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+    {{- if $v.Desconocidas}}<p class="campo__error">{{.T "correo.desconocidas"}} {{range $i, $n := $v.Desconocidas}}{{if $i}}, {{end}}<code>{{"{{"}}{{$n}}{{"}}"}}</code>{{end}}</p>{{end}}
+    {{- if $v.Faltantes}}<p class="campo__error">{{.T "correo.faltantes"}} {{range $i, $n := $v.Faltantes}}{{if $i}}, {{end}}<code>{{"{{"}}{{$n}}{{"}}"}}</code>{{end}}</p>{{end}}
+    <form method="post" action="{{$v.Base}}" class="admin__form">
+      <fieldset class="admin__campos"{{if not $v.PuedeAdministrar}} disabled{{end}}>
+        <legend class="oculto">{{.T "correo.editar"}}</legend>
+        <div class="campo"><label for="c-asunto">{{.T "correo.asunto"}}</label>
+          <input id="c-asunto" name="asunto" type="text" required maxlength="200" value="{{$v.Asunto}}"{{if eq $v.Idioma "en"}} lang="en"{{end}}></div>
+        <div class="campo"><label for="c-cuerpo_md">{{.T "correo.cuerpo"}}</label>
+          <p class="campo__ayuda" id="c-cuerpo-ayuda">{{.T "correo.cuerpo_ayuda"}}</p>
+          <textarea id="c-cuerpo_md" name="cuerpo_md" rows="16" required class="admin__markdown" aria-describedby="c-cuerpo-ayuda"{{if eq $v.Idioma "en"}} lang="en"{{end}}>{{$v.Cuerpo}}</textarea></div>
+      </fieldset>
+      {{- if $v.PuedeAdministrar}}
+      <p class="admin__acciones">
+        <button class="boton boton--secundario" type="submit" name="accion" value="vista_previa" formnovalidate>{{.T "correo.vista_previa"}}</button>
+        <button class="boton" type="submit" name="accion" value="guardar">{{.T "correo.guardar"}}</button>
+        <button class="boton boton--secundario" type="submit" name="accion" value="prueba">{{.T "correo.enviar_prueba"}}</button>
+      </p>
+      <p class="campo__ayuda">{{.T "correo.guardar_ayuda"}}</p>
+      {{- end}}
+    </form>
+
+    <h3 class="admin__subtitulo">{{.T "correo.variables"}}</h3>
+    <dl class="correo__variables">
+      {{- range $v.Variables}}
+      <div><dt><code>{{.Marca}}</code>{{if .Obligatoria}} <span class="estado estado--proxima">{{$.T "correo.indispensable"}}</span>{{end}}</dt><dd>{{$.T .Descripcion}}</dd></div>
+      {{- end}}
+    </dl>
+  </section>
+
+  <section class="grupo correo__previa" aria-labelledby="t-previa">
+    <h2 class="titulo-seccion" id="t-previa">{{.T "correo.vista_previa_titulo"}}</h2>
+    <p class="campo__ayuda">{{.T "correo.vista_previa_ayuda"}}</p>
+    <div class="correo__mensaje">
+      <p class="correo__asunto"><span class="campo__rotulo">{{.T "correo.asunto"}}</span> {{$v.PrevAsunto}}</p>
+      <div class="prosa correo__cuerpo">{{$v.PrevCuerpo}}</div>
+    </div>
+    <details class="correo__texto">
+      <summary>{{.T "correo.version_texto"}}</summary>
+      <pre>{{$v.PrevTexto}}</pre>
+    </details>
+  </section>
+</div>
+
+<section class="grupo" id="historial" aria-labelledby="t-historial">
+  <h2 class="titulo-seccion" id="t-historial">{{.T "correo.historial"}}</h2>
+  {{- if $v.Versiones}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead><tr><th scope="col">{{.T "correo.version"}}</th><th scope="col">{{.T "correo.asunto"}}</th><th scope="col">{{.T "correo.guardada"}}</th><th scope="col"><span class="oculto">{{.T "admin.acciones"}}</span></th></tr></thead>
+    <tbody>
+      {{- range $v.Versiones}}
+      <tr><td>{{.Version}}{{if .Vigente}} <span class="estado estado--abierta">{{$.T "correo.vigente"}}</span>{{end}}</td><td>{{.Asunto}}</td>
+        <td><time datetime="{{$.ISO .CreadoAt}}">{{$.FechaHora .CreadoAt}}</time></td>
+        <td>{{if not .Vigente}}<a href="{{.Cargar}}">{{$.T "correo.cargar"}}</a>{{end}}</td></tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "correo.sin_versiones"}}</p>
+  {{- end}}
+</section>
+{{end}}

@@ -2160,6 +2160,64 @@ func (r *Repositorio) PlantillaCorreo(ctx context.Context, clave, idioma string)
 	return PlantillaCorreo{}, fmt.Errorf("plantilla de correo %q: %w", clave, ErrNoEncontrado)
 }
 
+// VersionesDePlantilla devuelve las versiones guardadas de una plantilla en
+// un idioma, de la más reciente a la más antigua. La primera es la vigente.
+func (r *Repositorio) VersionesDePlantilla(ctx context.Context, clave, idioma string) ([]VersionDePlantilla, error) {
+	filas, err := r.lectura.QueryContext(ctx, `
+		SELECT id, version, asunto, cuerpo_md, creado_at FROM plantilla_correo
+		WHERE clave = ? AND idioma = ? AND activa = 1 ORDER BY version DESC`, clave, idioma)
+	if err != nil {
+		return nil, fmt.Errorf("leer versiones de %s: %w", clave, err)
+	}
+	defer filas.Close()
+	var versiones []VersionDePlantilla
+	for filas.Next() {
+		v := VersionDePlantilla{PlantillaCorreo: PlantillaCorreo{Clave: clave, Idioma: idioma}}
+		var creado string
+		if err := filas.Scan(&v.ID, &v.Version, &v.Asunto, &v.CuerpoMD, &creado); err != nil {
+			return nil, fmt.Errorf("leer versiones de %s: %w", clave, err)
+		}
+		if v.CreadoAt, err = deMarca(creado); err != nil {
+			return nil, err
+		}
+		versiones = append(versiones, v)
+	}
+	return versiones, filas.Err()
+}
+
+// GuardarVersionDePlantilla guarda una versión nueva de una plantilla de
+// correo, que pasa a ser la vigente: los mensajes que se armen a partir de
+// ahora la usan; los ya encolados no cambian. Devuelve su número. Queda en la
+// bitácora con la versión que reemplaza.
+func (r *Repositorio) GuardarVersionDePlantilla(ctx context.Context, actor Actor, p PlantillaCorreo) (int, error) {
+	var version int
+	err := r.operacion(ctx, "guardar plantilla de correo", func(tx *sql.Tx) error {
+		p.Asunto, p.CuerpoMD = strings.TrimSpace(p.Asunto), strings.TrimSpace(p.CuerpoMD)
+		if err := validacion(ValidarVersionDePlantilla(p)); err != nil {
+			return err
+		}
+		var anterior int
+		if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM plantilla_correo WHERE clave = ? AND idioma = ?",
+			p.Clave, p.Idioma).Scan(&anterior); err != nil {
+			return err
+		}
+		version = anterior + 1
+		res, err := tx.ExecContext(ctx, `INSERT INTO plantilla_correo (clave, idioma, version, asunto, cuerpo_md, activa, creado_at)
+			VALUES (?, ?, ?, ?, ?, 1, ?)`, p.Clave, p.Idioma, version, p.Asunto, p.CuerpoMD, r.marca())
+		if err != nil {
+			return err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "plantilla_correo.version", "plantilla_correo", id,
+			map[string]any{"clave": p.Clave, "idioma": p.Idioma, "version": anterior},
+			map[string]any{"clave": p.Clave, "idioma": p.Idioma, "version": version, "asunto": p.Asunto})
+	})
+	return version, err
+}
+
 // CorreosPendientes devuelve los mensajes de la bandeja de salida cuyo envío
 // ya toca, los más antiguos primero.
 func (r *Repositorio) CorreosPendientes(ctx context.Context, limite int) ([]CorreoSaliente, error) {
@@ -6848,6 +6906,36 @@ func importacionPorID(ctx context.Context, q consultor, id int64) (Importacion, 
 // ImportacionPorID devuelve una importación con sus conflictos.
 func (r *Repositorio) ImportacionPorID(ctx context.Context, id int64) (Importacion, error) {
 	return importacionPorID(ctx, r.lectura, id)
+}
+
+// ImportacionesRecientes devuelve las últimas importaciones, la más reciente
+// primero, con sus conflictos.
+func (r *Repositorio) ImportacionesRecientes(ctx context.Context, limite int) ([]Importacion, error) {
+	filas, err := r.lectura.QueryContext(ctx, "SELECT id FROM importacion ORDER BY id DESC LIMIT ?", limite)
+	if err != nil {
+		return nil, fmt.Errorf("listar importaciones: %w", err)
+	}
+	var ids []int64
+	for filas.Next() {
+		var id int64
+		if err := filas.Scan(&id); err != nil {
+			filas.Close()
+			return nil, fmt.Errorf("listar importaciones: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := filas.Close(); err != nil {
+		return nil, err
+	}
+	importaciones := make([]Importacion, 0, len(ids))
+	for _, id := range ids {
+		i, err := importacionPorID(ctx, r.lectura, id)
+		if err != nil {
+			return nil, err
+		}
+		importaciones = append(importaciones, i)
+	}
+	return importaciones, nil
 }
 
 // importacionAbierta lee una importación dentro de una transacción y exige

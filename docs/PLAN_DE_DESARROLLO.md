@@ -66,7 +66,7 @@ Con el paso 10c **el backend está completo**.
 | 13a | **Administración: configuración.** Ediciones; ficha de configuración de cada convocatoria (estado con lo que falta para avanzar, títulos y límites, bases en Markdown, PDF e imagen, calendario en hora de la Ciudad de México, dotaciones, requisitos documentales, criterios); jurados y revisores (búsqueda, alta con enlace de activación, retiro); cuentas internas. El observador lo ve todo sin poder cambiar nada. | ✅ Hecho |
 | 13b | **Supervisión.** Tablero de cada convocatoria (por estado, documentos, subsanaciones, ritmo de envíos y avance de los jurados, sin puntajes); matriz de resultados con el resultado del proceso; generador de reportes CSV con plantillas; estadísticas de la edición; publicación y retiro de la nómina con vista previa. | ✅ Hecho |
 | 13c | **Archivo.** Buscador de todas las ediciones con texto, filtros en la URL, orden y páginas; vistas guardadas; CSV; descarga masiva en ZIP y expediente de una convocatoria desde la búsqueda; «Mis descargas»; enlace permanente por folio también para el personal. | ✅ Hecho |
-| 13d | **Operación.** Bitácora consultable; importación asistida en dos fases con resolución de conflictos; plantillas de correo (API y pantalla, con versiones); anonimización ARCO. | Pendiente |
+| 13d | **Operación.** Plantillas de correo editables (API y pantalla) con variables validadas, versiones, vista previa y correo de prueba; bitácora con filtros; importación asistida en dos fases con resolución de conflictos; anonimización ARCO con doble confirmación. | ✅ Hecho |
 
 ### Operación
 
@@ -100,6 +100,38 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 13d — qué se entregó
+
+Última entrega del paso 13: todo lo que la API permite hacer tiene pantalla.
+
+**Decisiones:** [ADR 0024](adr/0024-plantillas-de-correo-y-pantallas-de-operacion.md).
+
+- **Plantillas de correo** (`/administracion/correos` y cinco operaciones nuevas en la
+  API): catálogo con las variables que recibe cada correo y las indispensables;
+  versiones que no se editan ni se borran; vista previa idéntica al correo; correo de
+  prueba; validación que impide variables inexistentes o la falta de las
+  indispensables.
+- **Bitácora** con filtros, quién, IP, antes y después, enlace a la historia de cada
+  registro y CSV.
+- **Importación asistida**: subir la hoja, resolver cada renglón (vincular, crear,
+  omitir; en bloque los que no se parecen a nada), confirmar todo o nada, cancelar.
+- **Anonimización ARCO** por folio, con fundamento, folio escrito de nuevo y casilla.
+- Repositorio: `VersionesDePlantilla`, `GuardarVersionDePlantilla`,
+  `ImportacionesRecientes`. Sin migraciones ni dependencias.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: plantillas (lista,
+editor, observador en sólo lectura y 403, vista previa con variables señaladas, rechazos
+con lo escrito, versión nueva que usa el siguiente correo real, historial y carga de una
+versión anterior, prueba, API completa); que cada plantilla sembrada pase su
+validación; bitácora (permisos, filtros, enlace por entidad, filtro inválido);
+importación desde la pantalla hasta aplicarse; ARCO (permisos, doble confirmación,
+resultado, bitácora). Cuatro mutaciones (validación de la versión, permiso de edición,
+permiso de anonimizar, catálogo de variables) hacen fallar las pruebas. En un navegador
+real: editar la plantilla de subsanación con una variable inexistente (vista previa y
+rechazo), corregirla, guardarla y probarla; importar dotaciones resolviendo cada
+renglón; consultar la bitácora; anonimizar una postulación; en el teléfono, sin
+desbordes.
 
 ## Paso 13c — qué se entregó
 
@@ -1001,3 +1033,12 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
     convocatoria, y tampoco puede pedir descargas masivas (ADR 0012). Sí puede pedir el
     expediente de su convocatoria, con su evaluación y ninguna otra.
 84. **Las descargas de «Mis descargas» se listan hasta 30**, las más recientes.
+85. **Plantillas de correo**: el catálogo es el de los correos que el sistema envía hoy.
+    Los de RF-NOT-09 y 10 (inicio de la evaluación y recordatorio a jurados, prioridad
+    S) aún no existen; cuando se hagan, entran al catálogo con sus variables.
+86. **El correo de prueba no queda en la bitácora**: queda en la bandeja de salida, como
+    cualquier correo. Las versiones nuevas sí quedan en la bitácora.
+87. **El observador ve las plantillas de correo en la pantalla**, en sólo lectura; la API
+    de plantillas es sólo del administrador.
+88. **La ayuda de las variables y la vista previa usan valores de muestra fijos**
+    («FIM49-INT-0137»); el nombre es el de quien edita.

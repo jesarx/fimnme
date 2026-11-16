@@ -67,6 +67,8 @@ type Persistencia interface {
 
 	// Correo saliente.
 	PlantillaCorreo(ctx context.Context, clave, idioma string) (PlantillaCorreo, error)
+	VersionesDePlantilla(ctx context.Context, clave, idioma string) ([]VersionDePlantilla, error)
+	GuardarVersionDePlantilla(ctx context.Context, actor Actor, p PlantillaCorreo) (int, error)
 	CorreosPendientes(ctx context.Context, limite int) ([]CorreoSaliente, error)
 	MarcarCorreoEnviado(ctx context.Context, correo CorreoSaliente, messageID string) error
 	MarcarCorreoFallido(ctx context.Context, correo CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error
@@ -188,6 +190,7 @@ type Persistencia interface {
 	CrearImportacion(ctx context.Context, actor Actor, tipo string, convocatoriaID int64, blob Blob, mime, nombreOriginal string,
 		filasTotal int, conflictos []ConflictoDeImportacion) (int64, error)
 	ImportacionPorID(ctx context.Context, id int64) (Importacion, error)
+	ImportacionesRecientes(ctx context.Context, limite int) ([]Importacion, error)
 	ResolverConflicto(ctx context.Context, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error
 	ResolverSinCandidatos(ctx context.Context, actor Actor, importacionID int64, resolucion string) (int, error)
 	CancelarImportacion(ctx context.Context, actor Actor, importacionID int64) error

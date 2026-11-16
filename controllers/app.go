@@ -178,6 +178,19 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /administracion/convocatorias/{id}/asignaciones", a.conSesion(a.asignarDesdeAdmin))
 	mux.HandleFunc("POST /administracion/convocatorias/{id}/asignaciones/{asignacion}/retirar", a.conSesion(a.retirarAsignacionDesdeAdmin))
 	mux.HandleFunc("POST /administracion/convocatorias/{id}/cuentas", a.conSesion(a.crearYAsignarDesdeAdmin))
+	mux.HandleFunc("GET /administracion/correos", a.conSesion(a.plantillasDeCorreoAdmin))
+	mux.HandleFunc("GET /administracion/correos/{clave}/{idioma}", a.conSesion(a.editorDePlantilla))
+	mux.HandleFunc("POST /administracion/correos/{clave}/{idioma}", a.conSesion(a.accionDePlantilla))
+	mux.HandleFunc("GET /administracion/bitacora", a.conSesion(a.bitacoraDeAdmin))
+	mux.HandleFunc("GET /administracion/importaciones", a.conSesion(a.importacionesDeAdmin))
+	mux.HandleFunc("POST /administracion/importaciones", a.conSesion(a.analizarImportacionDesdeAdmin))
+	mux.HandleFunc("GET /administracion/importaciones/{id}", a.conSesion(a.importacionDeAdmin))
+	mux.HandleFunc("POST /administracion/importaciones/{id}/conflictos/{conflicto}", a.conSesion(a.resolverConflictoDesdeAdmin))
+	mux.HandleFunc("POST /administracion/importaciones/{id}/resoluciones", a.conSesion(a.resolverSinCandidatosDesdeAdmin))
+	mux.HandleFunc("POST /administracion/importaciones/{id}/confirmacion", a.conSesion(a.confirmarImportacionDesdeAdmin))
+	mux.HandleFunc("POST /administracion/importaciones/{id}/cancelar", a.conSesion(a.cancelarImportacionDesdeAdmin))
+	mux.HandleFunc("GET /administracion/arco", a.conSesion(a.arcoDeAdmin))
+	mux.HandleFunc("POST /administracion/arco/{id}", a.conSesion(a.anonimizarDesdeAdmin))
 	mux.HandleFunc("GET /administracion/usuarios", a.conSesion(a.usuariosDeAdmin))
 	mux.HandleFunc("POST /administracion/usuarios", a.conSesion(a.crearCuentaDesdeAdmin))
 	mux.HandleFunc("POST /administracion/usuarios/{id}/activacion", a.conSesion(a.reenviarActivacionDesdeAdmin))
@@ -365,6 +378,11 @@ func (a *App) rutasAPI() []rutaAPI {
 		{"GET", "/api/v1/ediciones/{id}/estadisticas", a.supervisa(a.apiEstadisticas)},
 
 		// Importación asistida en dos fases: analizar, resolver y confirmar.
+		{"GET", "/api/v1/plantillas-correo", a.administra(a.apiPlantillasDeCorreo)},
+		{"GET", "/api/v1/plantillas-correo/{clave}/{idioma}", a.administra(a.apiPlantillaDeCorreo)},
+		{"POST", "/api/v1/plantillas-correo/{clave}/{idioma}", a.administra(a.apiGuardarPlantillaDeCorreo)},
+		{"POST", "/api/v1/plantillas-correo/{clave}/{idioma}/vista-previa", a.administra(a.apiVistaPreviaDeCorreo)},
+		{"POST", "/api/v1/plantillas-correo/{clave}/{idioma}/prueba", a.administra(a.apiPruebaDeCorreo)},
 		{"POST", "/api/v1/importaciones", a.administra(a.apiAnalizarImportacion)},
 		{"GET", "/api/v1/importaciones/{id}", a.administra(a.apiImportacion)},
 		{"PUT", "/api/v1/importaciones/{id}/conflictos/{conflicto}", a.administra(a.apiResolverConflicto)},

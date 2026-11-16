@@ -19,12 +19,12 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 13 de 14 (13c): pantallas del archivo.** El backend está completo; postulante,
-revisor y jurado pueden hacerlo todo desde el navegador; el administrador configura
-desde `/administracion` y supervisa desde `/supervision`; el personal consulta el
-archivo histórico, con sus descargas y expedientes, desde `/archivo`. Faltan las
-pantallas de operación (13d: bitácora, importación asistida, plantillas de correo y
-anonimización). Hoy el sistema tiene:
+**Paso 13 de 14 (completo): todas las pantallas.** El backend está completo y todo lo
+que la API permite hacer tiene pantalla: el postulante, el revisor y el jurado trabajan
+desde el navegador; el administrador configura, edita los correos, importa, consulta la
+bitácora y atiende solicitudes ARCO desde `/administracion`, y supervisa desde
+`/supervision`; el personal consulta el archivo histórico desde `/archivo`. Falta el
+paso 14: la puesta en operación. Hoy el sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
@@ -46,6 +46,11 @@ anonimización). Hoy el sistema tiene:
   calendario en hora de la Ciudad de México, dotaciones, requisitos documentales,
   criterios, jurados y revisores) y las cuentas internas. El observador lo ve todo sin
   poder cambiar nada.
+- **Plantillas de correo editables** (`/administracion/correos`), en español e inglés,
+  con versiones, vista previa idéntica al correo, correo de prueba y validación de sus
+  variables; también por la API.
+- **Operación desde el navegador**: bitácora con filtros, importación asistida en dos
+  fases con resolución de cada renglón, y anonimización ARCO con doble confirmación.
 - **Archivo** (`/archivo`): buscador de todas las ediciones con filtros en la URL, vistas
   guardadas, CSV, descarga masiva en ZIP, expediente de una convocatoria y «Mis
   descargas». El enlace permanente por folio sirve también al personal.
@@ -115,10 +120,6 @@ anonimización). Hoy el sistema tiene:
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La operación aún se usa por la API o por `fimnme-cli`.** La bitácora, la importación
-> asistida y la anonimización tienen API (ejemplos abajo); sus pantallas, y las
-> plantillas de correo, llegan en el paso 13d.
->
 > **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
 > paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
 > enlace de verificación, recuperación o activación; véase «Correos en desarrollo».
@@ -535,6 +536,24 @@ curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: applicati
 
 Decisiones de este módulo: [ADR 0014](docs/adr/0014-continuidad-portal-publico-y-anonimizacion.md).
 
+### API de plantillas de correo
+
+Cada correo del sistema es una plantilla en Markdown con variables (`{{nombre}}`,
+`{{liga}}`…), en español y en inglés. Guardar crea una versión nueva, que pasa a ser la
+vigente; ninguna se edita ni se borra. Se rechaza una versión que use una variable que la
+plantilla no recibe o que omita una indispensable. Sólo el administrador.
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/v1/plantillas-correo
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"asunto":"Recibimos tu postulación {{folio}}","cuerpo_md":"Hola, {{nombre}}:\n\nTu folio es **{{folio}}**."}' http://127.0.0.1:8080/api/v1/plantillas-correo/acuse/es
+```
+
+`…/vista-previa` arma el correo con valores de muestra sin guardar, y `…/prueba` envía
+un correo de prueba a quien lo pide.
+
 ### API de importación asistida y campos extendidos
 
 | Método y ruta | Quién | Qué hace |
@@ -617,6 +636,8 @@ controllers/        CONTROLADOR
   administracion.go   páginas de administración: ediciones, configuración, cuentas
   supervision.go      páginas de supervisión: tablero, resultados, reportes, nómina
   archivo_paginas.go  páginas del archivo: buscador, vistas, descargas, expedientes
+  plantillas_correo.go API y páginas de las plantillas de correo
+  operacion.go        páginas de bitácora, importación asistida y anonimización ARCO
   documentos.go       subida y descarga de documentos, envío, acuse y bases
   revision.go         revisión documental, subsanación y desbloqueos
   evaluacion.go       evaluación por jurado y matriz de resultados

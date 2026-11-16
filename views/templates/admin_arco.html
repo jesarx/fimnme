@@ -1,0 +1,69 @@
+{{- /*
+  Anonimización ARCO (§1.D, RN-28): la única operación destructiva del
+  sistema. Se busca la postulación por folio; para anonimizarla se escribe el
+  fundamento, se vuelve a escribir el folio y se marca la confirmación.
+  Recibe en .Datos una vistaARCO.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "arco.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "arco.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+
+{{- with $v.Resultado}}
+<div class="aviso aviso--exito" role="status">
+  <p class="aviso__titulo">{{$.T "arco.hecha" .Folio}}</p>
+  <ul>
+    <li>{{$.T "arco.purgados_n" .Purgados}}</li>
+    <li>{{$.T "arco.conservados_n" .Conservados}}</li>
+    {{- if .CuentaAnonimizada}}<li>{{$.T "arco.cuenta_anonimizada"}}</li>{{end}}
+    {{- if .Pendientes}}<li>{{$.T "arco.pendientes_n" .Pendientes}}</li>{{end}}
+  </ul>
+</div>
+{{- end}}
+
+<form method="get" action="/administracion/arco" class="admin__busqueda" role="search">
+  <div class="campo"><label for="a-folio">{{.T "arco.buscar_folio"}}</label>
+    <input id="a-folio" name="folio" type="text" value="{{if not $v.Resultado}}{{$v.Folio}}{{end}}" placeholder="FIM49-INT-0137" autocomplete="off"></div>
+  <button class="boton boton--menor boton--secundario" type="submit">{{.T "archivo.buscar_boton"}}</button>
+</form>
+
+{{- if $v.NoExiste}}<p class="vacio">{{.T "arco.no_existe"}}</p>{{end}}
+
+{{- if $v.Encontrada}}
+<section class="grupo" aria-labelledby="t-postulacion">
+  <h2 class="titulo-seccion" id="t-postulacion">{{$v.Folio}}</h2>
+  <dl class="fechas fechas--en-linea">
+    <div><dt>{{.T "revision.columna_nombre"}}</dt><dd>{{$v.Nombre}}</dd></div>
+    <div><dt>{{.T "archivo.filtro_convocatoria"}}</dt><dd>{{$v.Convocatoria}}</dd></div>
+    <div><dt>{{.T "revision.columna_estado"}}</dt><dd>{{.T $v.Estado}}</dd></div>
+  </dl>
+  {{- if $v.Anonimizada}}
+  <p class="aviso aviso--espera">{{.T "arco.ya_anonimizada"}}</p>
+  {{- else}}
+  <div class="aviso aviso--error"><p class="aviso__titulo">{{.T "arco.advertencia_titulo"}}</p><p>{{.T "arco.advertencia"}}</p></div>
+  {{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+  <form method="post" action="/administracion/arco/{{$v.ID}}" class="admin__form admin__caja">
+    <div class="campo"><label for="a-fundamento">{{.T "arco.fundamento"}}</label>
+      <p class="campo__ayuda" id="a-fundamento-ayuda">{{.T "arco.fundamento_ayuda"}}</p>
+      <textarea id="a-fundamento" name="fundamento" rows="3" required minlength="10" maxlength="500" aria-describedby="a-fundamento-ayuda">{{$v.Fundamento}}</textarea></div>
+    <div class="campo"><label for="a-confirma-folio">{{.T "arco.reescribe_folio" $v.Folio}}</label>
+      <input id="a-confirma-folio" name="folio" type="text" required autocomplete="off"></div>
+    <div class="campo campo--casilla"><input id="a-con_cuenta" name="con_cuenta" type="checkbox" value="1"{{if $v.ConCuenta}} checked{{end}}>
+      <label for="a-con_cuenta">{{.T "arco.con_cuenta"}}</label></div>
+    <div class="campo campo--casilla"><input id="a-confirmo" name="confirmo" type="checkbox" value="1" required>
+      <label for="a-confirmo">{{.T "arco.confirmo"}}</label></div>
+    <p><button class="boton boton--peligro" type="submit">{{.T "arco.anonimizar"}}</button></p>
+  </form>
+  {{- end}}
+</section>
+{{- end}}
+{{end}}

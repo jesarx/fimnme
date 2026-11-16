@@ -2882,3 +2882,120 @@ main {
 .archivo__acciones .admin__form {
   align-content: start;
 }
+
+/* --- Plantillas de correo (paso 13d) ------------------------------------- */
+
+.correo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: var(--e5);
+  align-items: start;
+}
+
+.correo__variables {
+  display: grid;
+  gap: var(--e2);
+  margin: 0;
+}
+
+.correo__variables dt {
+  font-weight: 600;
+}
+
+.correo__variables dd {
+  margin: 0;
+  color: var(--tinta-suave);
+  font-size: 0.875rem;
+}
+
+.correo__mensaje {
+  padding: var(--e4);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--fondo);
+}
+
+.correo__asunto {
+  margin: 0 0 var(--e3);
+  padding-bottom: var(--e3);
+  border-bottom: 1px solid var(--borde);
+  font-weight: 600;
+}
+
+.correo__cuerpo {
+  overflow-wrap: anywhere;
+}
+
+.correo__texto {
+  margin-top: var(--e3);
+}
+
+.correo__texto summary {
+  cursor: pointer;
+  color: var(--acento);
+}
+
+.correo__texto pre {
+  margin: var(--e2) 0 0;
+  padding: var(--e3);
+  overflow-x: auto;
+  border-radius: var(--radio);
+  background: var(--neutro-fondo);
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+}
+
+/* --- Bitácora e importación (paso 13d) ------------------------------------ */
+
+.bitacora__momento {
+  white-space: nowrap;
+}
+
+.bitacora__cambios summary {
+  cursor: pointer;
+  color: var(--acento);
+}
+
+.bitacora__cambios pre {
+  max-width: 32rem;
+  margin: var(--e1) 0 var(--e2);
+  padding: var(--e2);
+  overflow-x: auto;
+  border-radius: var(--radio);
+  background: var(--neutro-fondo);
+  font-size: 0.75rem;
+}
+
+.importacion__masiva {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e3);
+  align-items: center;
+}
+
+.importacion__conflicto {
+  padding: var(--e3) var(--e4);
+}
+
+.importacion__renglon {
+  margin: 0 0 var(--e2);
+}
+
+.importacion__opciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e4);
+  align-items: end;
+}
+
+.importacion__opciones fieldset {
+  display: grid;
+  gap: var(--e1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.importacion__cancelar {
+  margin-top: var(--e4);
+}
