@@ -182,6 +182,16 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /administracion/usuarios", a.conSesion(a.crearCuentaDesdeAdmin))
 	mux.HandleFunc("POST /administracion/usuarios/{id}/activacion", a.conSesion(a.reenviarActivacionDesdeAdmin))
 
+	// Pantallas del archivo (§5.12): buscador de todas las ediciones, vistas
+	// guardadas, descargas masivas y expedientes. Para el personal; cada quien
+	// encuentra sólo lo que su perfil le deja ver.
+	mux.HandleFunc("GET /archivo", a.conSesion(a.archivoDelPersonal))
+	mux.HandleFunc("POST /archivo/vistas", a.conSesion(a.guardarVistaDelArchivo))
+	mux.HandleFunc("POST /archivo/vistas/{vista}/borrar", a.conSesion(a.borrarVistaDelArchivo))
+	mux.HandleFunc("POST /archivo/descargas", a.conSesion(a.pedirDescargaDesdeElArchivo))
+	mux.HandleFunc("POST /archivo/expedientes", a.conSesion(a.pedirExpedienteDesdeElArchivo))
+	mux.HandleFunc("GET /archivo/descargas", a.conSesion(a.descargasDelArchivo))
+
 	// Pantallas de supervisión (§5.13, §5.6, §5.7, §5.16): tablero, matriz de
 	// resultados, reportes, estadísticas y nómina. Las ven administrador y
 	// observador; el dictamen final y la nómina son del administrador.

@@ -152,6 +152,7 @@ type Persistencia interface {
 	DocumentosParaZIP(ctx context.Context, parametros ParametrosDeExportacion) ([]DocumentoEnZIP, error)
 	EncolarExportacion(ctx context.Context, actor Actor, tipo string, parametros ParametrosDeExportacion) (int64, error)
 	ExportacionPorID(ctx context.Context, id int64) (TareaDeExportacion, error)
+	ExportacionesDe(ctx context.Context, usuarioID int64, limite int) ([]TareaDeExportacion, error)
 	TomarExportacion(ctx context.Context) (TareaDeExportacion, bool, error)
 	ReencolarExportacionesInterrumpidas(ctx context.Context) (int, error)
 	TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string, aviso *CorreoSaliente) error

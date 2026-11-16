@@ -2787,3 +2787,98 @@ main {
   font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
+
+/* --- Archivo (paso 13c) -------------------------------------------------- */
+
+.archivo__vistas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e3);
+  align-items: center;
+  margin: 0 0 var(--e4);
+}
+
+.archivo__vista {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+  padding: var(--e1) var(--e1) var(--e1) var(--e3);
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--superficie);
+}
+
+.archivo__vista a[aria-current] {
+  font-weight: 700;
+}
+
+.archivo__quitar {
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tinta-suave);
+  font: inherit;
+  cursor: pointer;
+}
+
+.archivo__quitar:hover {
+  background: var(--error-fondo);
+  color: var(--error);
+}
+
+.archivo__avanzados {
+  grid-column: 1 / -1;
+}
+
+.archivo__avanzados > summary {
+  cursor: pointer;
+  color: var(--acento);
+  font-weight: 600;
+}
+
+.archivo__mas {
+  margin: var(--e3) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.archivo__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2) var(--e4);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.paginas {
+  display: flex;
+  gap: var(--e3);
+  justify-content: center;
+  margin: var(--e4) 0;
+}
+
+.archivo__acciones {
+  margin-top: var(--e5);
+}
+
+.archivo__nota-expediente {
+  align-self: center;
+}
+
+.archivo__progreso {
+  display: inline-block;
+  width: 6rem;
+  margin: 0 0 0 var(--e2);
+  vertical-align: middle;
+}
+
+/* Las cajas de acciones del archivo no se estiran a la altura de la vecina. */
+.archivo__acciones {
+  align-items: start;
+}
+
+.archivo__acciones .admin__form {
+  align-content: start;
+}

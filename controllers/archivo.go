@@ -224,9 +224,8 @@ func (a *App) apiPedirExportacion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parametros.SoloDe, parametros.Alcance = sesion.Usuario.ID, models.AlcanceDeConsulta{}
-	} else if !parametros.Alcance.Todo {
-		// Un revisor que además es jurado descarga como revisor, no como jurado.
-		parametros.Alcance.ComoJurado = nil
+	} else {
+		parametros = parametrosDeDescargaMasiva(sesion, filtro, parametros.Claves)
 	}
 	id, err := a.datos.EncolarExportacion(r.Context(), a.actorDe(r), models.TareaZIP, parametros)
 	if a.falloDatos(w, r, err) {
@@ -237,6 +236,18 @@ func (a *App) apiPedirExportacion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.responder(w, http.StatusAccepted, views.ExportacionJSON(tarea))
+}
+
+// parametrosDeDescargaMasiva arma lo que se encola para una descarga masiva
+// de quien puede hacerla (supervisión y revisores). La comparten la API y la
+// pantalla del archivo.
+func parametrosDeDescargaMasiva(sesion *models.Sesion, filtro models.FiltroDeListado, claves []string) models.ParametrosDeExportacion {
+	parametros := models.ParametrosDeExportacion{Filtro: filtro, Alcance: models.AlcanceDe(sesion), Claves: claves}
+	if !parametros.Alcance.Todo {
+		// Un revisor que además es jurado descarga como revisor, no como jurado.
+		parametros.Alcance.ComoJurado = nil
+	}
+	return parametros
 }
 
 // exportacionPropia lee una descarga masiva y comprueba que la pidió la

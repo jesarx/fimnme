@@ -106,6 +106,28 @@
     barra.value = Math.round((evento.detail.loaded / evento.detail.total) * 100);
   });
 
+  /* --- 2b. Búsquedas con la URL limpia ----------------------------------- */
+
+  // En una búsqueda con htmx (GET), los filtros vacíos no viajan: así la
+  // dirección que queda en la barra (hx-push-url), y que puede guardarse o
+  // compartirse, es la misma que la del formulario sin JavaScript pero sin
+  // «&edicion=&tipo=…».
+  document.addEventListener("htmx:configRequest", function (evento) {
+    var datos = evento.detail.formData;
+    if (evento.detail.verb !== "get" || !datos || typeof datos.forEach !== "function") {
+      return;
+    }
+    var vacios = [];
+    datos.forEach(function (valor, nombre) {
+      if (valor === "") {
+        vacios.push(nombre);
+      }
+    });
+    vacios.forEach(function (nombre) {
+      datos.delete(nombre);
+    });
+  });
+
   /* --- 3. Horas en la hora local --------------------------------------- */
 
   // El servidor escribe la hora de la Ciudad de México, con su zona. Quien

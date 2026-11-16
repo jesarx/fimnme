@@ -1,0 +1,48 @@
+{{- /*
+  Las descargas masivas en ZIP y los expedientes por convocatoria que pidió
+  la cuenta (RF-ARCH-35 a 37 y 45). Se arman en segundo plano; mientras
+  alguna está en proceso, la lista se actualiza sola cada cinco segundos con
+  htmx. Cada una se baja durante siete días, sólo por quien la pidió, y la
+  descarga queda registrada. Recibe en .Datos una vistaDescargas.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "archivo.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "archivo.descargas"}}</h1>
+    <p class="banda__entrada">{{.T "archivo.descargas_entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/archivo">← {{.T "archivo.titulo"}}</a></p>
+{{template "aviso" .}}
+<section id="descargas"{{if $v.Pendientes}} hx-get="/archivo/descargas" hx-trigger="every 5s" hx-select="#descargas" hx-target="this" hx-swap="outerHTML"{{end}}>
+  {{- if $v.Pendientes}}<p class="nota">{{.T "archivo.en_proceso"}} <a href="/archivo/descargas">{{.T "archivo.actualizar"}}</a></p>{{end}}
+  {{- if $v.Descargas}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead><tr><th scope="col">{{.T "archivo.pedida"}}</th><th scope="col">{{.T "archivo.que"}}</th><th scope="col">{{.T "revision.columna_estado"}}</th><th scope="col">{{.T "archivo.contenido"}}</th><th scope="col">{{.T "archivo.disponible_hasta"}}</th><th scope="col"><span class="oculto">{{.T "archivo.bajar"}}</span></th></tr></thead>
+    <tbody>
+      {{- range $v.Descargas}}
+      <tr>
+        <td><time datetime="{{$.ISO .Creada}}">{{$.FechaHora .Creada}}</time></td>
+        <td>{{$.T .Tipo}}</td>
+        <td><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span>
+          {{- if .Pendiente}} <progress class="avance-jurado archivo__progreso" max="100" value="{{.Progreso}}" aria-label="{{$.T "archivo.progreso"}}"></progress>{{end}}
+          {{- if .Error}}<br><span class="tabla__detalle tabla__detalle--alerta">{{.Error}}</span>{{end}}</td>
+        <td>{{if .Archivos}}{{$.T "archivo.archivos_n" .Archivos}}{{if .Tamano}} · {{.Tamano}}{{end}}{{end}}</td>
+        <td>{{if not .Expira.IsZero}}<time datetime="{{$.ISO .Expira}}">{{$.FechaHora .Expira}}</time>{{end}}</td>
+        <td>{{if .Bajar}}<a class="boton boton--menor" href="{{.Bajar}}">{{$.T "archivo.bajar"}}</a>{{end}}</td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "archivo.sin_descargas"}}</p>
+  {{- end}}
+</section>
+{{end}}

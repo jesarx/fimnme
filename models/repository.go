@@ -5404,6 +5404,27 @@ func (r *Repositorio) ExportacionPorID(ctx context.Context, id int64) (TareaDeEx
 	return t, err
 }
 
+// ExportacionesDe devuelve las descargas masivas y expedientes que pidió una
+// cuenta, de la más reciente a la más antigua, hasta limite. Sólo las suyas:
+// la descarga de otra persona no se lista ni se baja.
+func (r *Repositorio) ExportacionesDe(ctx context.Context, usuarioID int64, limite int) ([]TareaDeExportacion, error) {
+	filas, err := r.lectura.QueryContext(ctx, sqlExportacion+" WHERE solicitado_por = ? AND tipo IN "+tiposDeTarea+" ORDER BY id DESC LIMIT ?",
+		usuarioID, limite)
+	if err != nil {
+		return nil, fmt.Errorf("leer exportaciones: %w", err)
+	}
+	defer filas.Close()
+	var tareas []TareaDeExportacion
+	for filas.Next() {
+		t, err := leerExportacion(filas)
+		if err != nil {
+			return nil, fmt.Errorf("leer exportaciones: %w", err)
+		}
+		tareas = append(tareas, t)
+	}
+	return tareas, filas.Err()
+}
+
 // TomarExportacion entrega al trabajador la tarea encolada más antigua y la
 // marca como «procesando». hay es false si no queda ninguna.
 func (r *Repositorio) TomarExportacion(ctx context.Context) (tarea TareaDeExportacion, hay bool, err error) {

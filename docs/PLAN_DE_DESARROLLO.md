@@ -65,7 +65,8 @@ Con el paso 10c **el backend está completo**.
 | 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con la postulación y sus documentos en el visor (en Compositores, cada obra por separado), escala por criterio en borrador o enviada, observaciones y excusa por conflicto de interés. Ninguna página deja ver lo de otro jurado. | ✅ Hecho |
 | 13a | **Administración: configuración.** Ediciones; ficha de configuración de cada convocatoria (estado con lo que falta para avanzar, títulos y límites, bases en Markdown, PDF e imagen, calendario en hora de la Ciudad de México, dotaciones, requisitos documentales, criterios); jurados y revisores (búsqueda, alta con enlace de activación, retiro); cuentas internas. El observador lo ve todo sin poder cambiar nada. | ✅ Hecho |
 | 13b | **Supervisión.** Tablero de cada convocatoria (por estado, documentos, subsanaciones, ritmo de envíos y avance de los jurados, sin puntajes); matriz de resultados con el resultado del proceso; generador de reportes CSV con plantillas; estadísticas de la edición; publicación y retiro de la nómina con vista previa. | ✅ Hecho |
-| 13c | **Archivo y operación.** Buscador global con filtros, vistas guardadas y CSV; descargas masivas; expedientes; bitácora; importación asistida; plantillas de correo. | Pendiente |
+| 13c | **Archivo.** Buscador de todas las ediciones con texto, filtros en la URL, orden y páginas; vistas guardadas; CSV; descarga masiva en ZIP y expediente de una convocatoria desde la búsqueda; «Mis descargas»; enlace permanente por folio también para el personal. | ✅ Hecho |
+| 13d | **Operación.** Bitácora consultable; importación asistida en dos fases con resolución de conflictos; plantillas de correo (API y pantalla, con versiones); anonimización ARCO. | Pendiente |
 
 ### Operación
 
@@ -99,6 +100,36 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 13c — qué se entregó
+
+Tercera entrega del paso 13: el archivo ya no exige la API. Lo que quedaba del 13c
+original (bitácora, importación asistida, plantillas de correo) pasa a un 13d, junto con
+la anonimización.
+
+**Decisiones:** [ADR 0023](adr/0023-pantallas-del-archivo.md).
+
+- **Archivo** en el menú para el personal (supervisión, revisores, jurados), con el
+  alcance de cada perfil que no caduca.
+- **Buscador**: texto tolerante a acentos y fragmentos, filtros principales y «Más
+  filtros», orden, páginas; búsqueda en vivo con htmx y URL limpia; sin JavaScript, con
+  su botón.
+- **Vistas guardadas** propias, siempre dentro de `/archivo`.
+- **CSV** del resultado, **descarga masiva en ZIP** (con tipos de documento) y
+  **expediente** de una convocatoria, desde la misma búsqueda.
+- **Mis descargas**, que se actualiza sola mientras algo se arma.
+- **Enlace permanente por folio** para el personal: a la revisión o a la ficha de
+  evaluación según el perfil; 404 a quien no puede verla.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: alcance de cada perfil en
+el buscador (supervisión 4, revisora 2, jurado 1, postulante 403), búsqueda, filtros
+inválidos, páginas, CSV; vistas (sin página, dentro del archivo, duplicadas, ajenas);
+ZIP sólo de partituras y su lista; expediente; enlace permanente para diez casos de
+perfil y estado. Mutaciones en el permiso de descarga masiva, en la ruta de las vistas y
+en la visibilidad del enlace hacen fallar las pruebas. En un navegador real: búsqueda en
+vivo, vista guardada, ZIP y expediente armados por el trabajador y bajados, enlace
+permanente, teléfono sin desborde y modo oscuro.
 
 ## Paso 13b — qué se entregó
 
@@ -964,4 +995,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 81. **El observador ve en la matriz las observaciones de cada jurado**, además de sus
     puntajes, conforme a «supervisión global de sólo lectura».
 82. **Las cifras del tablero que no son de la revisión** (borradores) todavía no llevan a
-    un listado: lo harán al buscador del archivo en el paso 13c.
+    un listado. Con el buscador del archivo (13c) ya podrían llevar a él; queda para
+    cuando se revise el tablero con la CNMO.
+83. **El jurado no ve en el archivo lo que no llegó a evaluación**, aunque sea de su
+    convocatoria, y tampoco puede pedir descargas masivas (ADR 0012). Sí puede pedir el
+    expediente de su convocatoria, con su evaluación y ninguna otra.
+84. **Las descargas de «Mis descargas» se listan hasta 30**, las más recientes.

@@ -263,6 +263,12 @@ func (p *Pagina) EnSeccion(prefijo string) bool {
 	return p.Ruta == prefijo || strings.HasPrefix(p.Ruta, prefijo+"/")
 }
 
+// VeArchivo indica si el menú debe ofrecer el archivo: al personal
+// (supervisión, revisores y jurados), no al postulante.
+func (p *Pagina) VeArchivo() bool {
+	return !models.AlcanceDe(p.Sesion).Vacio()
+}
+
 // VeAdministracion indica si el menú debe ofrecer la administración: a quien
 // supervisa (el observador la ve, sin poder cambiar nada).
 func (p *Pagina) VeAdministracion() bool {

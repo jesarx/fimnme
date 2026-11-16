@@ -865,6 +865,31 @@ func (a *App) abrirPorReferencia(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// El enlace permanente sirve también al personal (RNF-17): a quien no es
+	// el titular lo lleva a la vista que su perfil permite.
+	p, err := a.datos.PostulacionPorID(r.Context(), id)
+	if errors.Is(err, models.ErrNoEncontrado) {
+		a.errorPagina(w, r, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		a.errorInterno(w, r, "leer la postulación", err)
+		return
+	}
+	if sesion := sesionDe(r); p.UsuarioID != sesion.Usuario.ID {
+		cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), p.ConvocatoriaID)
+		if err != nil {
+			a.errorInterno(w, r, "leer la convocatoria", err)
+			return
+		}
+		destino := destinoDelPersonal(sesion, p, cfg.Convocatoria.Tipo)
+		if destino == "" {
+			a.errorPagina(w, r, http.StatusNotFound)
+			return
+		}
+		http.Redirect(w, r, destino, http.StatusSeeOther)
+		return
+	}
 	ab, ok := a.abrirPostulacionPorID(w, r, id)
 	if !ok {
 		return
