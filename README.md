@@ -1041,6 +1041,17 @@ docker compose -f deploy/contenedor/compose.yaml run --rm web fimnme-cli crear-u
 Con Podman sin privilegios, `deploy/contenedor/fimnme-web.container` y
 `fimnme-datos.volume` son unidades Quadlet: se copian a `~/.config/containers/systemd/`.
 
+### Prueba de carga
+
+`deploy/carga` reproduce el pico de RNF-01 (200 postulantes, 50 subidas simultáneas) contra
+una instalación **de prueba** en entorno de desarrollo, en la misma máquina (ADR 0028):
+
+```bash
+go run ./deploy/carga --datos /ruta/datos-de-prueba --url http://127.0.0.1:8080 --convocatoria 1
+```
+
+Deja cuentas `carga-…@carga.invalid` en esa base: nunca contra producción.
+
 ### Añadir un campo sin recompilar
 
 `fimnme-cli schema` añade campos a las tablas que lo admiten (edición, convocatoria,
