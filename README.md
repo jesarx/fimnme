@@ -954,9 +954,36 @@ Verifica la firma, que la base sea la del manifiesto, su integridad interna y qu
 todos los archivos que registra. Las instantáneas se conservan 90 días
 (`--conservar-dias`).
 
-> Llevar el destino a otro servidor (rsync sobre SSH) y programarlo con un `timer` llega
-> con los respaldos automatizados, en el paso 14. La clave debe copiarse al espejo por un
-> canal seguro y **no** guardarse junto a las instantáneas.
+#### Respaldos automatizados
+
+`make deploy` instala dos temporizadores de systemd (ADR 0026):
+
+| Temporizador | Qué hace | Cuándo |
+|---|---|---|
+| `fimnme-respaldo.timer` | Instantánea firmada de la base y del acervo, verificada, con sumas SHA-256; y, si se configura, copia a otro servidor por rsync sobre SSH | Cada 6 horas |
+| `fimnme-restauracion.timer` | **Prueba de restauración**: comprueba las sumas, restaura la última instantánea en un directorio aparte y verifica la base contra el acervo, sin tocar producción | Cada domingo |
+
+El primer despliegue genera la clave de firma en `/etc/fimnme/espejo.clave` (nunca la
+reemplaza). La configuración está en `/etc/fimnme/respaldo.env`: destino, días que se
+conservan y, opcional, el servidor remoto. Para lanzar uno a mano y ver su resultado:
+
+```bash
+sudo systemctl start fimnme-respaldo.service
+```
+
+```bash
+journalctl -u fimnme-respaldo -n 30
+```
+
+```bash
+systemctl list-timers 'fimnme-*'
+```
+
+Para la copia remota, el usuario `fimnme` necesita una llave SSH sin frase autorizada en
+el remoto; póngala en `FIMNME_RESPALDO_REMOTO=usuario@host:/ruta`. La clave de firma se
+copia al espejo una sola vez por un canal seguro y **no** viaja con las instantáneas.
+Durante la etapa de postulación conviene acortar la cadencia
+(`sudo systemctl edit fimnme-respaldo.timer`).
 
 #### Restaurar
 

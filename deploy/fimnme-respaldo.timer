@@ -1,0 +1,14 @@
+# FIMNME — cada cuánto se respalda. Durante la etapa de postulación la cadencia
+# es crítica (§3.D): cada 6 horas. Para cambiarla sin editar este archivo:
+#     sudo systemctl edit fimnme-respaldo.timer
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+[Unit]
+Description=FIMNME: respaldo cada 6 horas
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:20:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

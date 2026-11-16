@@ -11,7 +11,8 @@
 #   2. Crea /opt/fimnme/bin (binarios), /etc/fimnme (configuración) y
 #      /var/lib/fimnme (datos: base SQLite y acervo).
 #   3. Instala la unidad de systemd y la configuración de ejemplo.
-#   4. Habilita el servicio para que arranque con la máquina.
+#   4. Prepara el destino y la configuración de los respaldos.
+#   5. Habilita el servicio para que arranque con la máquina.
 #
 # Qué NO hace: no instala los binarios ni crea la base (eso es `make deploy`)
 # ni configura el proxy inverso con TLS (ver README, sección de despliegue).
@@ -46,7 +47,16 @@ if [ ! -f /etc/fimnme/fimnme-web.env ]; then
     echo "Configuración inicial en /etc/fimnme/fimnme-web.env"
 fi
 
-# 4. Alta del servicio. Arrancará cuando exista el binario (make deploy).
+# 4. Respaldos (ADR 0026): destino propio del servicio y configuración. La
+#    clave de firma se genera en el primer despliegue, cuando ya existe
+#    fimnme-cli; los temporizadores se habilitan entonces.
+install -d -o fimnme -g fimnme -m 0750 /var/backups/fimnme
+if [ ! -f /etc/fimnme/respaldo.env ]; then
+    install -o root -g fimnme -m 0640 "$origen/respaldo.env.ejemplo" /etc/fimnme/respaldo.env
+    echo "Configuración de respaldos en /etc/fimnme/respaldo.env"
+fi
+
+# 5. Alta del servicio. Arrancará cuando exista el binario (make deploy).
 systemctl daemon-reload
 systemctl enable fimnme-web.service
 
