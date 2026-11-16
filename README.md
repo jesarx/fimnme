@@ -1014,6 +1014,33 @@ sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme ver
 sudo systemctl start fimnme-web
 ```
 
+### Con contenedores (opcional)
+
+La instalación de arriba, con systemd y binarios, es la de referencia. Para quien prefiera
+contenedores hay una imagen mínima (ADR 0027) con los mismos binarios:
+
+```bash
+make imagen
+```
+
+```bash
+cp deploy/fimnme-web.env.ejemplo deploy/contenedor/fimnme-web.env
+```
+
+```bash
+docker compose -f deploy/contenedor/compose.yaml up -d
+```
+
+Compose aplica primero las migraciones y después arranca el servidor en 127.0.0.1:8080,
+con el proxy con TLS delante como siempre. `fimnme-cli` corre desde la misma imagen:
+
+```bash
+docker compose -f deploy/contenedor/compose.yaml run --rm web fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemplo.mx --nombre Ana --apellidos López
+```
+
+Con Podman sin privilegios, `deploy/contenedor/fimnme-web.container` y
+`fimnme-datos.volume` son unidades Quadlet: se copian a `~/.config/containers/systemd/`.
+
 ### Añadir un campo sin recompilar
 
 `fimnme-cli schema` añade campos a las tablas que lo admiten (edición, convocatoria,

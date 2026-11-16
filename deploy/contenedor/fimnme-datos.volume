@@ -1,0 +1,4 @@
+# FIMNME — volumen de datos para Quadlet: la base y el acervo (ADR 0027).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+# Quadlet lo crea como «systemd-fimnme-datos».
+[Volume]

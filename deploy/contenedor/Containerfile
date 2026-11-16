@@ -1,0 +1,33 @@
+# FIMNME — imagen mínima del servicio (ADR 0027).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+#
+# Lleva los MISMOS binarios estáticos que se suben al VPS (make build, en la
+# computadora del desarrollador): la imagen no compila nada. Se construye con
+#     make imagen          (Podman o Docker)
+#
+# La imagen final parte de distroless/static (Debian): sin shell ni gestor de
+# paquetes; sólo los certificados raíz (para el SMTP con TLS y la
+# comprobación de las ligas de video), /tmp y un usuario sin privilegios
+# (65532, «nonroot»). Las zonas horarias van dentro del binario.
+
+# Etapa auxiliar: sólo crea el directorio de datos con su dueño (sin red).
+FROM docker.io/library/debian:trixie-slim AS base
+RUN mkdir -p /raiz/var/lib/fimnme && chown 65532:65532 /raiz/var/lib/fimnme && chmod 0750 /raiz/var/lib/fimnme
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=base /raiz/ /
+COPY bin/fimnme-web bin/fimnme-cli /usr/local/bin/
+COPY docs/man/fimnme-web.1 docs/man/fimnme-cli.1 /usr/local/share/man/man1/
+
+USER 65532:65532
+ENV PATH=/usr/local/bin \
+    FIMNME_DATOS=/var/lib/fimnme \
+    FIMNME_SERVE=0.0.0.0 \
+    FIMNME_PORT=8080
+# La base y el acervo viven en el volumen: la imagen se puede reemplazar.
+VOLUME ["/var/lib/fimnme"]
+EXPOSE 8080
+# El servidor no migra por su cuenta: antes de arrancarlo, con la imagen nueva,
+#     fimnme-cli migrate
+# (compose.yaml y la unidad Quadlet ya lo hacen).
+CMD ["fimnme-web"]

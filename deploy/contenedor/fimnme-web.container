@@ -1,0 +1,35 @@
+# FIMNME — unidad Quadlet para Podman sin privilegios (ADR 0027).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+#
+# Se copia a ~/.config/containers/systemd/ del usuario que corre el servicio
+# (o a /etc/containers/systemd/ para el sistema), junto con
+# fimnme-datos.volume, y después:
+#     systemctl --user daemon-reload
+#     systemctl --user start fimnme-web
+# Para que arranque sin sesión abierta: loginctl enable-linger <usuario>.
+
+[Unit]
+Description=FIMNME: plataforma de postulaciones (contenedor)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=localhost/fimnme:latest
+ContainerName=fimnme-web
+Volume=fimnme-datos.volume:/var/lib/fimnme
+EnvironmentFile=%h/.config/fimnme/fimnme-web.env
+PublishPort=127.0.0.1:8080:8080
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+
+[Service]
+# Las migraciones pendientes se aplican antes de cada arranque, con la misma
+# imagen; si fallan, el servicio no arranca y la base queda como estaba.
+ExecStartPre=/usr/bin/podman run --rm --volume systemd-fimnme-datos:/var/lib/fimnme localhost/fimnme:latest fimnme-cli migrate
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

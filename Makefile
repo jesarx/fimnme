@@ -31,7 +31,7 @@ BANDERAS := -trimpath -buildvcs=false -ldflags '-s -w -buildid= -X main.version=
 VPS  ?=
 SUDO ?= sudo
 
-.PHONY: build dev test verificar formato limpiar reiniciar-datos deploy instalar-vps
+.PHONY: build dev test verificar formato limpiar reiniciar-datos deploy instalar-vps imagen
 
 ## build: compila fimnme-web y fimnme-cli como ELF estáticos, sin CGO.
 build:
@@ -85,3 +85,8 @@ deploy: build
 		deploy/respaldo_automatizado.sh deploy/probar_restauracion.sh deploy/fimnme-respaldo.service deploy/fimnme-respaldo.timer \
 		deploy/fimnme-restauracion.service deploy/fimnme-restauracion.timer $(VPS):/tmp/fimnme-despliegue/
 	ssh -t $(VPS) '$(SUDO) sh /tmp/fimnme-despliegue/actualizar_vps.sh'
+
+## imagen: construye la imagen de contenedor con los binarios de make build (Podman o Docker).
+CONTENEDOR ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
+imagen: build
+	$(CONTENEDOR) build -f deploy/contenedor/Containerfile -t localhost/fimnme:latest .
