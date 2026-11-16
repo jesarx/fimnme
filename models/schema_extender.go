@@ -126,7 +126,7 @@ type CampoExtendido struct {
 	// formulario y lo captura quien postula; si no, es un dato interno que
 	// captura la administración.
 	VisibleEn  []Perfil
-	Exportable bool // entra en el catálogo de reportes y en la exportación a MariaDB
+	Exportable bool // entra en el catálogo de reportes; la migración a MariaDB lleva todas las columnas (ADR 0029)
 	CreadoAt   time.Time
 }
 

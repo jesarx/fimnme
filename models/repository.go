@@ -7216,3 +7216,154 @@ func (r *Repositorio) importarCuenta(ctx context.Context, tx *sql.Tx, actor Acto
 	}
 	return err
 }
+
+// =============================================================================
+// Migración a MariaDB (§3.C)
+// =============================================================================
+
+// ExportarParaMigrar recorre la base dentro de UNA transacción de lectura —una
+// foto coherente aunque el servicio siga escribiendo— y entrega a quien llama
+// el esquema de cada tabla y sus filas. Deja fuera lo que es propio de
+// SQLite: sus tablas internas y las del índice de texto completo (FTS5), que
+// en otro motor se reconstruye.
+//
+// Las restricciones CHECK no tienen PRAGMA: se leen del texto CREATE TABLE
+// que SQLite conserva (ChecksDeDefinicion).
+func (r *Repositorio) ExportarParaMigrar(ctx context.Context, escribir func(tablas []TablaParaMigrar,
+	filas func(t TablaParaMigrar, cada func(valores []any) error) error) error) error {
+	tx, err := r.lectura.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	consulta, err := tx.QueryContext(ctx, `SELECT name, sql FROM sqlite_master
+		WHERE type = 'table' AND name NOT LIKE 'sqlite\_%' ESCAPE '\' AND name NOT LIKE 'fts\_%' ESCAPE '\' ORDER BY name`)
+	if err != nil {
+		return fmt.Errorf("leer el esquema: %w", err)
+	}
+	var tablas []TablaParaMigrar
+	definiciones := map[string]string{}
+	for consulta.Next() {
+		var t TablaParaMigrar
+		var definicion string
+		if err := consulta.Scan(&t.Nombre, &definicion); err != nil {
+			consulta.Close()
+			return err
+		}
+		definiciones[t.Nombre] = definicion
+		tablas = append(tablas, t)
+	}
+	if err := consulta.Close(); err != nil {
+		return err
+	}
+	for i := range tablas {
+		t := &tablas[i]
+		definicion := definiciones[t.Nombre]
+		t.Autoincremento = strings.Contains(strings.ToUpper(definicion), "AUTOINCREMENT")
+		t.Checks = ChecksDeDefinicion(definicion)
+		nocase := ColumnasSinMayusculas(definicion)
+		columnas, err := tx.QueryContext(ctx, "SELECT name, type, \"notnull\", COALESCE(dflt_value, ''), pk FROM pragma_table_info(?)", t.Nombre)
+		if err != nil {
+			return fmt.Errorf("columnas de %s: %w", t.Nombre, err)
+		}
+		for columnas.Next() {
+			var c ColumnaParaMigrar
+			if err := columnas.Scan(&c.Nombre, &c.Tipo, &c.NoNula, &c.Defecto, &c.PosicionLlave); err != nil {
+				columnas.Close()
+				return err
+			}
+			c.SinMayusculas = nocase[c.Nombre]
+			t.Columnas = append(t.Columnas, c)
+		}
+		if err := columnas.Close(); err != nil {
+			return err
+		}
+		indices, err := tx.QueryContext(ctx, "SELECT name, \"unique\", origin FROM pragma_index_list(?) WHERE origin <> 'pk' ORDER BY name", t.Nombre)
+		if err != nil {
+			return fmt.Errorf("índices de %s: %w", t.Nombre, err)
+		}
+		var lista []IndiceParaMigrar
+		for indices.Next() {
+			var ix IndiceParaMigrar
+			var origen string
+			if err := indices.Scan(&ix.Nombre, &ix.Unico, &origen); err != nil {
+				indices.Close()
+				return err
+			}
+			lista = append(lista, ix)
+		}
+		if err := indices.Close(); err != nil {
+			return err
+		}
+		for _, ix := range lista {
+			cols, err := tx.QueryContext(ctx, "SELECT name FROM pragma_index_info(?) ORDER BY seqno", ix.Nombre)
+			if err != nil {
+				return err
+			}
+			for cols.Next() {
+				var nombre string
+				if err := cols.Scan(&nombre); err != nil {
+					cols.Close()
+					return err
+				}
+				ix.Columnas = append(ix.Columnas, nombre)
+			}
+			if err := cols.Close(); err != nil {
+				return err
+			}
+			t.Indices = append(t.Indices, ix)
+		}
+		foraneas, err := tx.QueryContext(ctx, `SELECT id, "table", "from", COALESCE("to", ''), on_delete FROM pragma_foreign_key_list(?) ORDER BY id, seq`, t.Nombre)
+		if err != nil {
+			return fmt.Errorf("llaves foráneas de %s: %w", t.Nombre, err)
+		}
+		porID := map[int]int{}
+		for foraneas.Next() {
+			var id int
+			var tabla, de, a, alBorrar string
+			if err := foraneas.Scan(&id, &tabla, &de, &a, &alBorrar); err != nil {
+				foraneas.Close()
+				return err
+			}
+			i, existe := porID[id]
+			if !existe {
+				t.Foraneas = append(t.Foraneas, LlaveForanea{Tabla: tabla, AlBorrar: alBorrar})
+				i = len(t.Foraneas) - 1
+				porID[id] = i
+			}
+			t.Foraneas[i].Columnas = append(t.Foraneas[i].Columnas, de)
+			t.Foraneas[i].Referidas = append(t.Foraneas[i].Referidas, a)
+		}
+		if err := foraneas.Close(); err != nil {
+			return err
+		}
+	}
+
+	filas := func(t TablaParaMigrar, cada func([]any) error) error {
+		nombres := make([]string, len(t.Columnas))
+		for i, c := range t.Columnas {
+			nombres[i] = `"` + c.Nombre + `"`
+		}
+		resultado, err := tx.QueryContext(ctx, "SELECT "+strings.Join(nombres, ", ")+` FROM "`+t.Nombre+`"`)
+		if err != nil {
+			return fmt.Errorf("filas de %s: %w", t.Nombre, err)
+		}
+		defer resultado.Close()
+		for resultado.Next() {
+			valores := make([]any, len(nombres))
+			punteros := make([]any, len(nombres))
+			for i := range valores {
+				punteros[i] = &valores[i]
+			}
+			if err := resultado.Scan(punteros...); err != nil {
+				return err
+			}
+			if err := cada(valores); err != nil {
+				return err
+			}
+		}
+		return resultado.Err()
+	}
+	return escribir(tablas, filas)
+}

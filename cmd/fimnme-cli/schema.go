@@ -121,7 +121,7 @@ func agregarCampo(ctx context.Context, repositorio *models.Repositorio, args []s
 	ayudaES := banderas.String("ayuda-es", "", "texto de ayuda en español")
 	ayudaEN := banderas.String("ayuda-en", "", "texto de ayuda en inglés")
 	visible := banderas.String("visible", "", "perfiles que lo ven además de la administración, separados por coma: postulante, revisor_documental, jurado. Con «postulante», lo captura quien postula")
-	noExportable := banderas.Bool("no-exportable", false, "lo deja fuera de los reportes y de la exportación a MariaDB")
+	noExportable := banderas.Bool("no-exportable", false, "lo deja fuera de los reportes (la migración a MariaDB lo lleva siempre: es mudar la base, no exportar)")
 	if err := banderas.Parse(args); err != nil {
 		return err
 	}

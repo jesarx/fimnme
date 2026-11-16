@@ -1162,6 +1162,13 @@ main {
   color: var(--tinta-suave);
 }
 
+/* El paso actual va sobre el fondo tenue del acento, donde el texto
+   secundario queda en 4.48:1, por debajo del 4.5:1 de WCAG AA (lo halló la
+   auditoría con axe-core del paso 14): ahí el estado usa la tinta principal. */
+.avance__paso--actual .avance__estado {
+  color: var(--tinta);
+}
+
 .avance__paso--completo .avance__estado {
   color: var(--exito);
   font-weight: 600;

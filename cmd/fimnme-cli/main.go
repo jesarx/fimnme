@@ -111,6 +111,10 @@ evaluación y jurados y revisores.
                  Sólo para entornos de desarrollo.
   verify         Comprueba que cada archivo registrado exista en disco y
                  coincida con su SHA-256. Opciones: --rapido, --purgar.
+  exportar-mariadb --salida ARCHIVO.sql --manifiesto ARCHIVO.tsv
+                 Exporta la base completa (esquema, columnas extendidas y
+                 datos) para MariaDB, con un manifiesto para verificarla.
+                 Úsese con deploy/verify_and_migrate_mariadb.sh.
   mirror ORDEN   Servidor espejo. Órdenes:
                    nueva-clave --clave ARCHIVO
                    snapshot --destino DIR --clave ARCHIVO [--conservar-dias N]
@@ -216,6 +220,8 @@ func main() {
 		err = conRepositorio(*dirDatos, exportarJSON(*dirDatos, banderas.Args()[1:]))
 	case "export-csv":
 		err = conRepositorio(*dirDatos, exportarCSV(banderas.Args()[1:]))
+	case "exportar-mariadb":
+		err = conRepositorio(*dirDatos, exportarMariaDB(banderas.Args()[1:]))
 	case "import":
 		err = conRepositorio(*dirDatos, importar(*dirDatos, banderas.Args()[1:]))
 	case "schema":

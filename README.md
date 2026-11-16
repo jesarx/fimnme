@@ -19,12 +19,17 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 13 de 14 (completo): todas las pantallas.** El backend está completo y todo lo
-que la API permite hacer tiene pantalla: el postulante, el revisor y el jurado trabajan
-desde el navegador; el administrador configura, edita los correos, importa, consulta la
-bitácora y atiende solicitudes ARCO desde `/administracion`, y supervisa desde
-`/supervision`; el personal consulta el archivo histórico desde `/archivo`. Falta el
-paso 14: la puesta en operación. Hoy el sistema tiene:
+**Plan completo (14 de 14).** El backend, todas las pantallas y la puesta en operación
+están hechos: despliegue con systemd o en contenedor, respaldos con prueba de
+restauración, correo propio con DKIM, migración verificada a MariaDB y prueba de carga.
+Para recibir, operar y aceptar el sistema:
+
+- [**Manual de Adopción**](docs/FIMNME-04-manual-de-adopcion.md): instalación,
+  configuración, operación anual y entrega-recepción.
+- [**Manual de Validación**](docs/FIMNME-05-manual-de-validacion.md): casos de prueba,
+  resultados de la verificación previa, lo que condiciona la firma y el acta.
+
+Hoy el sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
@@ -168,7 +173,7 @@ registro, copie de ahí el enlace `…/cuenta/verificar?token=…` y ábralo en 
 | Desarrollo | Nada: `--correo registro` escribe los mensajes en el log. |
 | VPS que no puede enviar correo (puerto 25 bloqueado) | `FIMNME_CORREO=archivo`: cada mensaje queda como `.eml` en `<datos>/correo`. |
 | VPS con un relevo externo | `FIMNME_CORREO=smtp`, `FIMNME_SMTP_SERVIDOR=smtp.proveedor.com:587`, `FIMNME_SMTP_SEGURIDAD=starttls`, `FIMNME_SMTP_USUARIO=…` y `FIMNME_SMTP_PASSWORD=…` |
-| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Véase el ADR 0025. |
+| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Se instala como se explica abajo (ADR 0030). |
 
 Con `archivo`, para ver el último correo y copiar su enlace en el VPS (el cuerpo va en
 base64, como en cualquier correo; un cliente de correo abre el `.eml` directamente):
@@ -176,6 +181,32 @@ base64, como en cualquier correo; un cliente de correo abre el `.eml` directamen
 ```bash
 sudo ls -t /var/lib/fimnme/correo | head -1
 ```
+
+#### Servidor de correo propio (instalación final)
+
+Sólo en un servidor con el puerto 25 de salida abierto. `make deploy` deja los guiones
+en `/opt/fimnme/correo`. En el servidor:
+
+1. Instalar Postfix (sólo de salida, escuchando en 127.0.0.1) y OpenDKIM. El guion
+   muestra al terminar los registros DNS por publicar (SPF, DKIM, DMARC), el PTR que se
+   pide al proveedor y lo que cambia en `/etc/fimnme/fimnme-web.env`. Con `REBOTES`, los
+   avisos de no entrega se reenvían a ese buzón real; sin él, se descartan.
+
+   ```bash
+   sudo REBOTES=buzon-real@institucion.mx sh /opt/fimnme/correo/instalar_correo.sh fimnme.ejemplo.mx correo.ejemplo.mx
+   ```
+
+2. Publicar los registros y, cuando se propaguen, comprobar todo (servicios, A, PTR,
+   SPF, DMARC, que la clave DKIM publicada sea la local y que el puerto 25 salga):
+
+   ```bash
+   sudo bash /opt/fimnme/correo/comprobar_correo.sh fimnme.ejemplo.mx correo.ejemplo.mx
+   ```
+
+3. Prueba de entrega: desde **Administración › Plantillas de correo › Enviar prueba**,
+   con una cuenta de administrador de Gmail y otra de Outlook. En las cabeceras del
+   correo recibido («Mostrar original») deben leerse `spf=pass`, `dkim=pass` y
+   `dmarc=pass`, y el correo no debe caer en no deseado.
 
 ### Crear el primer administrador
 
@@ -910,10 +941,10 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Administrar la configuración | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui` |
 | Plantillas de reporte | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --listar` |
 
-> **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
-> `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
-> destinatario y asunto, y las cuentas no podrán verificarse ni recuperarse hasta que
-> exista el SMTP (paso 14).
+> **Con el transporte `registro`, los enlaces de los correos quedan en el log** sólo en
+> el entorno `desarrollo`. Son secretos de un solo uso: en `produccion` el log muestra
+> destinatario y asunto. En producción use `archivo` (servidor sin puerto 25) o `smtp`;
+> véase «Correo».
 
 ### Copia de seguridad de los datos
 
@@ -1040,6 +1071,19 @@ docker compose -f deploy/contenedor/compose.yaml run --rm web fimnme-cli crear-u
 
 Con Podman sin privilegios, `deploy/contenedor/fimnme-web.container` y
 `fimnme-datos.volume` son unidades Quadlet: se copian a `~/.config/containers/systemd/`.
+
+### Migración a MariaDB
+
+Muda los datos a una base MariaDB **vacía** y comprueba que cada tabla quedó idéntica
+(filas y SHA-256), con las columnas extendidas, las restricciones y los triggers de
+protección (ADR 0029). La conexión se toma de `~/.my.cnf` del usuario que lo ejecuta:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/verify_and_migrate_mariadb.sh fimnme
+```
+
+Mudar los datos no hace que la aplicación funcione sobre MariaDB: eso es un paso
+posterior (véase el ADR).
 
 ### Prueba de carga
 
@@ -1183,12 +1227,12 @@ anterior a la base»): las migraciones no se deshacen. En ese caso restaure prim
 copia de seguridad de la base tomada antes del despliegue. Por eso conviene hacer esa
 copia antes de desplegar una versión que traiga migraciones.
 
-### Pendiente en despliegue
+### Auditoría de accesibilidad
 
-El despliegue conteinerizado que exige la política institucional (`Containerfile`,
-`compose.yaml`, unidades Quadlet), los respaldos automatizados y el transporte de las
-instantáneas al servidor espejo corresponden al paso 14 del plan. Para el entorno de
-desarrollo se usa el flujo de binarios + systemd descrito aquí.
+`deploy/accesibilidad/auditar.js` recorre las páginas del postulante con axe-core
+(WCAG 2.1 A y AA) contra una instalación **de prueba**. Sus dependencias se instalan
+fuera del repositorio; las instrucciones están en su encabezado (ADR 0031; Manual de
+Validación, V-ACC-01).
 
 ## Dependencias
 
