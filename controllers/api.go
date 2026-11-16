@@ -83,7 +83,12 @@ func fechaDeFiltro(texto string, finDelDia bool) (time.Time, bool) {
 	if instante, err := time.Parse(time.RFC3339, texto); err == nil {
 		return instante, true
 	}
-	dia, err := time.ParseInLocation("2006-01-02", texto, views.ZonaMexico())
+	// AAAA-MM-DD o, desde los formularios, dd/mm/aaaa (fechas.go).
+	iso, ok := fechaDeCaptura(texto)
+	if !ok {
+		return time.Time{}, false
+	}
+	dia, err := time.ParseInLocation(time.DateOnly, iso, views.ZonaMexico())
 	if err != nil {
 		return time.Time{}, false
 	}

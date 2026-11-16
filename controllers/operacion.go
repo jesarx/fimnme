@@ -88,7 +88,7 @@ func (a *App) bitacoraDeAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	consulta := r.URL.Query()
 	v := vistaBitacora{Accion: consulta.Get("accion"), Entidad: consulta.Get("entidad"), EntidadID: consulta.Get("entidad_id"),
-		ActorID: consulta.Get("actor_id"), Desde: consulta.Get("desde"), Hasta: consulta.Get("hasta")}
+		ActorID: consulta.Get("actor_id"), Desde: fechaParaCaptura(consulta.Get("desde")), Hasta: fechaParaCaptura(consulta.Get("hasta"))}
 	filtro, invalido := filtroDeAuditoria(consulta)
 	estado := http.StatusOK
 	if invalido != "" {

@@ -78,6 +78,9 @@ type entornoPrueba struct {
 	// masivas: los necesita el trabajador que arma los ZIP.
 	almacen       models.BlobStore
 	exportaciones string
+	// recuperacion guarda, por correo, los códigos de recuperación que vio
+	// cada cuenta al dar de alta su segundo factor.
+	recuperacion map[string][]string
 }
 
 func nuevoEntorno(t *testing.T) *entornoPrueba {
@@ -108,6 +111,7 @@ func nuevoEntorno(t *testing.T) *entornoPrueba {
 // cliente imita a un navegador: recuerda sus cookies y tiene su propia IP.
 type cliente struct {
 	t       *testing.T
+	e       *entornoPrueba
 	app     http.Handler
 	cookies map[string]string
 	ip      string
@@ -118,7 +122,7 @@ type cliente struct {
 // límite de intentos por IP de una prueba no afecte a otro navegador.
 func (e *entornoPrueba) cliente() *cliente {
 	e.clientes++
-	return &cliente{t: e.t, app: e.app, cookies: map[string]string{}, ip: fmt.Sprintf("198.51.100.%d", e.clientes)}
+	return &cliente{t: e.t, e: e, app: e.app, cookies: map[string]string{}, ip: fmt.Sprintf("198.51.100.%d", e.clientes)}
 }
 
 func (c *cliente) hacer(r *http.Request) *httptest.ResponseRecorder {
@@ -163,13 +167,72 @@ func (c *cliente) json(ruta string) (int, map[string]any) {
 	return w.Code, cuerpo
 }
 
-// ingresar inicia sesión y exige que funcione.
+// ingresar inicia sesión y exige que funcione. Si la cuenta pide el segundo
+// paso (administrador y observador), lo completa como lo haría su titular:
+// la primera vez da de alta la aplicación con la clave que muestra la página;
+// después escribe el código del momento o, si ese intervalo ya se usó, uno
+// de sus códigos de recuperación.
 func (c *cliente) ingresar(email, password string) {
 	c.t.Helper()
 	w := c.post("/cuenta/ingresar", url.Values{"email": {email}, "password": {password}})
 	if w.Code != http.StatusSeeOther || c.cookies[cookieSesion] == "" {
 		c.t.Fatalf("no se pudo ingresar como %s: estado %d", email, w.Code)
 	}
+	if strings.HasPrefix(w.Header().Get("Location"), "/cuenta/segundo-factor") {
+		c.completarSegundoFactor(email)
+	}
+}
+
+// completarSegundoFactor da el código del segundo paso de un ingreso.
+func (c *cliente) completarSegundoFactor(email string) {
+	c.t.Helper()
+	e := c.e
+	usuario, _, err := e.repo.UsuarioPorEmail(context.Background(), email)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	esperar(c.t, c.get("/cuenta/segundo-factor"), http.StatusOK) // en el alta, prepara la clave
+	factor, err := e.repo.SegundoFactorDe(context.Background(), usuario.ID)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	ahora := e.reloj.Ahora()
+	codigo, err := models.CodigoTOTP(factor.Secreto, models.PasoTOTP(ahora))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if !factor.Activo() {
+		w := c.post("/cuenta/segundo-factor/alta", url.Values{"codigo": {codigo}})
+		if w.Code != http.StatusOK {
+			c.t.Fatalf("alta del segundo factor de %s: estado %d", email, w.Code)
+		}
+		if e.recuperacion == nil {
+			e.recuperacion = map[string][]string{}
+		}
+		e.recuperacion[email] = codigosDeLaPagina(w.Body.String())
+		return
+	}
+	if models.PasoTOTP(ahora) <= factor.UltimoPaso {
+		// Ese código ya se usó en este intervalo: uno de recuperación.
+		restantes := e.recuperacion[email]
+		if len(restantes) == 0 {
+			c.t.Fatalf("%s no tiene códigos de recuperación para un segundo ingreso en el mismo intervalo", email)
+		}
+		codigo, e.recuperacion[email] = restantes[0], restantes[1:]
+	}
+	if w := c.post("/cuenta/segundo-factor", url.Values{"codigo": {codigo}}); w.Code != http.StatusSeeOther {
+		c.t.Fatalf("segundo paso de %s: estado %d", email, w.Code)
+	}
+}
+
+// codigosDeLaPagina extrae los códigos de recuperación de la página que los
+// muestra.
+func codigosDeLaPagina(html string) []string {
+	var codigos []string
+	for _, trozo := range strings.Split(html, "<li><code>")[1:] {
+		codigos = append(codigos, trozo[:strings.Index(trozo, "</code>")])
+	}
+	return codigos
 }
 
 // esperar comprueba el estado de una respuesta y que contenga ciertos textos.

@@ -231,6 +231,9 @@
             <div class="campo campo--corto"><label for="d-max_obras">{{.T "admin.max_obras"}}</label>
               <input id="d-max_obras" name="max_obras" type="number" min="1" inputmode="numeric" required value="{{$v.MaxObras}}"></div>
             {{- else}}
+            <div class="campo campo--corto"><label for="d-duracion_min">{{.T "admin.duracion_min"}}</label>
+              <p class="campo__ayuda" id="d-duracion_min-ayuda">{{.T "admin.cero_sin_minimo"}}</p>
+              <input id="d-duracion_min" name="duracion_min" type="number" min="0" inputmode="numeric" aria-describedby="d-duracion_min-ayuda" value="{{$v.DuracionMin}}"></div>
             <div class="campo campo--corto"><label for="d-duracion_max">{{.T "admin.duracion_max"}}</label>
               <p class="campo__ayuda" id="d-duracion_max-ayuda">{{.T "admin.cero_sin_limite"}}</p>
               <input id="d-duracion_max" name="duracion_max" type="number" min="0" inputmode="numeric" aria-describedby="d-duracion_max-ayuda" value="{{$v.DuracionMax}}"></div>
@@ -278,14 +281,15 @@
       <form method="post" action="{{$v.Base}}/calendario" class="admin__form">
         <fieldset class="admin__campos"{{if not .Administra}} disabled{{end}}>
           <legend class="oculto">{{.T "admin.seccion_calendario"}}</legend>
+          <p class="campo__ayuda" id="k-formato">{{.T "form.formato_fecha_hora"}}</p>
           {{- range $v.Etapas}}
           <fieldset class="admin__etapa">
             <legend>{{$.T .Nombre}}</legend>
             <div class="admin__fila">
               <div class="campo"><label for="k-inicia_{{.Clave}}">{{$.T "admin.inicia"}}</label>
-                <input id="k-inicia_{{.Clave}}" name="inicia_{{.Clave}}" type="datetime-local" value="{{.Inicia}}"></div>
+                <input id="k-inicia_{{.Clave}}" name="inicia_{{.Clave}}" type="text" maxlength="16" placeholder="{{$.T "form.marcador_fecha_hora"}}" aria-describedby="k-formato" value="{{.Inicia}}"></div>
               <div class="campo"><label for="k-termina_{{.Clave}}">{{$.T "admin.termina"}}</label>
-                <input id="k-termina_{{.Clave}}" name="termina_{{.Clave}}" type="datetime-local" value="{{.Termina}}"></div>
+                <input id="k-termina_{{.Clave}}" name="termina_{{.Clave}}" type="text" maxlength="16" placeholder="{{$.T "form.marcador_fecha_hora"}}" aria-describedby="k-formato" value="{{.Termina}}"></div>
             </div>
           </fieldset>
           {{- end}}

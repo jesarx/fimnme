@@ -1,0 +1,69 @@
+{{- /*
+  Verificación en dos pasos (RF-AUT-09). Tres modos (.Datos.Modo):
+  - «alta»: la primera vez. La clave en QR y en texto, y la confirmación con
+    un primer código de la aplicación.
+  - «codigo»: cada ingreso. El código de la aplicación o uno de recuperación.
+  - «recuperacion»: los códigos de recuperación recién emitidos, que se
+    muestran UNA sola vez.
+  La página nunca se guarda en caché (la del alta lleva la clave).
+*/ -}}
+{{define "contenido"}}
+{{- $v := .Datos}}
+<section class="formulario-pagina segundo-factor">
+  {{- if eq $v.Modo "recuperacion"}}
+  <h1>{{.T "segundo_factor.codigos_titulo"}}</h1>
+  <p class="entrada">{{.T "segundo_factor.codigos_entrada"}}</p>
+  <ol class="segundo-factor__codigos">
+    {{- range $v.Codigos}}
+    <li><code>{{.}}</code></li>
+    {{- end}}
+  </ol>
+  <p class="nota">{{.T "segundo_factor.codigos_nota"}}</p>
+  <p class="acciones"><a class="boton" href="{{$v.Volver}}">{{.T "segundo_factor.codigos_continuar"}}</a></p>
+
+  {{- else if eq $v.Modo "alta"}}
+  <h1>{{.T "segundo_factor.alta_titulo"}}</h1>
+  <p class="entrada">{{.T "segundo_factor.alta_entrada"}}</p>
+  {{template "aviso" .}}
+  <ol class="segundo-factor__pasos">
+    <li>{{.T "segundo_factor.alta_paso1"}}</li>
+    <li>
+      {{.T "segundo_factor.alta_paso2"}}
+      {{- if $v.QR}}
+      <div class="segundo-factor__qr">{{$v.QR}}</div>
+      {{- end}}
+      <p>{{.T "segundo_factor.alta_clave"}} <code class="segundo-factor__clave">{{$v.Clave}}</code></p>
+      <p class="nota"><a href="{{$v.Enlace}}">{{.T "segundo_factor.alta_enlace"}}</a></p>
+    </li>
+    <li>
+      {{.T "segundo_factor.alta_paso3"}}
+      <form method="post" action="/cuenta/segundo-factor/alta" novalidate>
+        <input type="hidden" name="volver" value="{{$v.Volver}}">
+        {{template "campo" (dict "P" . "Nombre" "codigo" "Tipo" "text" "Etiqueta" "segundo_factor.codigo" "Ayuda" "segundo_factor.codigo_ayuda" "Autocompletar" "one-time-code" "Requerido" true)}}
+        <p class="acciones"><button class="boton" type="submit">{{.T "segundo_factor.alta_boton"}}</button></p>
+      </form>
+    </li>
+  </ol>
+  {{template "segundo_factor_salir" .}}
+
+  {{- else}}
+  <h1>{{.T "segundo_factor.titulo"}}</h1>
+  <p class="entrada">{{.T "segundo_factor.entrada"}}</p>
+  {{template "aviso" .}}
+  <form method="post" action="/cuenta/segundo-factor" novalidate>
+    <input type="hidden" name="volver" value="{{$v.Volver}}">
+    {{template "campo" (dict "P" . "Nombre" "codigo" "Tipo" "text" "Etiqueta" "segundo_factor.codigo" "Ayuda" "segundo_factor.codigo_o_recuperacion" "Autocompletar" "one-time-code" "Requerido" true)}}
+    <p class="acciones"><button class="boton" type="submit">{{.T "segundo_factor.boton"}}</button></p>
+  </form>
+  <p class="nota">{{.T "segundo_factor.sin_telefono"}}</p>
+  {{template "segundo_factor_salir" .}}
+  {{- end}}
+</section>
+{{end}}
+
+{{- /* Salir a medio camino cierra también la sesión pendiente. */ -}}
+{{define "segundo_factor_salir"}}
+<form method="post" action="/cuenta/salir">
+  <button class="boton boton--secundario" type="submit">{{.T "segundo_factor.cancelar"}}</button>
+</form>
+{{end}}

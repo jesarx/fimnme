@@ -249,8 +249,8 @@
           </ol>
           <div class="campo">
             <label for="c-fecha-limite">{{.T "revision.fecha_limite"}}</label>
-            <p class="campo__ayuda" id="a-fecha-limite">{{.T "revision.fecha_limite_ayuda"}}</p>
-            <input id="c-fecha-limite" name="fecha_limite" type="datetime-local" value="{{$v.FechaPropuesta}}" aria-describedby="a-fecha-limite">
+            <p class="campo__ayuda" id="a-fecha-limite">{{.T "revision.fecha_limite_ayuda"}} {{.T "form.formato_fecha_hora"}}</p>
+            <input id="c-fecha-limite" name="fecha_limite" type="text" maxlength="16" placeholder="{{.T "form.marcador_fecha_hora"}}" value="{{$v.FechaPropuesta}}" aria-describedby="a-fecha-limite">
           </div>
           <div class="campo">
             <label for="c-nota">{{.T "revision.nota_correo"}} <span class="campo__opcional">{{.T "form.opcional"}}</span></label>

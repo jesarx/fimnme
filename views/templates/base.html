@@ -4,7 +4,7 @@
   CSP estricta: aquí no puede haber <script> ni style="" en línea.
 */ -}}
 <!DOCTYPE html>
-<html lang="{{.Idioma}}">
+<html lang="{{.Idioma}}"{{if .Tema}} data-tema="{{.Tema}}"{{end}}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -69,6 +69,21 @@
       <a href="/cuenta/ingresar"{{if eq .Ruta "/cuenta/ingresar"}} aria-current="page"{{end}}>{{.T "nav.ingresar"}}</a>
       <a class="menu__destacado" href="/cuenta/registro"{{if eq .Ruta "/cuenta/registro"}} aria-current="page"{{end}}>{{.T "nav.registro"}}</a>
       {{- end}}
+      {{- /* Tema: automático (el del sistema operativo), claro u oscuro. Cada
+           clic pasa al siguiente; el texto dice el que está en vigor. */}}
+      <form class="menu__tema" method="post" action="/tema">
+        <input type="hidden" name="volver" value="{{.Ruta}}">
+        <button type="submit" name="tema" value="{{.SiguienteTema}}" title="{{.T "tema.cambiar"}}">
+          {{- if eq .TemaActual "claro"}}
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.5" fill="currentColor"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          {{- else if eq .TemaActual "oscuro"}}
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="currentColor"/></svg>
+          {{- else}}
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+          {{- end}}
+          <span>{{.T (print "tema." .TemaActual)}}</span>
+        </button>
+      </form>
       {{- /* El cambio de idioma es un POST: una petición GET nunca altera estado. */}}
       <form class="menu__idioma" method="post" action="/idioma">
         <input type="hidden" name="volver" value="{{.Ruta}}">

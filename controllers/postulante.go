@@ -101,6 +101,7 @@ type vistaCampo struct {
 	Tipo          string // atributo type del control de texto
 	Numerico      bool   // teclado numérico en móvil
 	Autocompletar string
+	Marcador      string // texto de ejemplo dentro del campo vacío («dd/mm/aaaa»)
 	Valor         string
 	Texto         string // el valor tal como se lee: el nombre de la opción elegida
 	Obligatorio   bool
@@ -228,6 +229,7 @@ type vistaPostulacion struct {
 	MaxObras         int
 	DuracionTotal    int
 	DuracionMaxima   int
+	DuracionMinima   int
 
 	// Sólo en las respuestas a htmx.
 	OOB      bool                // los bloques comunes se marcan «fuera de banda»
@@ -415,12 +417,15 @@ func (a *App) campoDeVista(idioma string, ab *postulacionAbierta, def models.Def
 		c.Numerico = true
 	case models.CampoDecimal:
 		c.Longitud = 30
-	case models.CampoFecha:
-		c.Tipo, c.Texto = "date", a.vistas.FechaCivil(idioma, c.Valor)
-	case models.CampoFechaNacimiento:
-		c.Tipo, c.Autocompletar, c.Texto = "date", "bday", a.vistas.FechaCivil(idioma, c.Valor)
+	case models.CampoFecha, models.CampoFechaNacimiento:
+		// Texto en dd/mm/aaaa, no <input type="date">: el navegador lo
+		// mostraría en el formato de SU idioma (véase fechas.go).
+		c.Texto, c.Valor = a.vistas.FechaCivil(idioma, c.Valor), fechaParaCaptura(c.Valor)
+		c.Marcador, c.Longitud = a.vistas.T(idioma, "form.marcador_fecha"), 10
+		c.Ayuda = strings.TrimSpace(c.Ayuda + " " + a.vistas.T(idioma, "form.formato_fecha"))
 	case models.CampoHora:
-		c.Tipo = "time"
+		c.Marcador, c.Longitud = a.vistas.T(idioma, "form.marcador_hora"), 5
+		c.Ayuda = strings.TrimSpace(c.Ayuda + " " + a.vistas.T(idioma, "form.formato_hora"))
 	case models.CampoCorreo:
 		c.Tipo, c.Autocompletar, c.Longitud = "email", "email", 254
 	case models.CampoURL:
@@ -577,7 +582,7 @@ func (a *App) vistaDe(r *http.Request, ab *postulacionAbierta, seccion string) *
 		Estado: "estado.postulacion." + string(estado), EstadoClase: clasesDeEstado[estado],
 		Editable: ab.motivo == "", Total: ab.permiso.Total, Motivo: motivosDeBloqueo[ab.motivo],
 		Paso: seccion, GuardadoAt: ab.p.ActualizadoAt,
-		MaxObras: c.MaxObras, DuracionMaxima: c.DuracionMaxProgramaMin,
+		MaxObras: c.MaxObras, DuracionMaxima: c.DuracionMaxProgramaMin, DuracionMinima: c.DuracionMinProgramaMin,
 	}
 	if etapa, ok := c.Etapa(models.EtapaPostulacion); ok {
 		v.TieneCierre, v.Cierre = true, etapa.TerminaAt
@@ -984,7 +989,20 @@ func cambiosDe(r *http.Request, definiciones []models.DefinicionCampo, guardados
 			continue
 		}
 		valor := textoDeFormulario(valores[0])
+		// Lo escrito se conserva para devolverlo con su error; lo que se
+		// guarda va en el formato del modelo (AAAA-MM-DD, HH:MM). Lo que no
+		// se entiende pasa tal cual y el modelo lo rechaza.
 		escritos[def.Ruta] = valor
+		switch def.Tipo {
+		case models.CampoFecha, models.CampoFechaNacimiento:
+			if iso, ok := fechaDeCaptura(valor); ok {
+				valor = iso
+			}
+		case models.CampoHora:
+			if hora, ok := horaDeCaptura(valor); ok {
+				valor = hora
+			}
+		}
 		if valor != guardados[def.Ruta] {
 			cambios[def.Ruta] = valor
 		}

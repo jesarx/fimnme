@@ -255,6 +255,20 @@ func TestReglasDelEnvio(t *testing.T) {
 			func(_ *Postulacion, cfg *ConfiguracionConvocatoria, _ *Usuario) {
 				cfg.Convocatoria.DuracionMaxProgramaMin = 18
 			}, ""},
+		{"duración total por debajo del mínimo", TipoCompositores, "",
+			func(_ *Postulacion, cfg *ConfiguracionConvocatoria, _ *Usuario) {
+				cfg.Convocatoria.DuracionMinProgramaMin = 19
+			},
+			"obras/obras:duracion_insuficiente"},
+		{"duración total justo en el mínimo", TipoCompositores, "",
+			func(_ *Postulacion, cfg *ConfiguracionConvocatoria, _ *Usuario) {
+				cfg.Convocatoria.DuracionMinProgramaMin = 18
+			}, ""},
+		{"sin obras, el mínimo no añade otro bloqueador", TipoInterpretes, SubcategoriaSolista,
+			func(p *Postulacion, cfg *ConfiguracionConvocatoria, _ *Usuario) {
+				p.Obras = nil
+				cfg.Convocatoria.DuracionMinProgramaMin = 30
+			}, "obras/obras:sin_obras"},
 
 		// RN-07: los documentos de cada obra dependen de SU dotación.
 		{"falta la fotografía", TipoCompositores, "",
@@ -482,5 +496,30 @@ func TestPlazoDePostulacion(t *testing.T) {
 	if !PuedePostular(&Sesion{Perfiles: []Perfil{PerfilPostulante}}) || !PuedePostular(&Sesion{Perfiles: []Perfil{PerfilAdminSistema}}) ||
 		PuedePostular(&Sesion{Perfiles: []Perfil{PerfilCoordinacionNacional}}) || PuedePostular(nil) {
 		t.Error("permiso de postular incorrecto")
+	}
+}
+
+// La duración mínima no puede ser negativa ni mayor que la máxima (que haría
+// imposible enviar); con la máxima en 0 (sin límite) cualquier mínimo vale.
+func TestLimitesDeDuracionDelPrograma(t *testing.T) {
+	base := Convocatoria{Tipo: TipoInterpretes, TituloES: "Intérpretes", MaxVideos: 3}
+	casos := []struct {
+		minimo, maximo int
+		error          string
+	}{
+		{0, 0, ""}, {30, 0, ""}, {30, 30, ""}, {20, 60, ""},
+		{-1, 0, "duracion_min_programa_min:error.limite_invalido"},
+		{61, 60, "duracion_min_programa_min:error.duracion_min_mayor"},
+	}
+	for _, c := range casos {
+		conv := base
+		conv.DuracionMinProgramaMin, conv.DuracionMaxProgramaMin = c.minimo, c.maximo
+		var obtenido []string
+		for _, e := range ValidarConvocatoria(conv) {
+			obtenido = append(obtenido, e.Campo+":"+e.Clave)
+		}
+		if strings.Join(obtenido, " ") != c.error {
+			t.Errorf("mínimo %d, máximo %d: %v, se esperaba %q", c.minimo, c.maximo, obtenido, c.error)
+		}
 	}
 }

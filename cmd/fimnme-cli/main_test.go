@@ -160,6 +160,108 @@ func TestCrearUsuario(t *testing.T) {
 	}
 }
 
+// enlace-activacion da un enlace nuevo, distinto en cada llamada, a una cuenta
+// sin activar; rechaza correos inexistentes o inválidos y deja la emisión en
+// la bitácora.
+func TestEnlaceDeActivacion(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := conRepositorio(dir, migrar); err != nil {
+		t.Fatal(err)
+	}
+	if err := conRepositorio(dir, crearUsuario([]string{"--perfil", "admin_sistema", "--email", "admin@ejemplo.mx", "--nombre", "Admin", "--apellidos", "Sistema"})); err != nil {
+		t.Fatal(err)
+	}
+	enlace := func(args ...string) (string, error) {
+		texto := capturar(t)
+		err := conRepositorio(dir, enlaceDeActivacion(append(args, "--url-base", "https://postula.ejemplo.mx/")))
+		return texto.String(), err
+	}
+	primero, err := enlace("--email", "ADMIN@ejemplo.mx")
+	if err != nil || !strings.Contains(primero, "https://postula.ejemplo.mx/cuenta/activar?token=") || !strings.Contains(primero, "admin@ejemplo.mx") {
+		t.Fatalf("enlace: %q (%v)", primero, err)
+	}
+	segundo, err := enlace("--email", "admin@ejemplo.mx")
+	if err != nil || segundo == primero {
+		t.Errorf("cada llamada debe dar un enlace nuevo: %q (%v)", segundo, err)
+	}
+	if _, err := enlace("--email", "nadie@ejemplo.mx"); err == nil || !strings.Contains(err.Error(), "no hay ninguna cuenta") {
+		t.Errorf("un correo inexistente debió rechazarse: %v", err)
+	}
+	if _, err := enlace("--email", "no-es-correo"); err == nil {
+		t.Error("un correo inválido debió rechazarse")
+	}
+	repo, err := models.AbrirRepositorio(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Cerrar()
+	asientos, _, err := repo.ConsultarAuditoria(ctx, models.FiltroAuditoria{Accion: "token.emitir", Pagina: 1, Tamano: 10})
+	if err != nil || len(asientos) != 2 || asientos[0].ActorPerfil != models.ActorCLI {
+		t.Errorf("las emisiones deben quedar en la bitácora: %+v (%v)", asientos, err)
+	}
+}
+
+// «segundo-factor restablecer» borra la clave, los códigos y las sesiones de
+// la cuenta, y lo asienta; otras formas de la orden se rechazan.
+func TestRestablecerSegundoFactor(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := conRepositorio(dir, migrar); err != nil {
+		t.Fatal(err)
+	}
+	if err := conRepositorio(dir, crearUsuario([]string{"--perfil", "admin_sistema", "--email", "admin@ejemplo.mx", "--nombre", "Admin", "--apellidos", "Sistema"})); err != nil {
+		t.Fatal(err)
+	}
+	err := conRepositorio(dir, func(ctx context.Context, repo *models.Repositorio) error {
+		u, _, err := repo.UsuarioPorEmail(ctx, "admin@ejemplo.mx")
+		if err != nil {
+			return err
+		}
+		if _, err := repo.PrepararSegundoFactor(ctx, u.ID, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"); err != nil {
+			return err
+		}
+		if err := repo.AbrirSesionPendiente(ctx, models.Actor{UsuarioID: u.ID}, u.ID, "sesion-de-prueba", time.Now().Add(time.Hour)); err != nil {
+			return err
+		}
+		_, resumenes, err := models.NuevosCodigosDeRecuperacion()
+		if err != nil {
+			return err
+		}
+		return repo.ActivarSegundoFactor(ctx, models.Actor{UsuarioID: u.ID}, "sesion-de-prueba", u.ID, 1, resumenes)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	texto := capturar(t)
+	if err := conRepositorio(dir, segundoFactor([]string{"restablecer", "--email", "Admin@ejemplo.mx"})); err != nil || !strings.Contains(texto.String(), "restablecida") {
+		t.Fatalf("restablecer: %q (%v)", texto.String(), err)
+	}
+	if err := conRepositorio(dir, segundoFactor([]string{"borrar"})); err == nil {
+		t.Error("una suborden desconocida debió rechazarse")
+	}
+	if err := conRepositorio(dir, segundoFactor([]string{"restablecer", "--email", "nadie@ejemplo.mx"})); err == nil {
+		t.Error("un correo inexistente debió rechazarse")
+	}
+	repo, err := models.AbrirRepositorio(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Cerrar()
+	u, _, _ := repo.UsuarioPorEmail(ctx, "admin@ejemplo.mx")
+	factor, err := repo.SegundoFactorDe(ctx, u.ID)
+	if err != nil || factor.Activo() || factor.Secreto != "" || factor.CodigosRestantes != 0 {
+		t.Errorf("tras restablecer no debe quedar nada: %+v (%v)", factor, err)
+	}
+	if _, err := repo.SesionPorID(ctx, "sesion-de-prueba"); !errors.Is(err, models.ErrNoEncontrado) {
+		t.Errorf("las sesiones de la cuenta debieron cerrarse: %v", err)
+	}
+	asientos, _, err := repo.ConsultarAuditoria(ctx, models.FiltroAuditoria{Accion: "segundo_factor.restablecer", Pagina: 1, Tamano: 10})
+	if err != nil || len(asientos) != 1 || asientos[0].ActorPerfil != models.ActorCLI {
+		t.Errorf("el restablecimiento debe quedar en la bitácora: %+v (%v)", asientos, err)
+	}
+}
+
 // datosConArchivos prepara un directorio de datos migrado, con la edición de
 // demostración y dos archivos registrados en el acervo. Devuelve el
 // directorio y las claves de los archivos.

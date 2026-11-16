@@ -255,6 +255,7 @@ func TestConvocatoriaDesdeCeroHastaPublicarse(t *testing.T) {
 		return claves
 	}
 	if c["estado"] != "borrador" || c["max_obras"].(float64) != 2 || c["max_videos"].(float64) != 3 || c["duracion_max_programa_min"] != nil ||
+		c["duracion_min_programa_min"].(float64) != 0 ||
 		fmt.Sprint(claves(c, "requisitos")) != "[fotografia partitura particellas audio]" ||
 		fmt.Sprint(claves(c, "criterios")) != "[realizacion artistico]" {
 		t.Errorf("convocatoria nueva inesperada: %v", c)
@@ -287,9 +288,13 @@ func TestConvocatoriaDesdeCeroHastaPublicarse(t *testing.T) {
 	if campos := admin.rechaza("PUT", ruta, obj{"titulo_es": "Compositores 2028", "max_obras": 0, "max_videos": 9}); fmt.Sprint(campos) != "[max_obras max_videos]" {
 		t.Errorf("límites inválidos: %v", campos)
 	}
+	if campos := admin.rechaza("PUT", ruta, obj{"titulo_es": "Compositores 2028", "max_obras": 2,
+		"duracion_max_programa_min": 40, "duracion_min_programa_min": 41}); fmt.Sprint(campos) != "[duracion_min_programa_min]" {
+		t.Errorf("duración mínima mayor que la máxima: %v", campos)
+	}
 	editada := admin.exige(http.StatusOK, "PUT", ruta, obj{"titulo_es": "Compositores 2028", "titulo_en": "Composers 2028",
-		"bases_md_es": "# Bases\n\nTexto de las **bases**.", "max_obras": 3})
-	if editada["max_obras"].(float64) != 3 || fmt.Sprint(editada["faltan_en_ingles"]) != "[bases_md_en]" || editada["tipo"] != "compositores" {
+		"bases_md_es": "# Bases\n\nTexto de las **bases**.", "max_obras": 3, "duracion_min_programa_min": 15})
+	if editada["max_obras"].(float64) != 3 || editada["duracion_min_programa_min"].(float64) != 15 || fmt.Sprint(editada["faltan_en_ingles"]) != "[bases_md_en]" || editada["tipo"] != "compositores" {
 		t.Errorf("convocatoria editada inesperada: %v", editada)
 	}
 	// Calendario: coherente o nada.

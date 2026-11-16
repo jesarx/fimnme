@@ -117,3 +117,96 @@ func altaConEnlace(ctx context.Context, repositorio *models.Repositorio, nuevo m
 	}
 	return id, strings.TrimRight(urlBase, "/") + "/cuenta/activar?token=" + url.QueryEscape(claro), nil
 }
+
+// Orden «enlace-activacion»: emite un enlace de activación NUEVO para una
+// cuenta interna que aún no elige su contraseña, y lo imprime.
+//
+// Sirve donde el correo no sale (un servidor de pruebas con el puerto 25
+// bloqueado) o cuando el enlace se perdió o venció. Anula los enlaces de
+// activación anteriores de esa cuenta, igual que «Reenviar activación» del
+// panel, y queda en la bitácora. Una cuenta ya activada no recibe enlace:
+// quien la tiene recupera su contraseña desde la página de ingreso.
+
+// enlaceDeActivacion interpreta los argumentos de la orden y devuelve la
+// operación.
+func enlaceDeActivacion(args []string) func(context.Context, *models.Repositorio) error {
+	return func(ctx context.Context, repositorio *models.Repositorio) error {
+		banderas := flag.NewFlagSet("enlace-activacion", flag.ContinueOnError)
+		email := banderas.String("email", "", "correo de la cuenta")
+		urlBase := banderas.String("url-base", entorno("FIMNME_URL_BASE", "http://127.0.0.1:8080"),
+			"dirección pública del sitio, para armar el enlace (FIMNME_URL_BASE)")
+		if err := banderas.Parse(args); err != nil {
+			return err
+		}
+		correo := models.NormalizarEmail(*email)
+		if !models.EmailValido(correo) {
+			return errors.New("--email no es un correo válido")
+		}
+		usuario, _, err := repositorio.UsuarioPorEmail(ctx, correo)
+		if errors.Is(err, models.ErrNoEncontrado) {
+			return fmt.Errorf("no hay ninguna cuenta con el correo %s", correo)
+		}
+		if err != nil {
+			return err
+		}
+		cuenta, err := repositorio.UsuarioPorID(ctx, usuario.ID)
+		if err != nil {
+			return err
+		}
+		if cuenta.Activada {
+			return fmt.Errorf("la cuenta %s ya está activada: su titular puede recuperar la contraseña desde «Ingresar»", correo)
+		}
+		claro, resumen, err := models.NuevoSecreto()
+		if err != nil {
+			return err
+		}
+		token := models.NuevoToken{Resumen: resumen, Proposito: models.TokenActivacion, ExpiraAt: time.Now().Add(models.VigenciaActivacion)}
+		if err := repositorio.EmitirToken(ctx, actorCLI(), usuario.ID, token); err != nil {
+			return err
+		}
+		enlace := strings.TrimRight(*urlBase, "/") + "/cuenta/activar?token=" + url.QueryEscape(claro)
+		fmt.Fprintf(salida, "Enlace de activación de %s, válido %d días y de un solo uso (anula los anteriores):\n\n    %s\n\n",
+			usuario.Email, int(models.VigenciaActivacion.Hours()/24), enlace)
+		fmt.Fprintln(salida, "Entréguelo a su titular por un canal seguro: quien lo abra elige la contraseña de la cuenta.")
+		return nil
+	}
+}
+
+// Orden «segundo-factor restablecer --email CORREO»: borra la verificación en
+// dos pasos de una cuenta que perdió su teléfono y sus códigos de
+// recuperación (RF-AUT-09). Cierra sus sesiones; en el siguiente ingreso se
+// le pedirá darse de alta otra vez, con una clave nueva.
+//
+// Sólo existe aquí, no en la web: quitar el segundo paso de un administrador
+// exige acceso al servidor. Queda en la bitácora a nombre de la herramienta.
+
+// segundoFactor interpreta los argumentos de la orden y devuelve la operación.
+func segundoFactor(args []string) func(context.Context, *models.Repositorio) error {
+	return func(ctx context.Context, repositorio *models.Repositorio) error {
+		if len(args) == 0 || args[0] != "restablecer" {
+			return errors.New("uso: fimnme-cli segundo-factor restablecer --email CORREO")
+		}
+		banderas := flag.NewFlagSet("segundo-factor restablecer", flag.ContinueOnError)
+		email := banderas.String("email", "", "correo de la cuenta")
+		if err := banderas.Parse(args[1:]); err != nil {
+			return err
+		}
+		correo := models.NormalizarEmail(*email)
+		if !models.EmailValido(correo) {
+			return errors.New("--email no es un correo válido")
+		}
+		usuario, _, err := repositorio.UsuarioPorEmail(ctx, correo)
+		if errors.Is(err, models.ErrNoEncontrado) {
+			return fmt.Errorf("no hay ninguna cuenta con el correo %s", correo)
+		}
+		if err != nil {
+			return err
+		}
+		if err := repositorio.RestablecerSegundoFactor(ctx, actorCLI(), usuario.ID); err != nil {
+			return err
+		}
+		fmt.Fprintf(salida, "Verificación en dos pasos de %s restablecida y sesiones cerradas.\n", usuario.Email)
+		fmt.Fprintln(salida, "En su próximo ingreso se le pedirá darla de alta otra vez, con una clave nueva.")
+		return nil
+	}
+}

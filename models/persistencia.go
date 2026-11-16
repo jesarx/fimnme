@@ -54,6 +54,14 @@ type Persistencia interface {
 	FallosDeIngreso(ctx context.Context, usuarioID int64) (int, time.Time, error)
 	SesionPorID(ctx context.Context, idResumen string) (*Sesion, error)
 	SesionDeUsuario(ctx context.Context, usuarioID int64) (*Sesion, error)
+
+	// Verificación en dos pasos (RF-AUT-09).
+	AbrirSesionPendiente(ctx context.Context, actor Actor, usuarioID int64, idResumen string, expira time.Time) error
+	SegundoFactorDe(ctx context.Context, usuarioID int64) (SegundoFactor, error)
+	PrepararSegundoFactor(ctx context.Context, usuarioID int64, secretoNuevo string) (string, error)
+	ActivarSegundoFactor(ctx context.Context, actor Actor, idSesion string, usuarioID, paso int64, resumenes []string) error
+	CompletarSegundoFactor(ctx context.Context, actor Actor, idSesion string, usuarioID, paso int64, resumenCodigo string) error
+	RenovarCodigosDeRecuperacion(ctx context.Context, actor Actor, usuarioID int64, resumenes []string) error
 	RenovarSesion(ctx context.Context, idResumen string, expira time.Time) error
 	CerrarSesion(ctx context.Context, actor Actor, idResumen string) error
 	PurgarSesionesVencidas(ctx context.Context) (int64, error)

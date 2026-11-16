@@ -70,9 +70,9 @@
       {{template "filtro" (dict "P" . "Nombre" "genero" "Etiqueta" "archivo.filtro_genero" "Opciones" $v.Generos)}}
       {{template "filtro" (dict "P" . "Nombre" "estreno" "Etiqueta" "archivo.filtro_estreno" "Opciones" $v.Estrenos)}}
       <div class="campo"><label for="f-enviada_desde">{{.T "archivo.filtro_enviada_desde"}}</label>
-        <input id="f-enviada_desde" name="enviada_desde" type="date" value="{{$v.EnviadaDesde}}"></div>
+        <input id="f-enviada_desde" name="enviada_desde" type="text" maxlength="10" placeholder="{{.T "form.marcador_fecha"}}" value="{{$v.EnviadaDesde}}"></div>
       <div class="campo"><label for="f-enviada_hasta">{{.T "archivo.filtro_enviada_hasta"}}</label>
-        <input id="f-enviada_hasta" name="enviada_hasta" type="date" value="{{$v.EnviadaHasta}}"></div>
+        <input id="f-enviada_hasta" name="enviada_hasta" type="text" maxlength="10" placeholder="{{.T "form.marcador_fecha"}}" value="{{$v.EnviadaHasta}}"></div>
       {{template "filtro" (dict "P" . "Nombre" "con_subsanaciones" "Etiqueta" "archivo.filtro_con_subsanaciones" "Opciones" $v.Subsanaciones)}}
       {{template "filtro" (dict "P" . "Nombre" "documentos_pendientes" "Etiqueta" "archivo.filtro_documentos_pendientes" "Opciones" $v.Pendientes)}}
       {{template "filtro" (dict "P" . "Nombre" "ligas_con_problema" "Etiqueta" "archivo.filtro_ligas_con_problema" "Opciones" $v.Ligas)}}

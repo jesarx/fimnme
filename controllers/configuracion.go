@@ -251,6 +251,7 @@ type entradaConvocatoria struct {
 	BasesMDEN              string         `json:"bases_md_en"`
 	MaxObras               *int           `json:"max_obras"`
 	DuracionMaxProgramaMin *int           `json:"duracion_max_programa_min"`
+	DuracionMinProgramaMin *int           `json:"duracion_min_programa_min"`
 	MaxVideos              *int           `json:"max_videos"`
 	Etapas                 []entradaEtapa `json:"etapas"` // sólo al crear
 }
@@ -273,6 +274,9 @@ func (e entradaConvocatoria) entidad(tipo models.TipoConvocatoria) models.Convoc
 	}
 	if e.DuracionMaxProgramaMin != nil {
 		c.DuracionMaxProgramaMin = *e.DuracionMaxProgramaMin
+	}
+	if e.DuracionMinProgramaMin != nil {
+		c.DuracionMinProgramaMin = *e.DuracionMinProgramaMin
 	}
 	if e.MaxVideos != nil {
 		c.MaxVideos = *e.MaxVideos

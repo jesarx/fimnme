@@ -588,7 +588,7 @@ func (r *Repositorio) ActualizarEdicion(ctx context.Context, actor Actor, e Edic
 const sqlConvocatoria = `
 SELECT c.id, c.tipo, c.titulo_es, c.titulo_en,
        COALESCE(c.bases_md_es, ''), COALESCE(c.bases_md_en, ''),
-       c.estado, COALESCE(c.max_obras, 0), COALESCE(c.duracion_max_programa_min, 0), c.max_videos,
+       c.estado, COALESCE(c.max_obras, 0), COALESCE(c.duracion_max_programa_min, 0), c.duracion_min_programa_min, c.max_videos,
        e.id, e.numero, e.anio, e.nombre_es, e.nombre_en
 FROM convocatoria c
 JOIN edicion e ON e.id = c.edicion_id`
@@ -598,7 +598,7 @@ func leerConvocatoria(f fila) (Convocatoria, error) {
 	var c Convocatoria
 	var tipo, estado string
 	err := f.Scan(&c.ID, &tipo, &c.TituloES, &c.TituloEN, &c.BasesMDES, &c.BasesMDEN,
-		&estado, &c.MaxObras, &c.DuracionMaxProgramaMin, &c.MaxVideos,
+		&estado, &c.MaxObras, &c.DuracionMaxProgramaMin, &c.DuracionMinProgramaMin, &c.MaxVideos,
 		&c.Edicion.ID, &c.Edicion.Numero, &c.Edicion.Anio, &c.Edicion.NombreES, &c.Edicion.NombreEN)
 	c.Tipo, c.Estado = TipoConvocatoria(tipo), EstadoConvocatoria(estado)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -932,7 +932,7 @@ func datosConvocatoria(c Convocatoria) map[string]any {
 	return map[string]any{
 		"edicion_id": c.Edicion.ID, "tipo": c.Tipo, "titulo_es": c.TituloES, "titulo_en": c.TituloEN,
 		"estado": c.Estado, "max_obras": c.MaxObras, "duracion_max_programa_min": c.DuracionMaxProgramaMin,
-		"max_videos": c.MaxVideos,
+		"duracion_min_programa_min": c.DuracionMinProgramaMin, "max_videos": c.MaxVideos,
 	}
 }
 
@@ -955,10 +955,12 @@ func (r *Repositorio) insertarConvocatoria(ctx context.Context, tx *sql.Tx, c Co
 	marca := r.marca()
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO convocatoria (edicion_id, tipo, titulo_es, titulo_en, bases_md_es, bases_md_en, estado,
-		                          max_obras, duracion_max_programa_min, max_videos, creado_at, actualizado_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                          max_obras, duracion_max_programa_min, duracion_min_programa_min, max_videos,
+		                          creado_at, actualizado_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Edicion.ID, string(c.Tipo), c.TituloES, c.TituloEN, nuloSiVacio(c.BasesMDES), nuloSiVacio(c.BasesMDEN),
-		string(c.Estado), nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.MaxVideos, marca, marca)
+		string(c.Estado), nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.DuracionMinProgramaMin,
+		c.MaxVideos, marca, marca)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -1026,10 +1028,12 @@ func (r *Repositorio) ActualizarConvocatoria(ctx context.Context, actor Actor, c
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE convocatoria
 			SET titulo_es = ?, titulo_en = ?, bases_md_es = ?, bases_md_en = ?,
-			    max_obras = ?, duracion_max_programa_min = ?, max_videos = ?, actualizado_at = ?
+			    max_obras = ?, duracion_max_programa_min = ?, duracion_min_programa_min = ?, max_videos = ?,
+			    actualizado_at = ?
 			WHERE id = ?`,
 			c.TituloES, c.TituloEN, nuloSiVacio(c.BasesMDES), nuloSiVacio(c.BasesMDEN),
-			nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.MaxVideos, r.marca(), c.ID); err != nil {
+			nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.DuracionMinProgramaMin,
+			c.MaxVideos, r.marca(), c.ID); err != nil {
 			return err
 		}
 		despues := datosConvocatoria(c)
@@ -1823,6 +1827,238 @@ func (r *Repositorio) AbrirSesion(ctx context.Context, actor Actor, usuarioID in
 	return nil
 }
 
+// AbrirSesionPendiente registra la sesión de una cuenta que acertó la
+// contraseña pero aún debe dar el código del segundo paso (RF-AUT-09).
+//
+// Se asienta como «sesion.contrasena_correcta», NO como «sesion.ingreso»: el
+// ingreso sólo cuenta cuando llega el código. Si no, acertar la contraseña
+// reiniciaría el contador de intentos fallidos, y quien la conoce podría
+// probar códigos sin fin volviendo a escribirla.
+func (r *Repositorio) AbrirSesionPendiente(ctx context.Context, actor Actor, usuarioID int64, idResumen string, expira time.Time) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO sesion (id, usuario_id, ip, user_agent, expira_at, creado_at, pendiente_segundo_factor)
+			VALUES (?, ?, ?, ?, ?, ?, 1)`,
+			idResumen, usuarioID, nuloSiVacio(actor.IP), nuloSiVacio(actor.Agente), aMarca(expira), r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "sesion.contrasena_correcta", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("abrir sesión pendiente: %w", err)
+	}
+	return nil
+}
+
+// SegundoFactorDe devuelve el estado de la verificación en dos pasos de una
+// cuenta, con cuántos códigos de recuperación le quedan.
+func (r *Repositorio) SegundoFactorDe(ctx context.Context, usuarioID int64) (SegundoFactor, error) {
+	var f SegundoFactor
+	var secreto, activado sql.NullString
+	err := r.lectura.QueryRowContext(ctx, `
+		SELECT u.totp_secreto, u.totp_activado_at, u.totp_ultimo_paso,
+		       (SELECT COUNT(*) FROM codigo_recuperacion c WHERE c.usuario_id = u.id AND c.usado_at IS NULL)
+		FROM usuario u WHERE u.id = ?`, usuarioID).Scan(&secreto, &activado, &f.UltimoPaso, &f.CodigosRestantes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return f, ErrNoEncontrado
+	}
+	if err != nil {
+		return f, fmt.Errorf("leer segundo factor: %w", err)
+	}
+	f.Secreto = secreto.String
+	if activado.Valid {
+		if f.ActivadoAt, err = deMarca(activado.String); err != nil {
+			return f, err
+		}
+	}
+	return f, nil
+}
+
+// PrepararSegundoFactor guarda la clave del alta, si la cuenta aún no tiene
+// una, y devuelve la vigente. Recargar la página del alta muestra la MISMA
+// clave: la que la persona quizá ya registró en su aplicación. Una cuenta
+// con el alta hecha no cambia de clave por aquí (véase
+// RestablecerSegundoFactor).
+func (r *Repositorio) PrepararSegundoFactor(ctx context.Context, usuarioID int64, secretoNuevo string) (string, error) {
+	var secreto string
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET totp_secreto = ? WHERE id = ? AND totp_secreto IS NULL AND totp_activado_at IS NULL",
+			secretoNuevo, usuarioID); err != nil {
+			return err
+		}
+		var leido sql.NullString
+		if err := tx.QueryRowContext(ctx, "SELECT totp_secreto FROM usuario WHERE id = ?", usuarioID).Scan(&leido); err != nil {
+			return err
+		}
+		secreto = leido.String
+		return nil
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoEncontrado
+	}
+	if err != nil {
+		return "", fmt.Errorf("preparar segundo factor: %w", err)
+	}
+	return secreto, nil
+}
+
+// ActivarSegundoFactor completa el alta: la cuenta queda con la verificación
+// en dos pasos activa, recibe sus códigos de recuperación (se guardan sus
+// resúmenes) y la sesión pendiente se vuelve una sesión plena. Todo o nada.
+// paso es el intervalo TOTP del código con que se confirmó el alta.
+func (r *Repositorio) ActivarSegundoFactor(ctx context.Context, actor Actor, idSesion string, usuarioID, paso int64, resumenes []string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		marca := r.marca()
+		res, err := tx.ExecContext(ctx, `
+			UPDATE usuario SET totp_activado_at = ?, totp_ultimo_paso = ?
+			WHERE id = ? AND totp_secreto IS NOT NULL AND totp_activado_at IS NULL`, marca, paso, usuarioID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return ErrCodigoInvalido // sin clave preparada, o el alta ya estaba hecha
+		}
+		if err := r.reponerCodigos(ctx, tx, usuarioID, resumenes, marca); err != nil {
+			return err
+		}
+		if err := completarSesion(ctx, tx, idSesion, usuarioID); err != nil {
+			return err
+		}
+		if err := r.auditar(ctx, tx, actor, "segundo_factor.alta", "usuario", usuarioID, nil, nil); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "sesion.ingreso", "usuario", usuarioID, nil, map[string]any{"segundo_factor": "alta"})
+	})
+	if err != nil {
+		return fmt.Errorf("activar segundo factor: %w", err)
+	}
+	return nil
+}
+
+// CompletarSegundoFactor acepta el segundo paso de un ingreso: con un código
+// TOTP (paso > 0, su intervalo) o con un código de recuperación
+// (resumenCodigo, que se gasta). Ambos se comprueban DENTRO de la
+// transacción, para que dos peticiones a la vez no puedan usar el mismo
+// código: el intervalo debe ser posterior al último aceptado y el código de
+// recuperación no debe estar usado. ErrCodigoInvalido si no.
+func (r *Repositorio) CompletarSegundoFactor(ctx context.Context, actor Actor, idSesion string, usuarioID, paso int64, resumenCodigo string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		var res sql.Result
+		var err error
+		medio := "totp"
+		if paso > 0 {
+			res, err = tx.ExecContext(ctx, `
+				UPDATE usuario SET totp_ultimo_paso = ?
+				WHERE id = ? AND totp_activado_at IS NOT NULL AND totp_ultimo_paso < ?`, paso, usuarioID, paso)
+		} else {
+			medio = "codigo_recuperacion"
+			res, err = tx.ExecContext(ctx, `
+				UPDATE codigo_recuperacion SET usado_at = ?
+				WHERE usuario_id = ? AND resumen = ? AND usado_at IS NULL`, r.marca(), usuarioID, resumenCodigo)
+		}
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return ErrCodigoInvalido
+		}
+		if err := completarSesion(ctx, tx, idSesion, usuarioID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "sesion.ingreso", "usuario", usuarioID, nil, map[string]any{"segundo_factor": medio})
+	})
+	if err != nil {
+		return fmt.Errorf("completar segundo factor: %w", err)
+	}
+	return nil
+}
+
+// RenovarCodigosDeRecuperacion sustituye los códigos de recuperación de una
+// cuenta con el alta hecha: los anteriores dejan de valer.
+func (r *Repositorio) RenovarCodigosDeRecuperacion(ctx context.Context, actor Actor, usuarioID int64, resumenes []string) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		if activo, err := existe(ctx, tx, "SELECT COUNT(*) FROM usuario WHERE id = ? AND totp_activado_at IS NOT NULL", usuarioID); err != nil {
+			return err
+		} else if !activo {
+			return ErrNoEncontrado
+		}
+		if err := r.reponerCodigos(ctx, tx, usuarioID, resumenes, r.marca()); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "segundo_factor.codigos", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("renovar códigos de recuperación: %w", err)
+	}
+	return nil
+}
+
+// RestablecerSegundoFactor borra la verificación en dos pasos de una cuenta
+// (teléfono perdido): clave, alta y códigos. Cierra todas sus sesiones; en el
+// siguiente ingreso tendrá que darse de alta otra vez. Lo hace fimnme-cli,
+// con acceso al servidor: no hay forma de hacerlo desde la web.
+func (r *Repositorio) RestablecerSegundoFactor(ctx context.Context, actor Actor, usuarioID int64) error {
+	err := r.enTransaccion(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			"UPDATE usuario SET totp_secreto = NULL, totp_activado_at = NULL, totp_ultimo_paso = 0 WHERE id = ?", usuarioID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return err
+		} else if n == 0 {
+			return ErrNoEncontrado
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM codigo_recuperacion WHERE usuario_id = ?", usuarioID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM sesion WHERE usuario_id = ?", usuarioID); err != nil {
+			return err
+		}
+		return r.auditar(ctx, tx, actor, "segundo_factor.restablecer", "usuario", usuarioID, nil, nil)
+	})
+	if err != nil {
+		return fmt.Errorf("restablecer segundo factor: %w", err)
+	}
+	return nil
+}
+
+// reponerCodigos sustituye los códigos de recuperación de una cuenta.
+func (r *Repositorio) reponerCodigos(ctx context.Context, tx *sql.Tx, usuarioID int64, resumenes []string, marca string) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM codigo_recuperacion WHERE usuario_id = ?", usuarioID); err != nil {
+		return err
+	}
+	for _, resumen := range resumenes {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO codigo_recuperacion (usuario_id, resumen, creado_at) VALUES (?, ?, ?)", usuarioID, resumen, marca); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// completarSesion vuelve plena una sesión pendiente del segundo paso. Debe
+// ser de esa cuenta y estar pendiente; si no, ErrNoEncontrado.
+func completarSesion(ctx context.Context, tx *sql.Tx, idSesion string, usuarioID int64) error {
+	res, err := tx.ExecContext(ctx,
+		"UPDATE sesion SET pendiente_segundo_factor = 0 WHERE id = ? AND usuario_id = ? AND pendiente_segundo_factor = 1",
+		idSesion, usuarioID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNoEncontrado
+	}
+	return nil
+}
+
 // RegistrarIngresoFallido asienta un intento de inicio de sesión que no
 // prosperó. usuarioID es 0 si el correo no corresponde a ninguna cuenta.
 // Los intentos rechazados por bloqueo se asientan aparte y no alargan el
@@ -1871,18 +2107,19 @@ func (r *Repositorio) FallosDeIngreso(ctx context.Context, usuarioID int64) (int
 // ErrNoEncontrado si no existe, venció o la cuenta está desactivada.
 func (r *Repositorio) SesionPorID(ctx context.Context, idResumen string) (*Sesion, error) {
 	var expira string
+	var pendiente bool
 	usuario, err := leerUsuario(r.lectura.QueryRowContext(ctx, `
-		SELECT `+columnasUsuario+`, s.expira_at
+		SELECT `+columnasUsuario+`, s.expira_at, s.pendiente_segundo_factor
 		FROM sesion s
 		JOIN usuario u ON u.id = s.usuario_id
-		WHERE s.id = ? AND s.expira_at > ? AND u.activo = 1`, idResumen, r.marca()), &expira)
+		WHERE s.id = ? AND s.expira_at > ? AND u.activo = 1`, idResumen, r.marca()), &expira, &pendiente)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNoEncontrado
 	}
 	if err != nil {
 		return nil, fmt.Errorf("leer sesión: %w", err)
 	}
-	s := &Sesion{ID: idResumen, Usuario: usuario}
+	s := &Sesion{ID: idResumen, Usuario: usuario, PendienteSegundoFactor: pendiente}
 	if s.ExpiraAt, err = deMarca(expira); err != nil {
 		return nil, err
 	}

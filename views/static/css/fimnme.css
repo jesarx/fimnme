@@ -49,6 +49,16 @@ html {
   color-scheme: light dark;
 }
 
+/* Con un tema elegido, los controles nativos (casillas, barras de
+   desplazamiento) lo siguen también, no al sistema operativo. */
+html[data-tema="claro"] {
+  color-scheme: light;
+}
+
+html[data-tema="oscuro"] {
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -283,6 +293,22 @@ main:focus {
   margin: 0;
 }
 
+.menu__tema {
+  padding-left: var(--e2);
+  border-left: 1px solid var(--sobre-oscuro-filete);
+}
+
+.menu__tema button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.menu__tema svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: none;
+}
 .menu__idioma {
   padding-left: var(--e2);
   border-left: 1px solid var(--sobre-oscuro-filete);
@@ -300,8 +326,13 @@ main:focus {
     padding-inline: var(--e2);
   }
 
-  .menu__idioma {
+  .menu__tema {
     margin-left: auto;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .menu__idioma {
     padding-left: 0;
     border-left: 0;
   }
@@ -372,6 +403,7 @@ main:focus {
     color: var(--logo-foro);
   }
 
+  .js .menu__tema,
   .js .menu__idioma {
     margin: 0;
     padding: 0;
@@ -3005,4 +3037,40 @@ main {
 
 .importacion__cancelar {
   margin-top: var(--e4);
+}
+
+/* Verificación en dos pasos: QR (siempre negro sobre blanco, con su propio
+   margen, para que lo lea la cámara también en el tema oscuro), clave en
+   grupos y códigos de recuperación. */
+.segundo-factor__pasos > li {
+  margin-bottom: var(--e4);
+}
+
+.segundo-factor__qr {
+  margin: var(--e3) 0;
+}
+
+.segundo-factor__qr .qr {
+  display: block;
+  width: 13rem;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radio);
+}
+
+/* La clave va en su propio renglón y sólo se corta entre grupos de cuatro. */
+.segundo-factor__clave {
+  display: block;
+  margin-top: var(--e1);
+  font-size: 1.0625rem;
+  letter-spacing: 0.05em;
+  word-spacing: 0.25em;
+}
+
+.segundo-factor__codigos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--e2) var(--e4);
+  padding-left: 1.5rem;
+  font-size: 1.125rem;
 }

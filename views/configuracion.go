@@ -179,9 +179,10 @@ func ConfiguracionJSON(cfg models.ConfiguracionConvocatoria, archivos map[models
 		"titulo_es": c.TituloES, "titulo_en": c.TituloEN, "bases_md_es": c.BasesMDES, "bases_md_en": c.BasesMDEN,
 		"faltan_en_ingles": faltantes(map[string]string{"titulo_en": c.TituloEN, "bases_md_en": c.BasesMDEN}),
 		"max_obras":        nuloSiCero(c.MaxObras), "duracion_max_programa_min": nuloSiCero(c.DuracionMaxProgramaMin),
-		"max_videos": c.MaxVideos,
-		"etapas":     etapasJSON(c.Etapas),
-		"dotaciones": dotaciones, "requisitos": requisitos, "criterios": criterios, "asignaciones": asignaciones,
+		"duracion_min_programa_min": c.DuracionMinProgramaMin,
+		"max_videos":                c.MaxVideos,
+		"etapas":                    etapasJSON(c.Etapas),
+		"dotaciones":                dotaciones, "requisitos": requisitos, "criterios": criterios, "asignaciones": asignaciones,
 		"cuotas": map[string]any{
 			"jurados": cfg.Activos(models.PerfilJurado), "jurados_requeridos": models.CuotaJurados,
 			"revisores": cfg.Activos(models.PerfilRevisorDocumental),

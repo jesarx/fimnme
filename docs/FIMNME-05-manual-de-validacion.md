@@ -55,7 +55,7 @@ Las pruebas automáticas corren todas con:
 make verificar
 ```
 
-Revisa formato, `go vet` y las **214 pruebas** de la versión entregada. Para correr una
+Revisa formato, `go vet` y las **227 pruebas** de la versión entregada. Para correr una
 sola: `go test ./controllers -run NombreDeLaPrueba -v`.
 
 ---
@@ -67,7 +67,7 @@ sola: `go test ./controllers -run NombreDeLaPrueba -v`.
 | Id | Requisito | Tipo | Procedimiento | Aceptación |
 |---|---|---|---|---|
 | V-ENT-01 | RNF-13 | A | `make verificar` | Sin diferencias de formato, sin avisos de `go vet`, todas las pruebas en verde. |
-| V-ENT-02 | RNF-13 | A | `make test`: imprime la cobertura total. Para la capa de dominio: `go test -coverpkg=./models -coverprofile=c.out ./... && go tool cover -func=c.out \| tail -1` | Cobertura de `models/` **≥ 70 %**, medida con todas las pruebas que la ejercen. |
+| V-ENT-02 | RNF-13 | A | `make test`: imprime la cobertura total. Para la capa de dominio: `go test -count=1 -coverpkg=./models -coverprofile=c.out ./... && go tool cover -func=c.out \| tail -1` (con `-count=1`: un resultado en caché trae un perfil de una versión anterior y la cifra sale falsa) | Cobertura de `models/` **≥ 70 %**, medida con todas las pruebas que la ejercen. |
 | V-ENT-03 | RNF-06 | A+M | `make build`; `file bin/*` | Dos ELF estáticos (`statically linked`) que arrancan en Debian 13 sin instalar nada. |
 | V-ENT-04 | RNF-19 | A | `make build`; `sha256sum bin/*`; `go clean -cache`; `make build`; `sha256sum bin/*` | Sumas idénticas en las dos compilaciones. |
 | V-ENT-05 | RNF-14 | M | Revisar que cada archivo `.go` empiece con el aviso de licencia GNU GPL v3.0 y que exista `LICENSE` | Ningún archivo sin aviso. |
@@ -163,6 +163,7 @@ sola: `go test ./controllers -run NombreDeLaPrueba -v`.
 | V-SEG-02 | RNF-10 | A | `TestPostDeOtroOrigenRechazado` | Un POST de otro origen se rechaza (CSRF). |
 | V-SEG-03 | RNF-10 | A | `TestIngresoYBloqueoPorIntentos`, `TestLimiteDeIntentosPorIP`, `TestBloqueoDeIngreso` | Bloqueo por cuenta y límite por IP. |
 | V-SEG-04 | RNF-10 | A | `TestResumenDePasswordArgon2id` | Contraseñas con Argon2id. |
+| V-SEG-06 | RF-AUT-09 | A+M | `TestCodigosTOTP` (vectores del RFC 6238), `TestSegundoFactor`, `TestRestablecerSegundoFactor`, `TestCorreccionReedSolomon`, `TestSimboloConocido`. A mano: crear un administrador, ingresar, escanear el QR con una aplicación real, entrar; salir y volver a entrar; entrar con un código de recuperación; restablecer con `fimnme-cli` | Sin el código no se alcanza ninguna página interna ni la API; el QR se lee; un código no vale dos veces; los fallos bloquean; tras restablecer se pide alta nueva. Postulantes, revisores y jurados no tienen segundo paso. |
 | V-SEG-05 | RNF-10 | M | `git grep -n -i -E "password=\|secret\|BEGIN .*PRIVATE"` y revisar los permisos de `/etc/fimnme` | Ningún secreto en el repositorio; `fimnme-web.env` y las claves con permisos 0640/0600. |
 
 ### 3.11 Accesibilidad e idiomas
@@ -212,14 +213,15 @@ este manual. Los casos que exigen el servidor final quedan pendientes (§5).
 
 | Caso | Resultado |
 |---|---|
-| V-ENT-01 | `make verificar` en verde: **214 pruebas, 0 fallas**. |
-| V-ENT-02 | Cobertura de `models/` con todas las pruebas: **81.9 %** (mínimo 70 %). |
+| V-ENT-01 | `make verificar` en verde: **227 pruebas, 0 fallas** (con el segundo factor y los ajustes del ADR 0032). |
+| V-ENT-02 | Cobertura de `models/` con todas las pruebas: **81.8 %** (mínimo 70 %). |
 | V-ENT-03, 04 | ELF estáticos; **dos compilaciones con la caché vacía dieron sumas idénticas**. |
-| V-ENT-05 | Los 111 archivos `.go` con su aviso de licencia. |
+| V-ENT-05 | Los 118 archivos `.go` con su aviso de licencia. |
 | V-ENT-06 | Dos dependencias directas, las previstas. |
 | **V-JUR-01, 02** | **Pasan.** |
 | **V-CAR-01** | **Pasa** (ADR 0028): 12 622 peticiones, **0 errores**; p95 de lecturas de **4 a 12 ms**; subida de 5 MB con 50 simultáneas, p95 608 ms; 320 MB de memoria. |
-| V-ACC-01 | **63 páginas, 0 violaciones**. La primera corrida halló una: el estado del paso actual del formulario tenía un contraste de 4.48:1 (mínimo 4.5:1), en todas las páginas del formulario. Se corrigió en `fimnme.css` y se repitió. |
+| V-SEG-06 | Pasa. El QR de la página real, fotografiado en el navegador, lo lee zbar; el codificador se probó en sus diez versiones y ocho máscaras (ADR 0032). |
+| V-ACC-01 | Tras los ajustes del ADR 0032 (fechas en texto, botón de tema), 48 páginas con una convocatoria abierta y las páginas del segundo paso en claro y en oscuro: **0 violaciones**. Antes, **63 páginas, 0 violaciones**. La primera corrida halló una: el estado del paso actual del formulario tenía un contraste de 4.48:1 (mínimo 4.5:1), en todas las páginas del formulario. Se corrigió en `fimnme.css` y se repitió. |
 | V-OPE-01 | Pasa en local (ADR 0026), con restauración verificada. |
 | V-OPE-06 | La imagen se construye (ADR 0027). |
 | V-OPE-07 | Pasa contra MariaDB 11.8: 44 tablas idénticas y 4 triggers (ADR 0029). |
@@ -248,7 +250,6 @@ este manual. Los casos que exigen el servidor final quedan pendientes (§5).
 
   | Requisito | Prioridad | Qué falta |
   |---|---|---|
-  | RF-AUT-09 | S | Segundo factor (TOTP) para administrador y observador. **Es el más recomendable antes de producción**: son las cuentas que lo ven todo. |
   | RF-CONV-11 | S | Vista previa de la convocatoria, tal como la verá el público, antes de publicarla. |
   | RF-DOC-05 | S | Antivirus (ClamAV) sobre cada archivo subido. La columna `escaneo_av` queda en `pendiente`. |
   | RF-NOT-09, 10 | S | Correos a los jurados: inicio de la evaluación y recordatorio de pendientes. |

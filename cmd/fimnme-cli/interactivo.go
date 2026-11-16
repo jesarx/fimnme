@@ -57,15 +57,21 @@ import (
 //
 //	Intro    conserva el valor actual, que se muestra entre corchetes
 //	-        deja vacío un dato opcional
-//	fechas   AAAA-MM-DD HH:MM, en hora de la Ciudad de México
+//	fechas   dd/mm/aaaa hh:mm (24 horas), en hora de la Ciudad de México
 
 // errFinDeEntrada indica que la entrada se acabó (Ctrl+D, o la tubería que
 // alimentaba el diálogo terminó). No es una falla: el modo interactivo
 // termina sin dejar nada a medias, porque cada cambio es una transacción.
 var errFinDeEntrada = errors.New("fin de la entrada")
 
-// formatoDeFecha es como se escriben y se muestran las fechas del calendario.
-const formatoDeFecha = "2006-01-02 15:04"
+// formatoDeFecha es como se muestran las fechas del calendario: la
+// convención mexicana, la misma que en el panel web. Al leer se acepta
+// además d/m/aaaa h:mm y el formato ISO de versiones anteriores
+// (formatosDeLectura).
+const formatoDeFecha = "02/01/2006 15:04"
+
+// formatosDeLectura son las formas en que puede escribirse una fecha.
+var formatosDeLectura = []string{"2/1/2006 15:04", "2006-01-02 15:04"}
 
 // tamanoMaxBases acota el archivo Markdown de las bases que se carga.
 const tamanoMaxBases = 1 << 20
@@ -129,7 +135,7 @@ func modoInteractivo(ctx context.Context, repositorio *models.Repositorio) error
 		actor: actorCLI(), urlBase: entorno("FIMNME_URL_BASE", "http://127.0.0.1:8080")}
 	fmt.Fprint(salida, `FIMNME — administración interactiva
 Intro conserva el valor entre corchetes; «-» vacía un dato opcional.
-Las fechas se escriben AAAA-MM-DD HH:MM, en hora de la Ciudad de México.
+Las fechas se escriben dd/mm/aaaa hh:mm (24 horas), en hora de la Ciudad de México.
 Cada cambio se guarda al momento y queda en la bitácora.
 `)
 	err = c.menu("s", "Salir", c.pantallaDeInicio)
@@ -332,11 +338,14 @@ func (f *ficha) momento(etiqueta string, valor *time.Time) {
 			*valor = time.Time{}
 			return
 		}
-		if momento, err := time.ParseInLocation(formatoDeFecha, respuesta, views.ZonaMexico()); err == nil {
-			*valor = momento.UTC()
-			return
+		respuesta = strings.Join(strings.Fields(respuesta), " ")
+		for _, formato := range formatosDeLectura {
+			if momento, err := time.ParseInLocation(formato, respuesta, views.ZonaMexico()); err == nil {
+				*valor = momento.UTC()
+				return
+			}
 		}
-		f.c.decir("  Escriba la fecha como AAAA-MM-DD HH:MM, por ejemplo 2027-01-29 23:59.")
+		f.c.decir("  Escriba la fecha como dd/mm/aaaa hh:mm, de 24 horas; por ejemplo, 29/01/2027 23:59.")
 	}
 }
 
@@ -537,6 +546,7 @@ func (c *consola) editarConvocatoria(conv models.Convocatoria) error {
 	f.texto("Título en español", &conv.TituloES)
 	f.texto("Título en inglés (opcional)", &conv.TituloEN)
 	f.entero("Máximo de obras por postulación (0 = sin límite)", &conv.MaxObras)
+	f.entero("Duración mínima del programa, en minutos (0 = sin mínimo)", &conv.DuracionMinProgramaMin)
 	f.entero("Duración máxima del programa, en minutos (0 = sin límite)", &conv.DuracionMaxProgramaMin)
 	f.entero("Máximo de ligas de video", &conv.MaxVideos)
 	if f.err != nil {

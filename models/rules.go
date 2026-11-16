@@ -240,6 +240,22 @@ func DuracionSesion(perfiles []Perfil, asignaciones []Asignacion) time.Duration 
 	return SesionPostulante
 }
 
+// SesionPendiente es cuánto vive una sesión que espera el código del segundo
+// paso (RF-AUT-09): lo justo para abrir la aplicación y escribirlo.
+const SesionPendiente = 10 * time.Minute
+
+// RequiereSegundoFactor indica si una cuenta debe completar la verificación
+// en dos pasos para entrar: la tienen OBLIGATORIA el administrador y el
+// observador (RF-AUT-09), que ven todo el sistema, calificaciones incluidas.
+func RequiereSegundoFactor(perfiles []Perfil) bool {
+	for _, p := range perfiles {
+		if p == PerfilAdminSistema || p == PerfilCoordinacionNacional {
+			return true
+		}
+	}
+	return false
+}
+
 // BloqueoDeIngreso calcula hasta cuándo queda bloqueado el inicio de sesión de
 // una cuenta, dados sus fallos consecutivos y el momento del último. Devuelve
 // el valor cero si no hay bloqueo. Retroceso exponencial: 1 minuto al quinto
@@ -438,6 +454,13 @@ func ValidarConvocatoria(c Convocatoria) []ErrorCampo {
 	}
 	if c.DuracionMaxProgramaMin < 0 {
 		errores = append(errores, ErrorCampo{Campo: "duracion_max_programa_min", Clave: "error.limite_invalido"})
+	}
+	switch {
+	case c.DuracionMinProgramaMin < 0:
+		errores = append(errores, ErrorCampo{Campo: "duracion_min_programa_min", Clave: "error.limite_invalido"})
+	case c.DuracionMaxProgramaMin > 0 && c.DuracionMinProgramaMin > c.DuracionMaxProgramaMin:
+		// Un mínimo mayor que el máximo haría imposible enviar.
+		errores = append(errores, ErrorCampo{Campo: "duracion_min_programa_min", Clave: "error.duracion_min_mayor"})
 	}
 	if c.MaxVideos < 0 || c.MaxVideos > MaxVideosPermitidos {
 		errores = append(errores, ErrorCampo{Campo: "max_videos", Clave: "error.max_videos"})
@@ -1405,6 +1428,10 @@ func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usua
 	}
 	if c.DuracionMaxProgramaMin > 0 && duracionTotal > c.DuracionMaxProgramaMin {
 		agregar(SeccionObras, "obras", 0, "bloqueo.duracion_excedida")
+	}
+	// La mínima sólo se exige con obras: sin ninguna ya hay un bloqueador.
+	if c.DuracionMinProgramaMin > 0 && len(p.Obras) > 0 && duracionTotal < c.DuracionMinProgramaMin {
+		agregar(SeccionObras, "obras", 0, "bloqueo.duracion_insuficiente")
 	}
 
 	// 5. Documentos obligatorios.

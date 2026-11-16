@@ -135,6 +135,13 @@ func (a *App) Manejador() http.Handler {
 	mux.HandleFunc("POST /cuenta/verificacion", a.conSesion(a.reenviarVerificacion))
 	mux.HandleFunc("POST /cuenta/salir", a.salir)
 
+	// Verificación en dos pasos (RF-AUT-09): la sesión pendiente las alcanza
+	// sin pasar por conSesion; la renovación de códigos pide sesión plena.
+	mux.HandleFunc("GET /cuenta/segundo-factor", a.segundoFactorFormulario)
+	mux.HandleFunc("POST /cuenta/segundo-factor", a.segundoFactor)
+	mux.HandleFunc("POST /cuenta/segundo-factor/alta", a.altaDeSegundoFactor)
+	mux.HandleFunc("POST /cuenta/segundo-factor/codigos", a.conSesion(a.renovarCodigosDeRecuperacion))
+
 	// Páginas del postulante: el panel y el formulario por pasos (§5.3).
 	// «/postulaciones/{ref}» admite el id o el folio: el enlace por folio es
 	// permanente (RNF-17).
@@ -241,6 +248,7 @@ func (a *App) Manejador() http.Handler {
 
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)
+	mux.HandleFunc("POST /tema", a.cambiarTema)
 
 	// API REST: responde JSON. Sus rutas viven en una tabla (rutasAPI) para
 	// poder cotejarlas contra la descripción OpenAPI.

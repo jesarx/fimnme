@@ -47,10 +47,12 @@ dev:
 
 ## test: ejecuta las pruebas con cobertura. La cobertura de cada paquete cuenta
 ## también lo que ejercitan las pruebas de los demás (las de extremo a extremo
-## de controllers/ recorren buena parte de models/).
+## de controllers/ recorren buena parte de models/). Con -count=1: un resultado
+## en caché trae el perfil de cobertura de una versión anterior del código, con
+## otros números de línea, y la suma sale mal.
 test:
 	@mkdir -p $(BIN)
-	$(GO) test -coverpkg=./... -coverprofile=$(BIN)/cobertura.out ./...
+	$(GO) test -count=1 -coverpkg=./... -coverprofile=$(BIN)/cobertura.out ./...
 	@$(GO) tool cover -func=$(BIN)/cobertura.out | tail -1
 
 ## formato: reescribe el código con el formato canónico de Go.

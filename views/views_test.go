@@ -136,6 +136,9 @@ func TestClavesDinamicasExisten(t *testing.T) {
 			claves = append(claves, e.Clave)
 		}
 	}
+	for _, tema := range []string{TemaAutomatico, TemaClaro, TemaOscuro} {
+		claves = append(claves, "tema."+tema)
+	}
 	for _, codigo := range []string{"404", "403", "500"} {
 		claves = append(claves, "http."+codigo+"_titulo", "http."+codigo+"_texto")
 	}
@@ -681,5 +684,37 @@ func TestElTemaConcentraLaIdentidad(t *testing.T) {
 		if !strings.Contains(oscuro, variable+":") {
 			t.Errorf("el modo oscuro no redefine %s", variable)
 		}
+	}
+}
+
+// TestPaletasOscurasIdenticas: tema.css lleva la paleta oscura dos veces, una
+// para quien la pide desde su sistema operativo y otra para quien la eligió
+// con el botón de la cabecera. Si alguien cambia un color en una sola, el
+// sitio se vería distinto según cómo se llegó al tema oscuro.
+func TestPaletasOscurasIdenticas(t *testing.T) {
+	css, err := fs.ReadFile(contenido, "static/css/tema.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	texto := string(css)
+	paleta := func(selector string) []string {
+		inicio := strings.Index(texto, selector+" {")
+		if inicio < 0 {
+			t.Fatalf("falta el bloque %q", selector)
+		}
+		cuerpo := texto[inicio+len(selector)+2:]
+		cuerpo = cuerpo[:strings.Index(cuerpo, "}")]
+		var declaraciones []string
+		for _, renglon := range strings.Split(cuerpo, "\n") {
+			if renglon = strings.TrimSpace(renglon); renglon != "" {
+				declaraciones = append(declaraciones, renglon)
+			}
+		}
+		return declaraciones
+	}
+	porSistema := paleta(`:root:not([data-tema="claro"])`)
+	elegida := paleta(`:root[data-tema="oscuro"]`)
+	if len(porSistema) < 10 || strings.Join(porSistema, "\n") != strings.Join(elegida, "\n") {
+		t.Errorf("las dos paletas oscuras difieren:\n%v\n%v", porSistema, elegida)
 	}
 }

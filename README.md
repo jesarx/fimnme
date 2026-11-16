@@ -63,6 +63,13 @@ Hoy el sistema tiene:
   jurados sin puntajes; matriz de resultados con el resultado del proceso; generador de
   reportes CSV con plantillas; estadísticas de la edición; y publicación de la nómina al
   portal con vista previa.
+- **Verificación en dos pasos** para administrador y observador: aplicación
+  autenticadora con alta por QR, códigos de recuperación y restablecimiento desde el
+  servidor.
+- **Tema claro u oscuro a elección** (botón en la cabecera), o el del sistema
+  operativo.
+- **Fechas con la convención mexicana** en todos los formularios: dd/mm/aaaa y hora
+  de 24 horas, sea cual sea el idioma del navegador.
 - **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
   imagen del 48º Foro; véase «Cambiar la imagen de la edición».
 - **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
@@ -182,6 +189,20 @@ base64, como en cualquier correo; un cliente de correo abre el `.eml` directamen
 sudo ls -t /var/lib/fimnme/correo | head -1
 ```
 
+Para leer el texto del correo más reciente, con su enlace:
+
+```bash
+sudo python3 -c "import email,sys;m=email.message_from_binary_file(open(sys.argv[1],'rb'));[print(p.get_payload(decode=True).decode()) for p in m.walk() if p.get_content_type()=='text/plain']" "$(sudo ls -t /var/lib/fimnme/correo/*.eml | head -1)"
+```
+
+Para una cuenta interna sin activar (un administrador, revisor o jurado recién creado
+en el panel), la terminal da un enlace nuevo sin pasar por el correo. Anula los
+anteriores:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme enlace-activacion --email persona@ejemplo.mx --url-base https://su-dominio
+```
+
 #### Servidor de correo propio (instalación final)
 
 Sólo en un servidor con el puerto 25 de salida abierto. `make deploy` deja los guiones
@@ -218,6 +239,21 @@ go run ./cmd/fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemp
 
 La orden imprime un **enlace de activación**: al abrirlo se elige la contraseña. El otro
 perfil global disponible es `coordinacion_nacional` (observador).
+
+**Administrador y observador entran con verificación en dos pasos** (ADR 0032).
+
+- **Primer ingreso:** tras la contraseña se pide dar de alta una aplicación
+  autenticadora (Google Authenticator, Microsoft Authenticator, Authy, 2FAS, Aegis,
+  FreeOTP). Se escanea un QR o se escribe la clave, y se confirma con un código.
+- **Códigos de recuperación:** se reciben diez, de un solo uso, para cuando no se
+  tenga el teléfono.
+- **Siguientes ingresos:** contraseña y el código del momento.
+- **Teléfono y códigos perdidos:** se restablece desde el servidor. En el siguiente
+  ingreso se da de alta otra vez.
+
+  ```bash
+  sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme segundo-factor restablecer --email persona@ejemplo.mx
+  ```
 
 Con la sesión abierta, **Administración** (`/administracion`) lleva a las ediciones y a la
 ficha de configuración de cada convocatoria; desde ahí se crean las demás cuentas

@@ -82,6 +82,10 @@ func (a *App) cargarSesion(siguiente http.Handler) http.Handler {
 			// Sin base no hay forma de saber quién es: se sigue como anónimo
 			// y la propia página fallará con su error 500.
 			a.log.Error("no se pudo leer la sesión", "error", err)
+		case sesion.PendienteSegundoFactor:
+			// Falta el código del segundo paso: no es una sesión para el resto
+			// del sistema (segundo_factor.go) y no se prolonga.
+			r = r.WithContext(conSesionPendiente(r.Context(), sesion))
 		default:
 			a.renovarSesion(w, r, sesion, cookie.Value)
 			r = r.WithContext(context.WithValue(r.Context(), claveSesion{}, sesion))
@@ -126,14 +130,25 @@ func (a *App) conSesion(manejador http.HandlerFunc) http.HandlerFunc {
 			manejador(w, r)
 			return
 		}
+		pendiente := sesionPendienteDe(r) != nil
 		if esAPI(r) {
-			a.errorAPI(w, r, http.StatusUnauthorized, "no_autenticado")
+			codigo := "no_autenticado"
+			if pendiente {
+				codigo = "segundo_factor_pendiente"
+			}
+			a.errorAPI(w, r, http.StatusUnauthorized, codigo)
 			return
 		}
 		destino := "/cuenta/ingresar?aviso=ingresa"
+		volver := ""
 		if r.Method == http.MethodGet {
 			// Tras ingresar se vuelve a la página que se pidió.
-			destino += "&volver=" + url.QueryEscape(r.URL.Path)
+			volver = r.URL.Path
+			destino += "&volver=" + url.QueryEscape(volver)
+		}
+		if pendiente {
+			// Contraseña correcta, falta el código: a esa página, no al ingreso.
+			destino = rutaDelSegundoFactor(volver)
 		}
 		if r.Header.Get("HX-Request") == "true" {
 			// Un guardado automático con la sesión vencida no puede seguir
