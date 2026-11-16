@@ -6908,6 +6908,22 @@ func (r *Repositorio) ImportacionPorID(ctx context.Context, id int64) (Importaci
 	return importacionPorID(ctx, r.lectura, id)
 }
 
+// ArchivoPorID devuelve el registro de un archivo del acervo (para leer su
+// contenido con BlobStore.Abrir). Lo usan los transportes de correo para
+// los adjuntos.
+func (r *Repositorio) ArchivoPorID(ctx context.Context, id int64) (Archivo, error) {
+	var a Archivo
+	err := r.lectura.QueryRowContext(ctx, "SELECT id, sha256, clave, mime, tamano_bytes FROM archivo WHERE id = ?", id).
+		Scan(&a.ID, &a.SHA256, &a.Clave, &a.MIME, &a.TamanoBytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNoEncontrado
+	}
+	if err != nil {
+		return a, fmt.Errorf("leer archivo: %w", err)
+	}
+	return a, nil
+}
+
 // ImportacionesRecientes devuelve las últimas importaciones, la más reciente
 // primero, con sus conflictos.
 func (r *Repositorio) ImportacionesRecientes(ctx context.Context, limite int) ([]Importacion, error) {

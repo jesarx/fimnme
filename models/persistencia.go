@@ -191,6 +191,7 @@ type Persistencia interface {
 		filasTotal int, conflictos []ConflictoDeImportacion) (int64, error)
 	ImportacionPorID(ctx context.Context, id int64) (Importacion, error)
 	ImportacionesRecientes(ctx context.Context, limite int) ([]Importacion, error)
+	ArchivoPorID(ctx context.Context, id int64) (Archivo, error)
 	ResolverConflicto(ctx context.Context, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error
 	ResolverSinCandidatos(ctx context.Context, actor Actor, importacionID int64, resolucion string) (int, error)
 	CancelarImportacion(ctx context.Context, actor Actor, importacionID int64) error

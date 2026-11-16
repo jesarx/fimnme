@@ -72,7 +72,7 @@ Con el paso 10c **el backend está completo**.
 
 | # | Paso | Estado |
 |---|---|---|
-| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | Pendiente |
+| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | En curso: transporte de correo hecho (ADR 0025) |
 
 ## Notas del plan
 

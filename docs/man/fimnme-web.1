@@ -71,6 +71,38 @@ registra como error y avisa por correo a los administradores una vez al día.
 Con 0 no se vigila. Por omisión 10.
 .RB ( FIMNME_DISCO_MIN_GB )
 .TP
+.BR \-\-correo " \fIregistro\fR|\fIarchivo\fR|\fIsmtp\fR"
+Transporte de correo. \fBregistro\fR (por omisión) no envía nada: escribe cada
+mensaje en el log (el cuerpo, sólo en desarrollo). \fBarchivo\fR guarda cada
+mensaje completo como \fI.eml\fR en \fB\-\-correo\-dir\fR, para un servidor
+que no puede enviar correo. \fBsmtp\fR lo entrega a \fB\-\-smtp\-servidor\fR.
+.RB ( FIMNME_CORREO )
+.TP
+.BR \-\-correo\-dir " \fIdirectorio\fR"
+Dónde se guardan los \fI.eml\fR con \fB\-\-correo archivo\fR. Por omisión,
+\fIdatos\fR/correo. Los archivos llevan enlaces de un solo uso: sólo los lee el
+servicio (permisos 0600).
+.RB ( FIMNME_CORREO_DIR )
+.TP
+.BR \-\-remitente " \fIdirección\fR"
+Remitente de los correos, p. ej. «FIMNME <foro@dominio.mx>».
+.RB ( FIMNME_REMITENTE )
+.TP
+.BR \-\-smtp\-servidor " \fIhost:puerto\fR"
+Servidor SMTP. Por omisión 127.0.0.1:25, el Postfix local.
+.RB ( FIMNME_SMTP_SERVIDOR )
+.TP
+.BR \-\-smtp\-seguridad " \fIstarttls\fR|\fItls\fR|\fIninguno\fR"
+\fBstarttls\fR (puerto 587) o \fBtls\fR (465) para un relevo externo;
+\fBninguno\fR sólo hacia 127.0.0.1. Por omisión \fBninguno\fR.
+.RB ( FIMNME_SMTP_SEGURIDAD )
+.TP
+.BR \-\-smtp\-usuario " \fIusuario\fR"
+Usuario SMTP; vacío, sin autenticación. La contraseña se lee sólo de la
+variable de entorno \fBFIMNME_SMTP_PASSWORD\fR, para que no aparezca en la
+lista de procesos.
+.RB ( FIMNME_SMTP_USUARIO )
+.TP
 .B \-\-version
 Muestra la versión y la licencia, y termina.
 .TP

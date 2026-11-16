@@ -120,9 +120,9 @@ paso 14: la puesta en operación. Hoy el sistema tiene:
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
-> paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
-> enlace de verificación, recuperación o activación; véase «Correos en desarrollo».
+> **El correo tiene tres transportes** (`--correo`): `registro` (sólo el log, por
+> omisión), `archivo` (cada mensaje completo como `.eml`, para un VPS que no puede
+> enviar correo) y `smtp` (al Postfix local o a un relevo externo). Véase «Correo».
 
 ## Requisitos
 
@@ -160,6 +160,22 @@ make reiniciar-datos
 Los correos no se envían: aparecen en la salida del servidor como líneas
 `correo NO enviado: transporte de desarrollo`, con su texto completo. Para probar un
 registro, copie de ahí el enlace `…/cuenta/verificar?token=…` y ábralo en el navegador.
+
+### Correo
+
+| Situación | Configuración |
+|---|---|
+| Desarrollo | Nada: `--correo registro` escribe los mensajes en el log. |
+| VPS que no puede enviar correo (puerto 25 bloqueado) | `FIMNME_CORREO=archivo`: cada mensaje queda como `.eml` en `<datos>/correo`. |
+| VPS con un relevo externo | `FIMNME_CORREO=smtp`, `FIMNME_SMTP_SERVIDOR=smtp.proveedor.com:587`, `FIMNME_SMTP_SEGURIDAD=starttls`, `FIMNME_SMTP_USUARIO=…` y `FIMNME_SMTP_PASSWORD=…` |
+| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Véase el ADR 0025. |
+
+Con `archivo`, para ver el último correo y copiar su enlace en el VPS (el cuerpo va en
+base64, como en cualquier correo; un cliente de correo abre el `.eml` directamente):
+
+```bash
+sudo ls -t /var/lib/fimnme/correo | head -1
+```
 
 ### Crear el primer administrador
 
