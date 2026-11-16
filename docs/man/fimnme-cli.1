@@ -156,7 +156,8 @@ el campo aparece en el formulario y lo captura quien postula; sin él, lo
 captura la administración. Sólo aplica a los nodos de una postulación.
 .TP
 .B \-\-no\-exportable
-Lo deja fuera de los reportes y de la exportación a MariaDB.
+Lo deja fuera de los reportes. La migración a MariaDB lo lleva siempre: mudar
+la base no es exportar, y omitirlo perdería sus datos.
 .RE
 .TP
 .B schema drop \-\-tabla \fINODO\fR \-\-nombre \fINOMBRE\fR
@@ -203,6 +204,14 @@ catálogo de dotaciones de las convocatorias públicas y, de cada una, la
 nada: la nómina se publica desde la API. Sin
 .B \-\-salida
 escribe en la salida estándar.
+.TP
+.B exportar\-mariadb \-\-salida \fIARCHIVO.sql\fR \-\-manifiesto \fIARCHIVO.tsv\fR
+Exporta la base completa para MariaDB: el esquema vivo (con las columnas
+extendidas), los datos, las restricciones y los triggers de protección; y un
+manifiesto con el número de filas y una suma SHA\-256 de cada tabla. Se usa con
+\fI/opt/fimnme/bin/verify_and_migrate_mariadb.sh\fR, que carga el resultado en
+una base vacía y lo verifica tabla por tabla. Los dos archivos llevan datos
+personales y se crean legibles sólo por su dueño.
 .TP
 .B export\-csv \-\-plantilla \fIID\fR|\fINOMBRE\fR \fR(\fB\-\-edicion\fR \fIN\fR | \fB\-\-convocatoria\fR \fIID\fR) \fB\-\-como\fR \fICORREO\fR
 Genera un reporte CSV desde una plantilla guardada en el generador de reportes

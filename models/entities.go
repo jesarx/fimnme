@@ -1608,3 +1608,44 @@ type InstantaneaDeEspejo struct {
 	Detalle           string
 	CreadoAt          time.Time
 }
+
+// ---------------------------------------------------------------------------
+// Migración a MariaDB (§3.C, paso 14)
+// ---------------------------------------------------------------------------
+
+// ColumnaParaMigrar es una columna de una tabla, tal como la describe SQLite
+// (incluidas las que añadió «fimnme-cli schema»).
+type ColumnaParaMigrar struct {
+	Nombre        string
+	Tipo          string // INTEGER, TEXT, BLOB…, como se declaró
+	NoNula        bool
+	Defecto       string // el literal SQL del valor por omisión; vacío si no tiene
+	PosicionLlave int    // 0 si no es parte de la llave primaria; 1, 2… su orden en ella
+	SinMayusculas bool   // declarada COLLATE NOCASE
+}
+
+// IndiceParaMigrar es un índice o una restricción UNIQUE.
+type IndiceParaMigrar struct {
+	Nombre   string
+	Unico    bool
+	Columnas []string
+}
+
+// LlaveForanea es una restricción REFERENCES.
+type LlaveForanea struct {
+	Columnas, Referidas []string
+	Tabla               string
+	AlBorrar            string // NO ACTION, CASCADE, SET NULL…
+}
+
+// TablaParaMigrar es una tabla con todo lo que hace falta para recrearla en
+// otro motor: columnas, autoincremento, índices, llaves foráneas y las
+// restricciones CHECK de su definición.
+type TablaParaMigrar struct {
+	Nombre         string
+	Columnas       []ColumnaParaMigrar
+	Autoincremento bool
+	Indices        []IndiceParaMigrar
+	Foraneas       []LlaveForanea
+	Checks         []string
+}

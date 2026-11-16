@@ -83,7 +83,7 @@ deploy: build
 	ssh $(VPS) 'rm -rf /tmp/fimnme-despliegue && mkdir -m 0700 /tmp/fimnme-despliegue'
 	scp $(BIN)/fimnme-web $(BIN)/fimnme-cli deploy/fimnme-web.service deploy/actualizar_vps.sh docs/man/fimnme-web.1 docs/man/fimnme-cli.1 \
 		deploy/respaldo_automatizado.sh deploy/probar_restauracion.sh deploy/fimnme-respaldo.service deploy/fimnme-respaldo.timer \
-		deploy/fimnme-restauracion.service deploy/fimnme-restauracion.timer $(VPS):/tmp/fimnme-despliegue/
+		deploy/fimnme-restauracion.service deploy/fimnme-restauracion.timer deploy/verify_and_migrate_mariadb.sh $(VPS):/tmp/fimnme-despliegue/
 	ssh -t $(VPS) '$(SUDO) sh /tmp/fimnme-despliegue/actualizar_vps.sh'
 
 ## imagen: construye la imagen de contenedor con los binarios de make build (Podman o Docker).

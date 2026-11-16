@@ -42,7 +42,7 @@ install -o root -g root -m 0644 "$origen/fimnme-web.service" /etc/systemd/system
 # Respaldos (ADR 0026): guiones, unidades y temporizadores. La clave de
 # firma se genera una sola vez y nunca se reemplaza: sin ella no podrían
 # verificarse las instantáneas ya hechas.
-install -o root -g root -m 0755 "$origen/respaldo_automatizado.sh" "$origen/probar_restauracion.sh" /opt/fimnme/bin/
+install -o root -g root -m 0755 "$origen/respaldo_automatizado.sh" "$origen/probar_restauracion.sh" "$origen/verify_and_migrate_mariadb.sh" /opt/fimnme/bin/
 install -o root -g root -m 0644 "$origen/fimnme-respaldo.service" "$origen/fimnme-respaldo.timer" \
     "$origen/fimnme-restauracion.service" "$origen/fimnme-restauracion.timer" /etc/systemd/system/
 install -d -o fimnme -g fimnme -m 0750 /var/backups/fimnme

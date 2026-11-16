@@ -1041,6 +1041,19 @@ docker compose -f deploy/contenedor/compose.yaml run --rm web fimnme-cli crear-u
 Con Podman sin privilegios, `deploy/contenedor/fimnme-web.container` y
 `fimnme-datos.volume` son unidades Quadlet: se copian a `~/.config/containers/systemd/`.
 
+### Migración a MariaDB
+
+Muda los datos a una base MariaDB **vacía** y comprueba que cada tabla quedó idéntica
+(filas y SHA-256), con las columnas extendidas, las restricciones y los triggers de
+protección (ADR 0029). La conexión se toma de `~/.my.cnf` del usuario que lo ejecuta:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/verify_and_migrate_mariadb.sh fimnme
+```
+
+Mudar los datos no hace que la aplicación funcione sobre MariaDB: eso es un paso
+posterior (véase el ADR).
+
 ### Prueba de carga
 
 `deploy/carga` reproduce el pico de RNF-01 (200 postulantes, 50 subidas simultáneas) contra
