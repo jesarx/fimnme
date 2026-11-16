@@ -363,3 +363,81 @@ func TestPlantillasYBandejaDeSalida(t *testing.T) {
 		t.Error("la tabla token debe guardar sólo resúmenes SHA-256")
 	}
 }
+
+// TOTP con los vectores de prueba del RFC 6238 (apéndice B, SHA-1; se toman
+// las seis últimas cifras de los de ocho), la ventana de ±1 intervalo y el
+// rechazo de un código ya usado.
+func TestCodigosTOTP(t *testing.T) {
+	secreto := "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" // «12345678901234567890» en Base32
+	for segundos, esperado := range map[int64]string{
+		59: "287082", 1111111109: "081804", 1111111111: "050471", 1234567890: "005924", 2000000000: "279037",
+	} {
+		codigo, err := CodigoTOTP(secreto, PasoTOTP(time.Unix(segundos, 0)))
+		if err != nil || codigo != esperado {
+			t.Errorf("T=%d: %q (%v), se esperaba %q", segundos, codigo, err, esperado)
+		}
+	}
+	ahora := time.Unix(1234567890, 0)
+	paso := PasoTOTP(ahora)
+	anterior, _ := CodigoTOTP(secreto, paso-1)
+	if p, ok := VerificarTOTP(secreto, anterior, ahora, 0); !ok || p != paso-1 {
+		t.Error("el código del intervalo anterior debe aceptarse (deriva del reloj)")
+	}
+	viejo, _ := CodigoTOTP(secreto, paso-2)
+	if _, ok := VerificarTOTP(secreto, viejo, ahora, 0); ok {
+		t.Error("un código de hace dos intervalos no debe aceptarse")
+	}
+	if _, ok := VerificarTOTP(secreto, "005 924", ahora, 0); !ok {
+		t.Error("se toleran espacios dentro del código")
+	}
+	if _, ok := VerificarTOTP(secreto, "005924", ahora, paso); ok {
+		t.Error("un código de un intervalo ya usado no debe valer otra vez")
+	}
+	for _, malo := range []string{"", "12345", "1234567", "abcdef"} {
+		if _, ok := VerificarTOTP(secreto, malo, ahora, 0); ok {
+			t.Errorf("%q no debió aceptarse", malo)
+		}
+	}
+	// Una clave nueva tiene 160 bits y sirve para calcular códigos.
+	nuevo, err := NuevoSecretoTOTP()
+	if err != nil || len(nuevo) != 32 {
+		t.Fatalf("clave nueva: %q (%v)", nuevo, err)
+	}
+	if _, err := CodigoTOTP(strings.ToLower(nuevo), 1); err != nil {
+		t.Error(err)
+	}
+	if !strings.HasPrefix(URIDeAltaTOTP(nuevo, "ana@ejemplo.mx"), "otpauth://totp/FIMNME:ana@ejemplo.mx?") {
+		t.Errorf("URI de alta: %s", URIDeAltaTOTP(nuevo, "ana@ejemplo.mx"))
+	}
+}
+
+// Los códigos de recuperación tienen la forma xxxx-xxxx, son distintos, y se
+// reconocen escritos con o sin guion, en mayúsculas o con espacios.
+func TestCodigosDeRecuperacion(t *testing.T) {
+	claros, resumenes, err := NuevosCodigosDeRecuperacion()
+	if err != nil || len(claros) != CodigosDeRecuperacion || len(resumenes) != CodigosDeRecuperacion {
+		t.Fatalf("%v %v %v", claros, resumenes, err)
+	}
+	vistos := map[string]bool{}
+	for i, c := range claros {
+		if len(c) != 9 || c[4] != '-' || vistos[c] {
+			t.Errorf("código mal formado o repetido: %q", c)
+		}
+		vistos[c] = true
+		sinGuion := strings.ToUpper(strings.ReplaceAll(c, "-", ""))
+		if ResumenDeCodigoDeRecuperacion(" "+sinGuion+" ") != resumenes[i] {
+			t.Errorf("%q escrito como %q no se reconoce", c, sinGuion)
+		}
+	}
+}
+
+// Sólo administrador y observador tienen obligatorio el segundo paso.
+func TestRequiereSegundoFactor(t *testing.T) {
+	for perfiles, requiere := range map[string]bool{
+		"admin_sistema": true, "coordinacion_nacional": true, "postulante": false, "": false,
+	} {
+		if RequiereSegundoFactor([]Perfil{Perfil(perfiles)}) != requiere {
+			t.Errorf("%q: se esperaba %v", perfiles, requiere)
+		}
+	}
+}

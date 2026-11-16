@@ -240,6 +240,22 @@ func DuracionSesion(perfiles []Perfil, asignaciones []Asignacion) time.Duration 
 	return SesionPostulante
 }
 
+// SesionPendiente es cuánto vive una sesión que espera el código del segundo
+// paso (RF-AUT-09): lo justo para abrir la aplicación y escribirlo.
+const SesionPendiente = 10 * time.Minute
+
+// RequiereSegundoFactor indica si una cuenta debe completar la verificación
+// en dos pasos para entrar: la tienen OBLIGATORIA el administrador y el
+// observador (RF-AUT-09), que ven todo el sistema, calificaciones incluidas.
+func RequiereSegundoFactor(perfiles []Perfil) bool {
+	for _, p := range perfiles {
+		if p == PerfilAdminSistema || p == PerfilCoordinacionNacional {
+			return true
+		}
+	}
+	return false
+}
+
 // BloqueoDeIngreso calcula hasta cuándo queda bloqueado el inicio de sesión de
 // una cuenta, dados sus fallos consecutivos y el momento del último. Devuelve
 // el valor cero si no hay bloqueo. Retroceso exponencial: 1 minuto al quinto

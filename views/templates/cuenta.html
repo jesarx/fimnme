@@ -37,6 +37,24 @@
     </form>
   </section>
 
+  {{- with .Datos.SegundoFactor}}
+  {{- /* Verificación en dos pasos (RF-AUT-09): sólo administrador y observador. */}}
+  <section class="panel" id="segundo-factor" aria-labelledby="t-segundo-factor">
+    <h2 id="t-segundo-factor">{{$.T "segundo_factor.cuenta_titulo"}}</h2>
+    {{- if .Activo}}
+    <p>{{$.T "segundo_factor.cuenta_activa"}} <span class="estado estado--abierta">{{$.FechaHora .ActivadoAt}}</span></p>
+    <p>{{$.T "segundo_factor.cuenta_restantes" .CodigosRestantes}}</p>
+    <p class="nota">{{$.T "segundo_factor.cuenta_nota"}}</p>
+    <form method="post" action="/cuenta/segundo-factor/codigos" novalidate>
+      {{template "campo" (dict "P" $ "Nombre" "codigo" "Tipo" "text" "Etiqueta" "segundo_factor.codigo" "Ayuda" "segundo_factor.codigo_ayuda" "Autocompletar" "one-time-code" "Requerido" true)}}
+      <p class="acciones"><button class="boton boton--secundario" type="submit">{{$.T "segundo_factor.cuenta_renovar"}}</button></p>
+    </form>
+    {{- else}}
+    <p>{{$.T "segundo_factor.cuenta_sin_alta"}}</p>
+    {{- end}}
+  </section>
+  {{- end}}
+
   <section class="panel" aria-labelledby="t-email">
     <h2 id="t-email">{{.T "cuenta.email_titulo"}}</h2>
     <p>{{.T "cuenta.email_actual"}} <strong>{{.Sesion.Usuario.Email}}</strong>

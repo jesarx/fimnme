@@ -171,3 +171,42 @@ func enlaceDeActivacion(args []string) func(context.Context, *models.Repositorio
 		return nil
 	}
 }
+
+// Orden «segundo-factor restablecer --email CORREO»: borra la verificación en
+// dos pasos de una cuenta que perdió su teléfono y sus códigos de
+// recuperación (RF-AUT-09). Cierra sus sesiones; en el siguiente ingreso se
+// le pedirá darse de alta otra vez, con una clave nueva.
+//
+// Sólo existe aquí, no en la web: quitar el segundo paso de un administrador
+// exige acceso al servidor. Queda en la bitácora a nombre de la herramienta.
+
+// segundoFactor interpreta los argumentos de la orden y devuelve la operación.
+func segundoFactor(args []string) func(context.Context, *models.Repositorio) error {
+	return func(ctx context.Context, repositorio *models.Repositorio) error {
+		if len(args) == 0 || args[0] != "restablecer" {
+			return errors.New("uso: fimnme-cli segundo-factor restablecer --email CORREO")
+		}
+		banderas := flag.NewFlagSet("segundo-factor restablecer", flag.ContinueOnError)
+		email := banderas.String("email", "", "correo de la cuenta")
+		if err := banderas.Parse(args[1:]); err != nil {
+			return err
+		}
+		correo := models.NormalizarEmail(*email)
+		if !models.EmailValido(correo) {
+			return errors.New("--email no es un correo válido")
+		}
+		usuario, _, err := repositorio.UsuarioPorEmail(ctx, correo)
+		if errors.Is(err, models.ErrNoEncontrado) {
+			return fmt.Errorf("no hay ninguna cuenta con el correo %s", correo)
+		}
+		if err != nil {
+			return err
+		}
+		if err := repositorio.RestablecerSegundoFactor(ctx, actorCLI(), usuario.ID); err != nil {
+			return err
+		}
+		fmt.Fprintf(salida, "Verificación en dos pasos de %s restablecida y sesiones cerradas.\n", usuario.Email)
+		fmt.Fprintln(salida, "En su próximo ingreso se le pedirá darla de alta otra vez, con una clave nueva.")
+		return nil
+	}
+}

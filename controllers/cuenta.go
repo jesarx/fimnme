@@ -344,20 +344,39 @@ func (a *App) ingresar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Administrador y observador dan además el código del segundo paso
+	// (RF-AUT-09): la contraseña sólo abre una sesión pendiente.
+	permisos, err := a.datos.SesionDeUsuario(r.Context(), usuario.ID)
+	if err != nil {
+		a.errorInterno(w, r, "leer perfiles de la cuenta", err)
+		return
+	}
+	if models.RequiereSegundoFactor(permisos.Perfiles) {
+		if err := a.iniciarSesionPendiente(w, r, usuario.ID); err != nil {
+			a.errorInterno(w, r, "iniciar sesión", err)
+			return
+		}
+		http.Redirect(w, r, rutaDelSegundoFactor(volver), http.StatusSeeOther)
+		return
+	}
+
 	if err := a.iniciarSesion(w, r, usuario.ID); err != nil {
 		a.errorInterno(w, r, "iniciar sesión", err)
 		return
 	}
-	if volver == "/" {
-		volver = "/cuenta"
-	}
-	http.Redirect(w, r, volver, http.StatusSeeOther)
+	http.Redirect(w, r, destinoTrasIngreso(volver), http.StatusSeeOther)
 }
 
 // salir cierra la sesión en curso.
 func (a *App) salir(w http.ResponseWriter, r *http.Request) {
 	if s := sesionDe(r); s != nil {
 		if err := a.datos.CerrarSesion(r.Context(), a.actorDe(r), s.ID); err != nil {
+			a.errorInterno(w, r, "cerrar sesión", err)
+			return
+		}
+	} else if s := sesionPendienteDe(r); s != nil {
+		// Quien abandona el segundo paso también cierra su sesión pendiente.
+		if err := a.datos.CerrarSesion(r.Context(), a.actorPendiente(r, s), s.ID); err != nil {
 			a.errorInterno(w, r, "cerrar sesión", err)
 			return
 		}
@@ -510,7 +529,23 @@ func (a *App) pintarMiCuenta(w http.ResponseWriter, r *http.Request, estado int,
 	p := a.pagina(r, "cuenta.mi_cuenta")
 	p.Aviso = notaDe(r)
 	p.Formulario = views.Formulario{Valores: completos, Errores: errores}
+	// Verificación en dos pasos: su estado, para quien la tiene obligatoria.
+	var v vistaMiCuenta
+	if models.RequiereSegundoFactor(sesionDe(r).Perfiles) {
+		factor, err := a.datos.SegundoFactorDe(r.Context(), usuario.ID)
+		if err != nil {
+			a.errorInterno(w, r, "leer segundo factor", err)
+			return
+		}
+		v.SegundoFactor = &factor
+	}
+	p.Datos = v
 	a.pintar(w, r, estado, "cuenta.html", p)
+}
+
+// vistaMiCuenta es el modelo propio de «Mi cuenta».
+type vistaMiCuenta struct {
+	SegundoFactor *models.SegundoFactor // nil si la cuenta no lo requiere
 }
 
 // miCuenta muestra los datos de la cuenta en sesión.

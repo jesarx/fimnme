@@ -19,14 +19,20 @@
 package models
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -151,4 +157,131 @@ func NuevoSecreto() (claro, resumen string, err error) {
 func ResumenDeSecreto(claro string) string {
 	suma := sha256.Sum256([]byte(claro))
 	return hex.EncodeToString(suma[:])
+}
+
+// ---------------------------------------------------------------------------
+// Verificación en dos pasos: TOTP (RFC 6238) y códigos de recuperación
+// ---------------------------------------------------------------------------
+//
+// Con la biblioteca estándar: HMAC-SHA1 sobre el número de intervalos de 30
+// segundos desde 1970, truncado a 6 cifras (RFC 4226, §5.3). Son los
+// parámetros que entienden todas las aplicaciones autenticadoras (Google
+// Authenticator, Microsoft Authenticator, Authy, FreeOTP, 2FAS, Aegis…).
+
+// Parámetros del TOTP.
+const (
+	intervaloTOTP = 30 * time.Second
+	cifrasTOTP    = 6
+	// toleranciaTOTP es cuántos intervalos antes y después del actual se
+	// aceptan, para absorber la deriva del reloj del teléfono.
+	toleranciaTOTP = 1
+	// EmisorTOTP es el nombre con que la cuenta aparece en la aplicación.
+	EmisorTOTP = "FIMNME"
+	// CodigosDeRecuperacion es cuántos códigos de un solo uso se entregan.
+	CodigosDeRecuperacion = 10
+)
+
+// codificacionTOTP es Base32 sin relleno, en mayúsculas: lo que esperan las
+// aplicaciones en el URI otpauth://.
+var codificacionTOTP = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+// NuevoSecretoTOTP genera una clave compartida de 160 bits (la longitud del
+// HMAC-SHA1, como recomienda el RFC 4226), en Base32.
+func NuevoSecretoTOTP() (string, error) {
+	bytes := make([]byte, 20)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("generar clave TOTP: %w", err)
+	}
+	return codificacionTOTP.EncodeToString(bytes), nil
+}
+
+// PasoTOTP es el número de intervalo en que cae un instante.
+func PasoTOTP(instante time.Time) int64 {
+	return instante.Unix() / int64(intervaloTOTP/time.Second)
+}
+
+// CodigoTOTP calcula el código de un intervalo. secreto va en Base32
+// (se toleran espacios y minúsculas, como lo copiaría una persona).
+func CodigoTOTP(secreto string, paso int64) (string, error) {
+	clave, err := codificacionTOTP.DecodeString(strings.ToUpper(strings.ReplaceAll(secreto, " ", "")))
+	if err != nil {
+		return "", fmt.Errorf("clave TOTP ilegible: %w", err)
+	}
+	var contador [8]byte
+	binary.BigEndian.PutUint64(contador[:], uint64(paso))
+	mac := hmac.New(sha1.New, clave)
+	mac.Write(contador[:])
+	suma := mac.Sum(nil)
+	desplazamiento := suma[len(suma)-1] & 0x0f
+	numero := binary.BigEndian.Uint32(suma[desplazamiento:desplazamiento+4]) & 0x7fffffff
+	return fmt.Sprintf("%0*d", cifrasTOTP, numero%1_000_000), nil
+}
+
+// VerificarTOTP comprueba un código contra el intervalo de ahora y sus
+// vecinos, y devuelve el intervalo que coincidió. No acepta intervalos
+// iguales o anteriores a ultimoPaso: un código ya usado no vale otra vez
+// (RFC 6238, §5.2). La comparación es de tiempo constante.
+func VerificarTOTP(secreto, codigo string, ahora time.Time, ultimoPaso int64) (int64, bool) {
+	codigo = strings.ReplaceAll(strings.TrimSpace(codigo), " ", "")
+	if len(codigo) != cifrasTOTP {
+		return 0, false
+	}
+	actual := PasoTOTP(ahora)
+	for paso := actual - toleranciaTOTP; paso <= actual+toleranciaTOTP; paso++ {
+		if paso <= ultimoPaso {
+			continue
+		}
+		esperado, err := CodigoTOTP(secreto, paso)
+		if err != nil {
+			return 0, false
+		}
+		if subtle.ConstantTimeCompare([]byte(esperado), []byte(codigo)) == 1 {
+			return paso, true
+		}
+	}
+	return 0, false
+}
+
+// URIDeAltaTOTP es el enlace otpauth:// que lee la aplicación (desde el QR o
+// al pulsarlo en el teléfono).
+func URIDeAltaTOTP(secreto, cuenta string) string {
+	etiqueta := url.PathEscape(EmisorTOTP + ":" + cuenta)
+	parametros := url.Values{"secret": {secreto}, "issuer": {EmisorTOTP}, "algorithm": {"SHA1"},
+		"digits": {fmt.Sprint(cifrasTOTP)}, "period": {fmt.Sprint(int(intervaloTOTP / time.Second))}}
+	return "otpauth://totp/" + etiqueta + "?" + parametros.Encode()
+}
+
+// alfabetoDeRecuperacion evita los caracteres que se confunden al copiarlos
+// a mano (0/o, 1/l/i).
+const alfabetoDeRecuperacion = "abcdefghjkmnpqrstuvwxyz23456789"
+
+// NuevosCodigosDeRecuperacion genera los códigos de un solo uso, con la forma
+// «xxxx-xxxx» (unos 39 bits cada uno), y sus resúmenes para guardarlos.
+func NuevosCodigosDeRecuperacion() (claros, resumenes []string, err error) {
+	for range CodigosDeRecuperacion {
+		bytes := make([]byte, 8)
+		if _, err := rand.Read(bytes); err != nil {
+			return nil, nil, fmt.Errorf("generar códigos de recuperación: %w", err)
+		}
+		var codigo strings.Builder
+		for i, b := range bytes {
+			if i == 4 {
+				codigo.WriteByte('-')
+			}
+			codigo.WriteByte(alfabetoDeRecuperacion[int(b)%len(alfabetoDeRecuperacion)])
+		}
+		claros = append(claros, codigo.String())
+		resumenes = append(resumenes, ResumenDeCodigoDeRecuperacion(codigo.String()))
+	}
+	return claros, resumenes, nil
+}
+
+// ResumenDeCodigoDeRecuperacion normaliza lo escrito (minúsculas, sin
+// espacios, con o sin guion) y lo resume para buscarlo.
+func ResumenDeCodigoDeRecuperacion(codigo string) string {
+	limpio := strings.ToLower(strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(codigo)))
+	if len(limpio) == 8 {
+		limpio = limpio[:4] + "-" + limpio[4:]
+	}
+	return ResumenDeSecreto("recuperacion:" + limpio)
 }

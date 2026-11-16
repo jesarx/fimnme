@@ -101,7 +101,24 @@ Con el paso 10c **el backend está completo**.
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
 
-## Paso 14 — qué se entregó
+## Después del paso 14 — ajustes pedidos al probar en el VPS
+
+**Decisiones:** [ADR 0032](adr/0032-segundo-factor-tema-fechas-y-ajustes.md).
+
+- **Verificación en dos pasos** obligatoria para administrador y observador (RF-AUT-09):
+  - TOTP con alta por QR, generado con un codificador propio;
+  - diez códigos de recuperación de un solo uso;
+  - ningún código vale dos veces;
+  - los códigos fallidos cuentan para el bloqueo;
+  - `fimnme-cli segundo-factor restablecer` para un teléfono perdido.
+- **Tema claro u oscuro a elección**, con un botón en la cabecera.
+- **Fechas dd/mm/aaaa y hora de 24 horas** en todos los formularios y en el modo
+  interactivo. Los controles del navegador mostraban el formato del idioma del
+  navegador.
+- **Duración mínima del programa** (0 por omisión).
+- **`fimnme-cli enlace-activacion`**, para servidores que no envían correo.
+
+
 
 Puesta en operación. **Con él el plan queda completo.**
 
@@ -133,8 +150,8 @@ Puesta en operación. **Con él el plan queda completo.**
 - el correo validado en el servidor final;
 - la revisión de los puntos por confirmar.
 
-**No se hicieron** los requisitos de prioridad S y C listados ahí. El más recomendable
-es el segundo factor para administrador y observador (RF-AUT-09).
+**No se hicieron** los requisitos de prioridad S y C listados ahí. El segundo factor
+(RF-AUT-09), el más recomendable, se hizo después (véase arriba).
 
 ## Paso 13d — qué se entregó
 

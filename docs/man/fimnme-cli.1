@@ -78,6 +78,13 @@ servidor de pruebas con el puerto 25 bloqueado) o el enlace se perdió o
 venció. Anula los enlaces de activación anteriores de la cuenta y queda en la
 bitácora. Una cuenta ya activada no recibe enlace.
 .TP
+.B segundo\-factor restablecer \-\-email \fICORREO\fR
+Quita la verificación en dos pasos de una cuenta de administrador u
+observador que perdió su teléfono y sus códigos de recuperación: borra su
+clave y sus códigos y cierra sus sesiones. En su siguiente ingreso se le pide
+darse de alta otra vez, con una clave nueva. No existe en la web: exige acceso
+al servidor. Queda en la bitácora.
+.TP
 .B verify \fR[\fB\-\-rapido\fR] [\fB\-\-purgar\fR]
 Comprueba que cada archivo que la base registra exista en el acervo y
 coincida con su SHA-256, y busca lo que hay en disco sin registro. Termina

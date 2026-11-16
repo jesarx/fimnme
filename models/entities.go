@@ -38,6 +38,9 @@ var (
 	ErrEmailEnUso = errors.New("el correo ya está en uso")
 	// ErrTokenInvalido: el enlace de un solo uso no existe, venció o ya se usó.
 	ErrTokenInvalido = errors.New("enlace inválido, vencido o ya utilizado")
+	// ErrCodigoInvalido: el código del segundo paso no es correcto, ya se
+	// usó, o el código de recuperación no existe o ya se gastó.
+	ErrCodigoInvalido = errors.New("código de verificación incorrecto o ya utilizado")
 )
 
 // Idiomas de primera clase de la plataforma (RF-I18N-01).
@@ -255,6 +258,25 @@ type Sesion struct {
 	Perfiles     []Perfil     // globales
 	Asignaciones []Asignacion // operativos activos, por convocatoria
 	ExpiraAt     time.Time
+	// PendienteSegundoFactor: la contraseña fue correcta pero falta el código
+	// del segundo paso (RF-AUT-09). Una sesión así sólo abre la página del
+	// código; para todo lo demás es como si no hubiera sesión.
+	PendienteSegundoFactor bool
+}
+
+// SegundoFactor es el estado de la verificación en dos pasos de una cuenta.
+type SegundoFactor struct {
+	// Secreto es la clave compartida en Base32; existe desde que se muestra
+	// el alta, pero sólo vale con ActivadoAt.
+	Secreto          string
+	ActivadoAt       time.Time // cero: sin dar de alta
+	UltimoPaso       int64     // último intervalo TOTP aceptado
+	CodigosRestantes int       // códigos de recuperación sin usar
+}
+
+// Activo indica si la cuenta ya completó el alta.
+func (f SegundoFactor) Activo() bool {
+	return !f.ActivadoAt.IsZero()
 }
 
 // TienePerfil indica si la cuenta tiene un perfil GLOBAL.

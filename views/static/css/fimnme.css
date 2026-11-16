@@ -3038,3 +3038,39 @@ main {
 .importacion__cancelar {
   margin-top: var(--e4);
 }
+
+/* Verificación en dos pasos: QR (siempre negro sobre blanco, con su propio
+   margen, para que lo lea la cámara también en el tema oscuro), clave en
+   grupos y códigos de recuperación. */
+.segundo-factor__pasos > li {
+  margin-bottom: var(--e4);
+}
+
+.segundo-factor__qr {
+  margin: var(--e3) 0;
+}
+
+.segundo-factor__qr .qr {
+  display: block;
+  width: 13rem;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radio);
+}
+
+/* La clave va en su propio renglón y sólo se corta entre grupos de cuatro. */
+.segundo-factor__clave {
+  display: block;
+  margin-top: var(--e1);
+  font-size: 1.0625rem;
+  letter-spacing: 0.05em;
+  word-spacing: 0.25em;
+}
+
+.segundo-factor__codigos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--e2) var(--e4);
+  padding-left: 1.5rem;
+  font-size: 1.125rem;
+}

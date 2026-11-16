@@ -44,6 +44,10 @@ Validación**.
 | `jurado` | Tres especialistas por convocatoria | Califica, y sólo ve lo suyo. | Las convocatorias a las que se le asigna, también en el archivo histórico. |
 | `postulante` | Público | Se registra, captura y envía su postulación, subsana lo que se le señala y descarga sus acuses. | Sus propias postulaciones. |
 
+**Administrador y observador entran con verificación en dos pasos** (contraseña más un
+código de una aplicación autenticadora del teléfono). En su primer ingreso el sistema
+los guía para darla de alta y les entrega diez códigos de recuperación.
+
 Las cuentas de personal (todas salvo `postulante`) las crea un administrador y nacen
 **sin contraseña**. Se envía por correo un enlace de activación, vigente 7 días, con el
 que su titular elige la suya. Jurados y revisores **se asignan por convocatoria**: el
@@ -97,6 +101,10 @@ Luego, en el servidor:
    sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme crear-usuario --perfil admin_sistema --email persona@institucion.mx --nombre Nombre --apellidos Apellidos --url-base https://dominio
    ```
 
+   Si el correo aún no sale, el enlace de una cuenta creada desde el panel se obtiene
+   en la terminal: `fimnme-cli enlace-activacion --email …`.
+   En su primer ingreso, el administrador da de alta la verificación en dos pasos
+   (§2).
 4. Comprobar que responde: `curl -s https://dominio/readyz`.
 
 ### 3.3 Respaldos y restauración (no es opcional)
@@ -363,6 +371,8 @@ nueva.
 
 | Tarea | Cómo | Referencia |
 |---|---|---|
+| Teléfono perdido de un administrador u observador | Si conserva sus códigos de recuperación, entra con uno y genera nuevos en «Mi cuenta». Si no: `fimnme-cli segundo-factor restablecer --email …`; en su siguiente ingreso se da de alta otra vez. | `man fimnme-cli`; ADR 0032 |
+| Cuenta interna sin activar y sin correo | `fimnme-cli enlace-activacion --email …` imprime un enlace nuevo. | `man fimnme-cli` |
 | Solicitud ARCO (anonimizar) | *Administración › ARCO*, con doble confirmación y el fundamento de la solicitud. Es la **única operación destructiva**: borra datos de contacto y conserva obra, dictamen y estadísticas. | README; ADR 0014 |
 | Añadir un campo sin recompilar | `fimnme-cli schema add`. Nunca sobre las tablas del proceso evaluatorio, acuses, descargas ni bitácora. | `man fimnme-cli`; ADR 0015 |
 | Importar dotaciones o cuentas | *Administración › Importaciones*, en dos fases: análisis y confirmación. Nada entra sin que una persona resuelva cada conflicto. | ADR 0015 |
@@ -377,6 +387,7 @@ nueva.
 | No arranca en producción | Falta `FIMNME_URL_BASE` | Ponerla en `fimnme-web.env`. |
 | Los correos no llegan | Transporte `archivo` o `registro`, puerto 25 bloqueado, o DNS de correo incompleto | `journalctl -u fimnme-web \| grep -i correo`; `comprobar_correo.sh`. Los mensajes fallidos se reintentan solos. |
 | Los correos caen en no deseado | Falta DKIM, DMARC o PTR, o no coinciden | `comprobar_correo.sh` y las cabeceras `Authentication-Results`. |
+| Un administrador no puede entrar: «el código no es correcto» | La hora del teléfono está desajustada, o ya usó ese código | Activar la hora automática del teléfono y esperar al siguiente código; si no, un código de recuperación o el restablecimiento (§6.4). |
 | Un postulante no puede enviar | Le falta algo, o no confirmó su correo | La página de envío lista lo que falta; reenviar la verificación desde «Mi cuenta». |
 | La convocatoria no avanzó de etapa | Falta un revisor o un jurado (§5.1) | La ficha lo dice; asignar y el avance ocurre solo. |
 | «Queda poco espacio» | Crece el acervo o los respaldos | Ampliar el disco; revisar la retención en `respaldo.env`. |
@@ -393,7 +404,8 @@ El sistema está hecho para cambiar de manos. Para que el relevo lo reciba compl
    - `/etc/fimnme/espejo.clave`;
    - la clave DKIM;
    - las credenciales del panel de DNS y del proveedor del servidor.
-3. **Al menos dos cuentas `admin_sistema`** activas, de personas distintas.
+3. **Al menos dos cuentas `admin_sistema`** activas, de personas distintas, cada una
+   con su verificación en dos pasos y sus códigos de recuperación a resguardo.
 4. **Prueba de restauración** reciente, con su fecha (§3.3).
 5. **Este manual y el de Validación**, con el acta de la última firma (FIMNME-05, anexo).
 6. **Puntos abiertos:** la lista «Puntos por confirmar con la CNMO» de
