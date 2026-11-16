@@ -26,6 +26,7 @@
 //	fimnme-cli init           inicializa la base (crea el esquema)
 //	fimnme-cli migrate        aplica las migraciones pendientes del esquema
 //	fimnme-cli crear-usuario  crea una cuenta interna y da su enlace de activación
+//	fimnme-cli enlace-activacion  da un enlace de activación nuevo a una cuenta sin activar
 //	fimnme-cli sembrar-demo   carga una edición de demostración (sólo desarrollo)
 //	fimnme-cli verify         compara el acervo de archivos con la base
 //	fimnme-cli mirror         instantáneas firmadas para el servidor espejo
@@ -107,6 +108,10 @@ evaluación y jurados y revisores.
                    crear-usuario --perfil admin_sistema --email CORREO \
                                  --nombre NOMBRE --apellidos APELLIDOS
                  Perfiles: admin_sistema, coordinacion_nacional.
+  enlace-activacion --email CORREO
+                 Emite e imprime un enlace de activación nuevo para una cuenta
+                 interna que aún no elige su contraseña (si el correo no sale
+                 o el enlace venció). Anula los anteriores.
   sembrar-demo   Carga una edición de demostración en una base sin ediciones.
                  Sólo para entornos de desarrollo.
   verify         Comprueba que cada archivo registrado exista en disco y
@@ -212,6 +217,8 @@ func main() {
 		err = conRepositorio(*dirDatos, migrar)
 	case "crear-usuario":
 		err = conRepositorio(*dirDatos, crearUsuario(banderas.Args()[1:]))
+	case "enlace-activacion":
+		err = conRepositorio(*dirDatos, enlaceDeActivacion(banderas.Args()[1:]))
 	case "sembrar-demo":
 		err = conRepositorio(*dirDatos, sembrarDemo)
 	case "verify":

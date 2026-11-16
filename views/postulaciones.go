@@ -97,7 +97,7 @@ func resumenDeConvocatoria(c models.Convocatoria) map[string]any {
 func convocatoriaDePostulacion(c models.Convocatoria) map[string]any {
 	resumen := resumenDeConvocatoria(c)
 	resumen["max_obras"], resumen["duracion_max_programa_min"] = nuloSiCero(c.MaxObras), nuloSiCero(c.DuracionMaxProgramaMin)
-	resumen["max_videos"] = c.MaxVideos
+	resumen["duracion_min_programa_min"], resumen["max_videos"] = c.DuracionMinProgramaMin, c.MaxVideos
 	if etapa, ok := c.Etapa(models.EtapaPostulacion); ok {
 		resumen["postulacion_inicia_at"], resumen["postulacion_termina_at"] = marcaJSON(etapa.IniciaAt), marcaJSON(etapa.TerminaAt)
 	}

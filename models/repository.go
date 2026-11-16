@@ -588,7 +588,7 @@ func (r *Repositorio) ActualizarEdicion(ctx context.Context, actor Actor, e Edic
 const sqlConvocatoria = `
 SELECT c.id, c.tipo, c.titulo_es, c.titulo_en,
        COALESCE(c.bases_md_es, ''), COALESCE(c.bases_md_en, ''),
-       c.estado, COALESCE(c.max_obras, 0), COALESCE(c.duracion_max_programa_min, 0), c.max_videos,
+       c.estado, COALESCE(c.max_obras, 0), COALESCE(c.duracion_max_programa_min, 0), c.duracion_min_programa_min, c.max_videos,
        e.id, e.numero, e.anio, e.nombre_es, e.nombre_en
 FROM convocatoria c
 JOIN edicion e ON e.id = c.edicion_id`
@@ -598,7 +598,7 @@ func leerConvocatoria(f fila) (Convocatoria, error) {
 	var c Convocatoria
 	var tipo, estado string
 	err := f.Scan(&c.ID, &tipo, &c.TituloES, &c.TituloEN, &c.BasesMDES, &c.BasesMDEN,
-		&estado, &c.MaxObras, &c.DuracionMaxProgramaMin, &c.MaxVideos,
+		&estado, &c.MaxObras, &c.DuracionMaxProgramaMin, &c.DuracionMinProgramaMin, &c.MaxVideos,
 		&c.Edicion.ID, &c.Edicion.Numero, &c.Edicion.Anio, &c.Edicion.NombreES, &c.Edicion.NombreEN)
 	c.Tipo, c.Estado = TipoConvocatoria(tipo), EstadoConvocatoria(estado)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -932,7 +932,7 @@ func datosConvocatoria(c Convocatoria) map[string]any {
 	return map[string]any{
 		"edicion_id": c.Edicion.ID, "tipo": c.Tipo, "titulo_es": c.TituloES, "titulo_en": c.TituloEN,
 		"estado": c.Estado, "max_obras": c.MaxObras, "duracion_max_programa_min": c.DuracionMaxProgramaMin,
-		"max_videos": c.MaxVideos,
+		"duracion_min_programa_min": c.DuracionMinProgramaMin, "max_videos": c.MaxVideos,
 	}
 }
 
@@ -955,10 +955,12 @@ func (r *Repositorio) insertarConvocatoria(ctx context.Context, tx *sql.Tx, c Co
 	marca := r.marca()
 	res, err := tx.ExecContext(ctx, `
 		INSERT INTO convocatoria (edicion_id, tipo, titulo_es, titulo_en, bases_md_es, bases_md_en, estado,
-		                          max_obras, duracion_max_programa_min, max_videos, creado_at, actualizado_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                          max_obras, duracion_max_programa_min, duracion_min_programa_min, max_videos,
+		                          creado_at, actualizado_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Edicion.ID, string(c.Tipo), c.TituloES, c.TituloEN, nuloSiVacio(c.BasesMDES), nuloSiVacio(c.BasesMDEN),
-		string(c.Estado), nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.MaxVideos, marca, marca)
+		string(c.Estado), nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.DuracionMinProgramaMin,
+		c.MaxVideos, marca, marca)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -1026,10 +1028,12 @@ func (r *Repositorio) ActualizarConvocatoria(ctx context.Context, actor Actor, c
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE convocatoria
 			SET titulo_es = ?, titulo_en = ?, bases_md_es = ?, bases_md_en = ?,
-			    max_obras = ?, duracion_max_programa_min = ?, max_videos = ?, actualizado_at = ?
+			    max_obras = ?, duracion_max_programa_min = ?, duracion_min_programa_min = ?, max_videos = ?,
+			    actualizado_at = ?
 			WHERE id = ?`,
 			c.TituloES, c.TituloEN, nuloSiVacio(c.BasesMDES), nuloSiVacio(c.BasesMDEN),
-			nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.MaxVideos, r.marca(), c.ID); err != nil {
+			nuloSiCero(int64(c.MaxObras)), nuloSiCero(int64(c.DuracionMaxProgramaMin)), c.DuracionMinProgramaMin,
+			c.MaxVideos, r.marca(), c.ID); err != nil {
 			return err
 		}
 		despues := datosConvocatoria(c)

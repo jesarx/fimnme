@@ -439,6 +439,13 @@ func ValidarConvocatoria(c Convocatoria) []ErrorCampo {
 	if c.DuracionMaxProgramaMin < 0 {
 		errores = append(errores, ErrorCampo{Campo: "duracion_max_programa_min", Clave: "error.limite_invalido"})
 	}
+	switch {
+	case c.DuracionMinProgramaMin < 0:
+		errores = append(errores, ErrorCampo{Campo: "duracion_min_programa_min", Clave: "error.limite_invalido"})
+	case c.DuracionMaxProgramaMin > 0 && c.DuracionMinProgramaMin > c.DuracionMaxProgramaMin:
+		// Un mínimo mayor que el máximo haría imposible enviar.
+		errores = append(errores, ErrorCampo{Campo: "duracion_min_programa_min", Clave: "error.duracion_min_mayor"})
+	}
 	if c.MaxVideos < 0 || c.MaxVideos > MaxVideosPermitidos {
 		errores = append(errores, ErrorCampo{Campo: "max_videos", Clave: "error.max_videos"})
 	}
@@ -1405,6 +1412,10 @@ func ValidarParaEnvio(p Postulacion, cfg ConfiguracionConvocatoria, titular Usua
 	}
 	if c.DuracionMaxProgramaMin > 0 && duracionTotal > c.DuracionMaxProgramaMin {
 		agregar(SeccionObras, "obras", 0, "bloqueo.duracion_excedida")
+	}
+	// La mínima sólo se exige con obras: sin ninguna ya hay un bloqueador.
+	if c.DuracionMinProgramaMin > 0 && len(p.Obras) > 0 && duracionTotal < c.DuracionMinProgramaMin {
+		agregar(SeccionObras, "obras", 0, "bloqueo.duracion_insuficiente")
 	}
 
 	// 5. Documentos obligatorios.

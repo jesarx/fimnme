@@ -245,6 +245,22 @@ func TestFormularioPorPasos(t *testing.T) {
 	w = ana.htmx(base+"/campos", url.Values{"seccion": {"concierto"}, "concierto.entidad": {"JAL"}, "concierto.sede_nombre": {"Teatro Degollado"}})
 	esperar(t, w, http.StatusOK, `id="g-sede" hx-swap-oob="true"`, "Propones el concierto fuera de la Ciudad de México", `value="Teatro Degollado"`)
 	noAparece(t, w, "(si aplica)")
+	// Fecha y hora con la convención mexicana: se escriben dd/mm/aaaa y hh:mm
+	// de 24 horas (también d/m/aaaa y h:mm), se guardan en ISO y vuelven
+	// dd/mm/aaaa. No son controles del navegador, que usarían SU formato.
+	ana.htmx(base+"/campos", url.Values{"seccion": {"concierto"}, "concierto.fecha_concierto": {"5/3/2027"}, "concierto.hora_concierto": {"9:30"}})
+	w = ana.get(base + "/concierto")
+	esperar(t, w, http.StatusOK, `value="05/03/2027"`, `value="09:30"`, `placeholder="dd/mm/aaaa"`, "Formato: dd/mm/aaaa")
+	noAparece(t, w, `type="date"`, `type="time"`)
+	if p, _ := e.repo.PostulacionPorID(context.Background(), id); p.Campos["concierto.fecha_concierto"] != "2027-03-05" || p.Campos["concierto.hora_concierto"] != "09:30" {
+		t.Errorf("fecha y hora deben guardarse en ISO: %q %q", p.Campos["concierto.fecha_concierto"], p.Campos["concierto.hora_concierto"])
+	}
+	// Una fecha que no existe vuelve con lo escrito y su error; lo guardado no cambia.
+	w = ana.post(base+"/campos", url.Values{"seccion": {"concierto"}, "concierto.fecha_concierto": {"31/02/2027"}})
+	esperar(t, w, http.StatusUnprocessableEntity, `value="31/02/2027"`, "escríbala como dd/mm/aaaa")
+	if p, _ := e.repo.PostulacionPorID(context.Background(), id); p.Campos["concierto.fecha_concierto"] != "2027-03-05" {
+		t.Errorf("una fecha inválida no debe guardarse: %q", p.Campos["concierto.fecha_concierto"])
+	}
 	w = ana.htmx(base+"/campos", url.Values{"seccion": {"concierto"}, "concierto.entidad": {"CDMX"}})
 	esperar(t, w, http.StatusOK, "no hace falta que indiques la sede")
 

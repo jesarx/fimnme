@@ -27,9 +27,9 @@
   <div class="campo"><label for="b-actor_id">{{.T "bitacora.actor_id"}}</label>
     <input id="b-actor_id" name="actor_id" type="number" min="1" inputmode="numeric" value="{{$v.ActorID}}"></div>
   <div class="campo"><label for="b-desde">{{.T "bitacora.desde"}}</label>
-    <input id="b-desde" name="desde" type="date" value="{{$v.Desde}}"></div>
+    <input id="b-desde" name="desde" type="text" maxlength="10" placeholder="{{.T "form.marcador_fecha"}}" value="{{$v.Desde}}"></div>
   <div class="campo"><label for="b-hasta">{{.T "bitacora.hasta"}}</label>
-    <input id="b-hasta" name="hasta" type="date" value="{{$v.Hasta}}"></div>
+    <input id="b-hasta" name="hasta" type="text" maxlength="10" placeholder="{{.T "form.marcador_fecha"}}" value="{{$v.Hasta}}"></div>
   <p class="filtros__acciones"><button class="boton boton--menor" type="submit">{{.T "archivo.buscar_boton"}}</button>
     <a class="boton boton--menor boton--secundario" href="/administracion/bitacora">{{.T "archivo.limpiar"}}</a></p>
 </form>

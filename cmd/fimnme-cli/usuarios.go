@@ -117,3 +117,57 @@ func altaConEnlace(ctx context.Context, repositorio *models.Repositorio, nuevo m
 	}
 	return id, strings.TrimRight(urlBase, "/") + "/cuenta/activar?token=" + url.QueryEscape(claro), nil
 }
+
+// Orden «enlace-activacion»: emite un enlace de activación NUEVO para una
+// cuenta interna que aún no elige su contraseña, y lo imprime.
+//
+// Sirve donde el correo no sale (un servidor de pruebas con el puerto 25
+// bloqueado) o cuando el enlace se perdió o venció. Anula los enlaces de
+// activación anteriores de esa cuenta, igual que «Reenviar activación» del
+// panel, y queda en la bitácora. Una cuenta ya activada no recibe enlace:
+// quien la tiene recupera su contraseña desde la página de ingreso.
+
+// enlaceDeActivacion interpreta los argumentos de la orden y devuelve la
+// operación.
+func enlaceDeActivacion(args []string) func(context.Context, *models.Repositorio) error {
+	return func(ctx context.Context, repositorio *models.Repositorio) error {
+		banderas := flag.NewFlagSet("enlace-activacion", flag.ContinueOnError)
+		email := banderas.String("email", "", "correo de la cuenta")
+		urlBase := banderas.String("url-base", entorno("FIMNME_URL_BASE", "http://127.0.0.1:8080"),
+			"dirección pública del sitio, para armar el enlace (FIMNME_URL_BASE)")
+		if err := banderas.Parse(args); err != nil {
+			return err
+		}
+		correo := models.NormalizarEmail(*email)
+		if !models.EmailValido(correo) {
+			return errors.New("--email no es un correo válido")
+		}
+		usuario, _, err := repositorio.UsuarioPorEmail(ctx, correo)
+		if errors.Is(err, models.ErrNoEncontrado) {
+			return fmt.Errorf("no hay ninguna cuenta con el correo %s", correo)
+		}
+		if err != nil {
+			return err
+		}
+		cuenta, err := repositorio.UsuarioPorID(ctx, usuario.ID)
+		if err != nil {
+			return err
+		}
+		if cuenta.Activada {
+			return fmt.Errorf("la cuenta %s ya está activada: su titular puede recuperar la contraseña desde «Ingresar»", correo)
+		}
+		claro, resumen, err := models.NuevoSecreto()
+		if err != nil {
+			return err
+		}
+		token := models.NuevoToken{Resumen: resumen, Proposito: models.TokenActivacion, ExpiraAt: time.Now().Add(models.VigenciaActivacion)}
+		if err := repositorio.EmitirToken(ctx, actorCLI(), usuario.ID, token); err != nil {
+			return err
+		}
+		enlace := strings.TrimRight(*urlBase, "/") + "/cuenta/activar?token=" + url.QueryEscape(claro)
+		fmt.Fprintf(salida, "Enlace de activación de %s, válido %d días y de un solo uso (anula los anteriores):\n\n    %s\n\n",
+			usuario.Email, int(models.VigenciaActivacion.Hours()/24), enlace)
+		fmt.Fprintln(salida, "Entréguelo a su titular por un canal seguro: quien lo abra elige la contraseña de la cuenta.")
+		return nil
+	}
+}

@@ -215,6 +215,7 @@ type Pagina struct {
 	Ruta       string         // ruta actual; sirve para volver tras cambiar de idioma
 	Titulo     string         // título ya traducido, para <title>
 	Entorno    string         // "desarrollo" muestra la franja de advertencia
+	Tema       string         // "claro", "oscuro" o "" (sigue al sistema operativo)
 	Aviso      *Aviso         // mensaje destacado opcional
 	Sesion     *models.Sesion // sesión en curso, o nil si el visitante es anónimo
 	Formulario Formulario     // valores y errores del formulario, si la página tiene uno
@@ -298,6 +299,35 @@ func (p *Pagina) OtroIdioma() string {
 		return models.IdiomaES
 	}
 	return models.IdiomaEN
+}
+
+// Temas del sitio. «automatico» no se guarda: es la ausencia de elección, y
+// entonces manda la preferencia del sistema operativo (prefers-color-scheme).
+const (
+	TemaAutomatico = "automatico"
+	TemaClaro      = "claro"
+	TemaOscuro     = "oscuro"
+)
+
+// TemaActual nombra el tema en vigor para el botón de la cabecera.
+func (p *Pagina) TemaActual() string {
+	if p.Tema == "" {
+		return TemaAutomatico
+	}
+	return p.Tema
+}
+
+// SiguienteTema es el tema al que lleva el botón: automático → claro →
+// oscuro → automático.
+func (p *Pagina) SiguienteTema() string {
+	switch p.Tema {
+	case TemaClaro:
+		return TemaOscuro
+	case TemaOscuro:
+		return TemaAutomatico
+	default:
+		return TemaClaro
+	}
 }
 
 // EsDesarrollo indica si debe mostrarse la franja de entorno de desarrollo.

@@ -105,6 +105,7 @@
   <input id="{{$c.ID}}" name="{{$c.Ruta}}" type="{{$c.Tipo}}" value="{{$c.Valor}}"
     {{- if $c.Numerico}} inputmode="numeric"{{end}}
     {{- if $c.Autocompletar}} autocomplete="{{$c.Autocompletar}}"{{end}}
+    {{- if $c.Marcador}} placeholder="{{$c.Marcador}}"{{end}}
     {{- if $c.Longitud}} maxlength="{{$c.Longitud}}"{{end}}
     {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
   {{- end}}
@@ -253,6 +254,7 @@
 <p id="obras-resumen" class="nota"{{if .Datos.OOB}} hx-swap-oob="true"{{end}}>
   {{- if .Datos.MaxObras}}{{.T "postulacion.obras_maximo" (len .Datos.Obras) .Datos.MaxObras}}{{else}}{{.T "postulacion.obras_cuenta" (len .Datos.Obras)}}{{end}}
   {{- if .Datos.DuracionTotal}} · {{.T "postulacion.duracion_total" .Datos.DuracionTotal}}{{end}}
+  {{- if .Datos.DuracionMinima}} · {{.T "postulacion.duracion_minima" .Datos.DuracionMinima}}{{end}}
   {{- if .Datos.DuracionMaxima}} · {{.T "postulacion.duracion_maxima" .Datos.DuracionMaxima}}{{end -}}
 </p>
 {{end}}

@@ -135,6 +135,7 @@ func (a *App) pagina(r *http.Request, claveTitulo string) *views.Pagina {
 		Ruta:    r.URL.Path,
 		Titulo:  a.vistas.T(idioma, claveTitulo),
 		Entorno: a.entorno,
+		Tema:    temaDe(r),
 		Sesion:  sesionDe(r),
 	}
 }
@@ -240,6 +241,43 @@ func (a *App) cambiarIdioma(w http.ResponseWriter, r *http.Request) {
 			Secure:   esHTTPS(r),
 			SameSite: http.SameSiteLaxMode,
 		})
+	}
+	http.Redirect(w, r, rutaLocal(r.PostFormValue("volver")), http.StatusSeeOther)
+}
+
+// cookieTema guarda el tema elegido con el botón de la cabecera: «claro» u
+// «oscuro». Sin ella, el sitio sigue la preferencia del sistema operativo.
+const cookieTema = "fimnme_tema"
+
+// temaDe devuelve el tema elegido por el visitante, o "" si no eligió (el
+// automático). Un valor desconocido en la cookie se ignora.
+func temaDe(r *http.Request) string {
+	if c, err := r.Cookie(cookieTema); err == nil && (c.Value == views.TemaClaro || c.Value == views.TemaOscuro) {
+		return c.Value
+	}
+	return ""
+}
+
+// POST /tema   — cambia el tema (automático, claro u oscuro) y vuelve
+//
+// Es una preferencia del navegador, no de la cuenta: se guarda en una cookie
+// y el servidor la aplica al pintar (atributo data-tema), sin JavaScript y
+// sin el parpadeo de una página que primero sale en el otro tema.
+func (a *App) cambiarTema(w http.ResponseWriter, r *http.Request) {
+	cookie := &http.Cookie{
+		Name:     cookieTema,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   esHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	}
+	switch tema := r.PostFormValue("tema"); tema {
+	case views.TemaClaro, views.TemaOscuro:
+		cookie.Value, cookie.MaxAge = tema, 365*24*60*60
+		http.SetCookie(w, cookie)
+	case views.TemaAutomatico:
+		cookie.MaxAge = -1 // se borra: vuelve a seguir al sistema operativo
+		http.SetCookie(w, cookie)
 	}
 	http.Redirect(w, r, rutaLocal(r.PostFormValue("volver")), http.StatusSeeOther)
 }

@@ -26,7 +26,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jesarx/fimnme/models"
 	"github.com/jesarx/fimnme/views"
@@ -41,27 +40,6 @@ import (
 // de fimnme-cli), y lo que el modelo rechaza vuelve junto al formulario. Las
 // ve quien supervisa; sólo el administrador ve formularios y puede enviarlos
 // (§2.2).
-
-// formatoLocal es el de un control datetime-local: fecha y hora, sin zona.
-// Se escribe y se lee en hora de la Ciudad de México y se guarda en UTC.
-const formatoLocal = "2006-01-02T15:04"
-
-// aLocal escribe un instante para un control datetime-local.
-func aLocal(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.In(views.ZonaMexico()).Format(formatoLocal)
-}
-
-// deLocal lee lo escrito en un control datetime-local; vacío o ilegible es cero.
-func deLocal(texto string) time.Time {
-	t, err := time.ParseInLocation(formatoLocal, strings.TrimSpace(texto), views.ZonaMexico())
-	if err != nil {
-		return time.Time{}
-	}
-	return t.UTC()
-}
 
 // enteroDeFormulario lee un número de un formulario; lo que no lo es vale
 // -1, que ninguna regla admite: así el modelo lo rechaza con su motivo.
@@ -173,9 +151,9 @@ type vistaConvocatoriaConfig struct {
 	Clase            string
 	PuedeAdministrar bool
 
-	TituloES, TituloEN, BasesES, BasesEN string
-	MaxObras, DuracionMax, MaxVideos     int
-	BasesPDFES, BasesPDFEN, Imagen       string // direcciones públicas; vacías si no hay
+	TituloES, TituloEN, BasesES, BasesEN          string
+	MaxObras, DuracionMax, DuracionMin, MaxVideos int
+	BasesPDFES, BasesPDFEN, Imagen                string // direcciones públicas; vacías si no hay
 
 	Etapas []vistaEtapaAdmin
 
@@ -559,7 +537,7 @@ func (a *App) vistaDeConfiguracion(r *http.Request, cfg models.ConfiguracionConv
 		Tipo: "tipo." + string(c.Tipo), EsCompositores: c.Tipo == models.TipoCompositores, Titulo: c.Titulo(idioma),
 		Estado: claveDeEstadoAdmin(c.Estado), Clase: claseEstado(c.Estado), PuedeAdministrar: models.PuedeAdministrar(sesion),
 		TituloES: c.TituloES, TituloEN: c.TituloEN, BasesES: c.BasesMDES, BasesEN: c.BasesMDEN,
-		MaxObras: c.MaxObras, DuracionMax: c.DuracionMaxProgramaMin, MaxVideos: c.MaxVideos,
+		MaxObras: c.MaxObras, DuracionMax: c.DuracionMaxProgramaMin, DuracionMin: c.DuracionMinProgramaMin, MaxVideos: c.MaxVideos,
 		Jurados: cfg.Activos(models.PerfilJurado), Revisores: cfg.Activos(models.PerfilRevisorDocumental), CuotaJurados: models.CuotaJurados,
 		NuevaDotacion: vistaDotacionAdmin{Activa: true, Orden: len(cfg.Dotaciones) + 1},
 		NuevoCriterio: criterioDeVista(models.CriterioEvaluacion{EscalaMin: 1, EscalaMax: 5, Obligatorio: true, Orden: len(cfg.Criterios) + 1}),
@@ -636,6 +614,7 @@ func (a *App) superponerLoEnviado(r *http.Request, cfg models.ConfiguracionConvo
 	case "datos":
 		v.TituloES, v.TituloEN = textoDeFormulario(r.PostFormValue("titulo_es")), textoDeFormulario(r.PostFormValue("titulo_en"))
 		v.MaxObras, v.DuracionMax = enteroDeFormulario(r.PostFormValue("max_obras")), enteroDeFormulario(r.PostFormValue("duracion_max"))
+		v.DuracionMin = enteroDeFormulario(r.PostFormValue("duracion_min"))
 		v.MaxVideos = enteroDeFormulario(r.PostFormValue("max_videos"))
 	case "bases":
 		if r.PostForm.Has("bases_es") {
@@ -805,6 +784,7 @@ func (a *App) datosDeConvocatoriaDesdeAdmin(w http.ResponseWriter, r *http.Reque
 		c := cfg.Convocatoria
 		c.TituloES, c.TituloEN = textoDeFormulario(r.PostFormValue("titulo_es")), textoDeFormulario(r.PostFormValue("titulo_en"))
 		c.MaxObras, c.DuracionMaxProgramaMin = enteroDeFormulario(r.PostFormValue("max_obras")), enteroDeFormulario(r.PostFormValue("duracion_max"))
+		c.DuracionMinProgramaMin = enteroDeFormulario(r.PostFormValue("duracion_min"))
 		c.MaxVideos = enteroDeFormulario(r.PostFormValue("max_videos"))
 		return a.datos.ActualizarConvocatoria(r.Context(), a.actorDe(r), c)
 	})

@@ -71,6 +71,13 @@ Dirección pública del sitio, para armar el enlace.
 .RB ( FIMNME_URL_BASE )
 .RE
 .TP
+.B enlace\-activacion \-\-email \fICORREO\fR \fR[\fB\-\-url\-base\fR \fIURL\fR]
+Emite e imprime un enlace de activación nuevo, válido 7 días, para una cuenta
+interna que aún no ha elegido su contraseña: cuando el correo no sale (un
+servidor de pruebas con el puerto 25 bloqueado) o el enlace se perdió o
+venció. Anula los enlaces de activación anteriores de la cuenta y queda en la
+bitácora. Una cuenta ya activada no recibe enlace.
+.TP
 .B verify \fR[\fB\-\-rapido\fR] [\fB\-\-purgar\fR]
 Comprueba que cada archivo que la base registra exista en el acervo y
 coincida con su SHA-256, y busca lo que hay en disco sin registro. Termina
@@ -298,8 +305,9 @@ Deja vacío un dato opcional.
 .TP
 .B Fechas
 Se escriben
-.IR "AAAA\-MM\-DD HH:MM" ,
-en hora de la Ciudad de México.
+.IR "dd/mm/aaaa hh:mm" ,
+de 24 horas, en hora de la Ciudad de México (por ejemplo,
+.IR "29/01/2027 23:59" ).
 .TP
 .B Bases
 Se cargan de un archivo Markdown (UTF\-8, hasta 1 MB): se indica su ruta.

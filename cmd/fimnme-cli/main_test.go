@@ -160,6 +160,48 @@ func TestCrearUsuario(t *testing.T) {
 	}
 }
 
+// enlace-activacion da un enlace nuevo, distinto en cada llamada, a una cuenta
+// sin activar; rechaza correos inexistentes o inválidos y deja la emisión en
+// la bitácora.
+func TestEnlaceDeActivacion(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := conRepositorio(dir, migrar); err != nil {
+		t.Fatal(err)
+	}
+	if err := conRepositorio(dir, crearUsuario([]string{"--perfil", "admin_sistema", "--email", "admin@ejemplo.mx", "--nombre", "Admin", "--apellidos", "Sistema"})); err != nil {
+		t.Fatal(err)
+	}
+	enlace := func(args ...string) (string, error) {
+		texto := capturar(t)
+		err := conRepositorio(dir, enlaceDeActivacion(append(args, "--url-base", "https://postula.ejemplo.mx/")))
+		return texto.String(), err
+	}
+	primero, err := enlace("--email", "ADMIN@ejemplo.mx")
+	if err != nil || !strings.Contains(primero, "https://postula.ejemplo.mx/cuenta/activar?token=") || !strings.Contains(primero, "admin@ejemplo.mx") {
+		t.Fatalf("enlace: %q (%v)", primero, err)
+	}
+	segundo, err := enlace("--email", "admin@ejemplo.mx")
+	if err != nil || segundo == primero {
+		t.Errorf("cada llamada debe dar un enlace nuevo: %q (%v)", segundo, err)
+	}
+	if _, err := enlace("--email", "nadie@ejemplo.mx"); err == nil || !strings.Contains(err.Error(), "no hay ninguna cuenta") {
+		t.Errorf("un correo inexistente debió rechazarse: %v", err)
+	}
+	if _, err := enlace("--email", "no-es-correo"); err == nil {
+		t.Error("un correo inválido debió rechazarse")
+	}
+	repo, err := models.AbrirRepositorio(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Cerrar()
+	asientos, _, err := repo.ConsultarAuditoria(ctx, models.FiltroAuditoria{Accion: "token.emitir", Pagina: 1, Tamano: 10})
+	if err != nil || len(asientos) != 2 || asientos[0].ActorPerfil != models.ActorCLI {
+		t.Errorf("las emisiones deben quedar en la bitácora: %+v (%v)", asientos, err)
+	}
+}
+
 // datosConArchivos prepara un directorio de datos migrado, con la edición de
 // demostración y dos archivos registrados en el acervo. Devuelve el
 // directorio y las claves de los archivos.

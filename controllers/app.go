@@ -241,6 +241,7 @@ func (a *App) Manejador() http.Handler {
 
 	// Preferencia de idioma (RF-I18N-03).
 	mux.HandleFunc("POST /idioma", a.cambiarIdioma)
+	mux.HandleFunc("POST /tema", a.cambiarTema)
 
 	// API REST: responde JSON. Sus rutas viven en una tabla (rutasAPI) para
 	// poder cotejarlas contra la descripción OpenAPI.

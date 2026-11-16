@@ -191,6 +191,51 @@ func TestResolucionDeIdioma(t *testing.T) {
 	}
 }
 
+// El botón de tema guarda la elección en una cookie, el servidor la pinta en
+// <html data-tema="…">, y «automático» la borra. Un valor desconocido no se
+// guarda ni se pinta.
+func TestCambioDeTema(t *testing.T) {
+	app := appDePrueba(t)
+	pagina := func(cookie string) string {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: cookieTema, Value: cookie})
+		}
+		return pedir(t, app, r).Body.String()
+	}
+	if p := pagina(""); !strings.Contains(p, `<html lang="es">`) || !strings.Contains(p, `name="tema" value="claro"`) || !strings.Contains(p, "Tema: automático") {
+		t.Error("sin elección, la página sigue al sistema y el botón lleva a «claro»")
+	}
+	if p := pagina("oscuro"); !strings.Contains(p, `<html lang="es" data-tema="oscuro">`) || !strings.Contains(p, `value="automatico"`) {
+		t.Error("con «oscuro», la página debe pintarse oscura y el botón llevar a «automático»")
+	}
+	if p := pagina("rosa"); strings.Contains(p, "data-tema") {
+		t.Error("un tema desconocido en la cookie no debe pintarse")
+	}
+	for _, c := range []struct {
+		tema, valor string
+		borra       bool
+	}{{"oscuro", "oscuro", false}, {"claro", "claro", false}, {"automatico", "", true}} {
+		w := pedir(t, app, formulario("/tema", url.Values{"tema": {c.tema}, "volver": {"/convocatorias/49/interpretes"}}))
+		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/convocatorias/49/interpretes" {
+			t.Errorf("%s: debió volver a la página: %d %q", c.tema, w.Code, w.Header().Get("Location"))
+		}
+		var cookie *http.Cookie
+		for _, k := range w.Result().Cookies() {
+			if k.Name == cookieTema {
+				cookie = k
+			}
+		}
+		if cookie == nil || cookie.Value != c.valor || (cookie.MaxAge < 0) != c.borra || !cookie.HttpOnly {
+			t.Errorf("%s: cookie incorrecta: %+v", c.tema, cookie)
+		}
+	}
+	w := pedir(t, app, formulario("/tema", url.Values{"tema": {"rosa"}, "volver": {"//sitio-ajeno.example"}}))
+	if w.Header().Get("Location") != "/" || len(w.Result().Cookies()) != 0 {
+		t.Errorf("un tema inválido no guarda nada y no redirige fuera: %q %v", w.Header().Get("Location"), w.Result().Cookies())
+	}
+}
+
 func TestCambioDeIdiomaYRedireccionSegura(t *testing.T) {
 	app := appDePrueba(t)
 	casos := []struct{ volver, destino string }{

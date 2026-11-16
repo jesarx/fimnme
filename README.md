@@ -182,6 +182,20 @@ base64, como en cualquier correo; un cliente de correo abre el `.eml` directamen
 sudo ls -t /var/lib/fimnme/correo | head -1
 ```
 
+Para leer el texto del correo más reciente, con su enlace:
+
+```bash
+sudo python3 -c "import email,sys;m=email.message_from_binary_file(open(sys.argv[1],'rb'));[print(p.get_payload(decode=True).decode()) for p in m.walk() if p.get_content_type()=='text/plain']" "$(sudo ls -t /var/lib/fimnme/correo/*.eml | head -1)"
+```
+
+Para una cuenta interna sin activar (un administrador, revisor o jurado recién creado
+en el panel), la terminal da un enlace nuevo sin pasar por el correo. Anula los
+anteriores:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme enlace-activacion --email persona@ejemplo.mx --url-base https://su-dominio
+```
+
 #### Servidor de correo propio (instalación final)
 
 Sólo en un servidor con el puerto 25 de salida abierto. `make deploy` deja los guiones

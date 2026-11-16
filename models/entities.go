@@ -124,6 +124,9 @@ type Convocatoria struct {
 	// DuracionMaxProgramaMin es el límite de duración del programa, en
 	// minutos; 0 = sin límite (decisión de la v1, D-11).
 	DuracionMaxProgramaMin int
+	// DuracionMinProgramaMin es la duración mínima del programa, en
+	// minutos; 0 = sin mínimo (el valor por omisión).
+	DuracionMinProgramaMin int
 	MaxVideos              int
 	Etapas                 []Etapa
 }

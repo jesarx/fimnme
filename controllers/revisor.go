@@ -566,7 +566,7 @@ func (a *App) vistaDeRevision(r *http.Request, pr *postulacionEnRevision) *vista
 		v.FilasDeProblema[i] = i + 1
 	}
 	propuesta := ahora.In(views.ZonaMexico()).AddDate(0, 0, 10)
-	v.FechaPropuesta = time.Date(propuesta.Year(), propuesta.Month(), propuesta.Day(), 23, 59, 0, 0, views.ZonaMexico()).Format("2006-01-02T15:04")
+	v.FechaPropuesta = aLocal(time.Date(propuesta.Year(), propuesta.Month(), propuesta.Day(), 23, 59, 0, 0, views.ZonaMexico()))
 	for _, d := range pr.revision.Dictamenes {
 		if d.Dictamen == "invalido" {
 			v.InvalidosAparte++
@@ -732,8 +732,14 @@ func (a *App) subsanacionDesdeLaRevision(w http.ResponseWriter, r *http.Request)
 			}
 			nueva.Problemas = append(nueva.Problemas, models.ProblemaSubsanacion{Clase: models.ClaseProblema(partes[0]), Campo: partes[1], ObraID: obraID, Problema: problema})
 		}
-		if fecha, err := time.ParseInLocation("2006-01-02T15:04", r.PostFormValue("fecha_limite"), views.ZonaMexico()); err == nil {
-			nueva.FechaLimite = fecha.UTC()
+		// Una fecha escrita que no se entiende se rechaza: tomar otra en su
+		// lugar le daría al postulante un plazo que nadie eligió.
+		if texto := strings.TrimSpace(r.PostFormValue("fecha_limite")); texto != "" {
+			fecha := deLocal(texto)
+			if fecha.IsZero() {
+				return &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "fecha_limite", Clave: "error.fecha_hora_invalida"}}}
+			}
+			nueva.FechaLimite = fecha
 		}
 		return a.solicitarSubsanacion(r, pr.ab.p, nueva)
 	})

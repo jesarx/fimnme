@@ -183,19 +183,24 @@ func TestConfigurarUnaConvocatoriaDesdeLasPantallas(t *testing.T) {
 	noAparece(t, admin.get(ficha), "bases.pdf?idioma=es")
 
 	// Calendario en hora de la Ciudad de México; el rechazo conserva lo escrito.
+	// Se escribe dd/mm/aaaa hh:mm (también d/m/aaaa); el formato ISO de antes
+	// sigue entendiéndose.
 	calendario := url.Values{
-		"inicia_postulacion": {"2026-11-20T00:00"}, "termina_postulacion": {"2026-12-19T23:59"},
-		"inicia_revision_documental": {"2026-12-21T00:00"}, "termina_revision_documental": {"2027-01-09T23:59"},
-		"inicia_evaluacion": {"2027-01-05T00:00"}, "termina_evaluacion": {"2027-01-30T23:59"},
+		"inicia_postulacion": {"20/11/2026 00:00"}, "termina_postulacion": {"19/12/2026 23:59"},
+		"inicia_revision_documental": {"21/12/2026 0:00"}, "termina_revision_documental": {"9/1/2027 23:59"},
+		"inicia_evaluacion": {"05/01/2027 00:00"}, "termina_evaluacion": {"2027-01-30T23:59"},
 	}
-	esperar(t, admin.post(ficha+"/calendario", calendario), http.StatusUnprocessableEntity, "Las etapas deben seguirse", `value="2027-01-05T00:00"`)
-	calendario.Set("inicia_evaluacion", "2027-01-11T00:00")
+	esperar(t, admin.post(ficha+"/calendario", calendario), http.StatusUnprocessableEntity, "Las etapas deben seguirse", `value="05/01/2027 00:00"`)
+	// Una fecha ilegible no borra la etapa en silencio: se rechaza.
+	calendario.Set("inicia_evaluacion", "31/02/2027 00:00")
+	esperar(t, admin.post(ficha+"/calendario", calendario), http.StatusUnprocessableEntity, `value="31/02/2027 00:00"`)
+	calendario.Set("inicia_evaluacion", "11/01/2027 00:00")
 	redirige(t, admin.post(ficha+"/calendario", calendario), ficha+"?aviso=guardado#calendario")
 	cfg, _ = e.repo.ConfiguracionDeConvocatoria(ctx, convocatoria)
 	if etapa, _ := cfg.Convocatoria.Etapa(models.EtapaPostulacion); !etapa.IniciaAt.Equal(time.Date(2026, 11, 20, 6, 0, 0, 0, time.UTC)) {
 		t.Errorf("la hora de la Ciudad de México no se convirtió a UTC: %v", etapa.IniciaAt)
 	}
-	esperar(t, admin.get(ficha), http.StatusOK, `value="2026-11-20T00:00"`)
+	esperar(t, admin.get(ficha), http.StatusOK, `value="20/11/2026 00:00"`, `placeholder="dd/mm/aaaa hh:mm"`)
 
 	// Dotaciones: alta, duplicado (vuelve abierto con lo escrito) y retiro.
 	cuarteto := url.Values{"nombre_es": {"Cuarteto de cuerdas"}, "nombre_en": {"String quartet"}, "orden": {"1"}}

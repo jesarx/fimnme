@@ -205,8 +205,8 @@ func (a *App) pintarArchivo(w http.ResponseWriter, r *http.Request, consulta url
 		a.errorInterno(w, r, "convocatorias del archivo", err)
 		return
 	}
-	v := vistaArchivo{Consulta: actual.Encode(), Rechazo: rechazo, Texto: consulta.Get("q"), EnviadaDesde: consulta.Get("enviada_desde"),
-		EnviadaHasta: consulta.Get("enviada_hasta"), PuedeZIP: models.PuedeDescargarEnMasa(sesion),
+	v := vistaArchivo{Consulta: actual.Encode(), Rechazo: rechazo, Texto: consulta.Get("q"), EnviadaDesde: fechaParaCaptura(consulta.Get("enviada_desde")),
+		EnviadaHasta: fechaParaCaptura(consulta.Get("enviada_hasta")), PuedeZIP: models.PuedeDescargarEnMasa(sesion),
 		ConvocatoriaDelFiltro: consulta.Get("convocatoria")}
 
 	// Opciones de los filtros.

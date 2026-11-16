@@ -723,6 +723,11 @@
                     ],
                     "description": "Omitido = sin límite"
                   },
+                  "duracion_min_programa_min": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Duración mínima del programa, en minutos. 0 (o omitido) = sin mínimo; no puede ser mayor que la máxima"
+                  },
                   "max_videos": {
                     "type": "integer",
                     "description": "0 a 3; 3 por omisión"
@@ -4009,6 +4014,11 @@
                       "null"
                     ],
                     "description": "Omitido = sin límite"
+                  },
+                  "duracion_min_programa_min": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Duración mínima del programa, en minutos. 0 (o omitido) = sin mínimo; no puede ser mayor que la máxima"
                   },
                   "max_videos": {
                     "type": "integer",
@@ -10489,6 +10499,11 @@
               "null"
             ],
             "description": "null = sin límite"
+          },
+          "duracion_min_programa_min": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Duración mínima del programa, en minutos. 0 (o omitido) = sin mínimo; no puede ser mayor que la máxima"
           },
           "max_videos": {
             "type": "integer"
