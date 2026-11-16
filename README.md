@@ -19,12 +19,17 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 13 de 14 (completo): todas las pantallas.** El backend está completo y todo lo
-que la API permite hacer tiene pantalla: el postulante, el revisor y el jurado trabajan
-desde el navegador; el administrador configura, edita los correos, importa, consulta la
-bitácora y atiende solicitudes ARCO desde `/administracion`, y supervisa desde
-`/supervision`; el personal consulta el archivo histórico desde `/archivo`. Falta el
-paso 14: la puesta en operación. Hoy el sistema tiene:
+**Plan completo (14 de 14).** El backend, todas las pantallas y la puesta en operación
+están hechos: despliegue con systemd o en contenedor, respaldos con prueba de
+restauración, correo propio con DKIM, migración verificada a MariaDB y prueba de carga.
+Para recibir, operar y aceptar el sistema:
+
+- [**Manual de Adopción**](docs/FIMNME-04-manual-de-adopcion.md): instalación,
+  configuración, operación anual y entrega-recepción.
+- [**Manual de Validación**](docs/FIMNME-05-manual-de-validacion.md): casos de prueba,
+  resultados de la verificación previa, lo que condiciona la firma y el acta.
+
+Hoy el sistema tiene:
 
 - **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
   convocatorias abiertas, para iniciar una postulación.
@@ -936,10 +941,10 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Administrar la configuración | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui` |
 | Plantillas de reporte | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --listar` |
 
-> **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
-> `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
-> destinatario y asunto, y las cuentas no podrán verificarse ni recuperarse hasta que
-> exista el SMTP (paso 14).
+> **Con el transporte `registro`, los enlaces de los correos quedan en el log** sólo en
+> el entorno `desarrollo`. Son secretos de un solo uso: en `produccion` el log muestra
+> destinatario y asunto. En producción use `archivo` (servidor sin puerto 25) o `smtp`;
+> véase «Correo».
 
 ### Copia de seguridad de los datos
 
@@ -1222,12 +1227,12 @@ anterior a la base»): las migraciones no se deshacen. En ese caso restaure prim
 copia de seguridad de la base tomada antes del despliegue. Por eso conviene hacer esa
 copia antes de desplegar una versión que traiga migraciones.
 
-### Pendiente en despliegue
+### Auditoría de accesibilidad
 
-El despliegue conteinerizado que exige la política institucional (`Containerfile`,
-`compose.yaml`, unidades Quadlet), los respaldos automatizados y el transporte de las
-instantáneas al servidor espejo corresponden al paso 14 del plan. Para el entorno de
-desarrollo se usa el flujo de binarios + systemd descrito aquí.
+`deploy/accesibilidad/auditar.js` recorre las páginas del postulante con axe-core
+(WCAG 2.1 A y AA) contra una instalación **de prueba**. Sus dependencias se instalan
+fuera del repositorio; las instrucciones están en su encabezado (ADR 0031; Manual de
+Validación, V-ACC-01).
 
 ## Dependencias
 

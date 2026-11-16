@@ -72,7 +72,7 @@ Con el paso 10c **el backend está completo**.
 
 | # | Paso | Estado |
 |---|---|---|
-| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | En curso. Hechos: transporte de correo (ADR 0025), respaldos automatizados con prueba de restauración (ADR 0026), contenedores (ADR 0027), prueba de carga (ADR 0028), migración verificada a MariaDB (ADR 0029) y servidor de correo propio con Postfix y DKIM (ADR 0030). Faltan la prueba de entregabilidad en el servidor final y los manuales |
+| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | **Hecho.** Transporte de correo (ADR 0025), respaldos con prueba de restauración (ADR 0026), contenedores (ADR 0027), prueba de carga (ADR 0028), migración verificada a MariaDB (ADR 0029), correo propio con Postfix y DKIM (ADR 0030), Manuales de Adopción y de Validación y auditoría de accesibilidad (ADR 0031) |
 
 ## Notas del plan
 
@@ -100,6 +100,41 @@ Con el paso 10c **el backend está completo**.
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 14 — qué se entregó
+
+Puesta en operación. **Con él el plan queda completo.**
+
+**Decisiones:** ADR [0025](adr/0025-transporte-de-correo.md) a
+[0031](adr/0031-manuales-y-auditoria-de-accesibilidad.md).
+
+- **Correo:**
+  - tres transportes: registro, archivo `.eml` para un servidor sin puerto 25, y SMTP;
+  - Postfix sólo de salida con firma DKIM, guion de instalación y comprobador de DNS.
+- **Respaldos:**
+  - instantánea firmada y acervo por contenido cada 6 horas;
+  - prueba de restauración automática cada domingo;
+  - réplica opcional al espejo.
+- **Contenedores:** `Containerfile` sin distribución, `compose.yaml` y Quadlet.
+- **Prueba de carga** de RNF-01: 0 errores, p95 de lecturas de 4 a 12 ms.
+- **Migración verificada a MariaDB**: filas y SHA-256 por tabla, restricciones y
+  triggers.
+- **Manual de Adopción** (`docs/FIMNME-04-…`) y **Manual de Validación**
+  (`docs/FIMNME-05-…`), con el protocolo de firma y el acta.
+- **Auditoría de accesibilidad** con axe-core:
+  - halló un contraste de 4.48:1 en el indicador de avance del formulario, y se
+    corrigió;
+  - después, 63 páginas sin violaciones.
+
+**Para la firma falta lo que no es código** (FIMNME-05 §5):
+
+- el aviso de privacidad oficial;
+- las bases oficiales;
+- el correo validado en el servidor final;
+- la revisión de los puntos por confirmar.
+
+**No se hicieron** los requisitos de prioridad S y C listados ahí. El más recomendable
+es el segundo factor para administrador y observador (RF-AUT-09).
 
 ## Paso 13d — qué se entregó
 
