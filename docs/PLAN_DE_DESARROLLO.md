@@ -72,7 +72,7 @@ Con el paso 10c **el backend está completo**.
 
 | # | Paso | Estado |
 |---|---|---|
-| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | En curso: transporte de correo (ADR 0025) y respaldos automatizados con prueba de restauración (ADR 0026) contenedores (ADR 0027) prueba de carga (ADR 0028) y migración verificada a MariaDB (ADR 0029) hechos |
+| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | En curso. Hechos: transporte de correo (ADR 0025), respaldos automatizados con prueba de restauración (ADR 0026), contenedores (ADR 0027), prueba de carga (ADR 0028), migración verificada a MariaDB (ADR 0029) y servidor de correo propio con Postfix y DKIM (ADR 0030). Faltan la prueba de entregabilidad en el servidor final y los manuales |
 
 ## Notas del plan
 

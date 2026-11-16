@@ -168,7 +168,7 @@ registro, copie de ahí el enlace `…/cuenta/verificar?token=…` y ábralo en 
 | Desarrollo | Nada: `--correo registro` escribe los mensajes en el log. |
 | VPS que no puede enviar correo (puerto 25 bloqueado) | `FIMNME_CORREO=archivo`: cada mensaje queda como `.eml` en `<datos>/correo`. |
 | VPS con un relevo externo | `FIMNME_CORREO=smtp`, `FIMNME_SMTP_SERVIDOR=smtp.proveedor.com:587`, `FIMNME_SMTP_SEGURIDAD=starttls`, `FIMNME_SMTP_USUARIO=…` y `FIMNME_SMTP_PASSWORD=…` |
-| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Véase el ADR 0025. |
+| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Se instala como se explica abajo (ADR 0030). |
 
 Con `archivo`, para ver el último correo y copiar su enlace en el VPS (el cuerpo va en
 base64, como en cualquier correo; un cliente de correo abre el `.eml` directamente):
@@ -176,6 +176,32 @@ base64, como en cualquier correo; un cliente de correo abre el `.eml` directamen
 ```bash
 sudo ls -t /var/lib/fimnme/correo | head -1
 ```
+
+#### Servidor de correo propio (instalación final)
+
+Sólo en un servidor con el puerto 25 de salida abierto. `make deploy` deja los guiones
+en `/opt/fimnme/correo`. En el servidor:
+
+1. Instalar Postfix (sólo de salida, escuchando en 127.0.0.1) y OpenDKIM. El guion
+   muestra al terminar los registros DNS por publicar (SPF, DKIM, DMARC), el PTR que se
+   pide al proveedor y lo que cambia en `/etc/fimnme/fimnme-web.env`. Con `REBOTES`, los
+   avisos de no entrega se reenvían a ese buzón real; sin él, se descartan.
+
+   ```bash
+   sudo REBOTES=buzon-real@institucion.mx sh /opt/fimnme/correo/instalar_correo.sh fimnme.ejemplo.mx correo.ejemplo.mx
+   ```
+
+2. Publicar los registros y, cuando se propaguen, comprobar todo (servicios, A, PTR,
+   SPF, DMARC, que la clave DKIM publicada sea la local y que el puerto 25 salga):
+
+   ```bash
+   sudo bash /opt/fimnme/correo/comprobar_correo.sh fimnme.ejemplo.mx correo.ejemplo.mx
+   ```
+
+3. Prueba de entrega: desde **Administración › Plantillas de correo › Enviar prueba**,
+   con una cuenta de administrador de Gmail y otra de Outlook. En las cabeceras del
+   correo recibido («Mostrar original») deben leerse `spf=pass`, `dkim=pass` y
+   `dmarc=pass`, y el correo no debe caer en no deseado.
 
 ### Crear el primer administrador
 
