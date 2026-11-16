@@ -45,29 +45,34 @@ páginas de manual.
 | 4 | **Configuración de ediciones y convocatorias.** API para ediciones, convocatorias con bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios, cuentas internas y asignaciones; cambio de etapa forzado y automático por calendario, con las cuotas de 3 jurados y 1+ revisores; duplicación de la configuración a otra edición. | ✅ Hecho |
 | 5 | **Postulación: captura y reglas.** Una postulación por convocatoria; subcategoría; autoguardado por campo; datos de solista, ensamble y compositor; integrantes; propuesta de concierto con la regla de sede fuera de CDMX; obras con sus límites; ligas de video; `ValidarParaEnvio()` con la lista de bloqueadores. La captura se acepta sólo dentro del plazo, y quien es jurado o revisor de una convocatoria no postula en ella. | ✅ Hecho |
 | 6 | **Documentos, envío y acuse.** Almacén de archivos en disco por SHA-256; formato por firma, tamaño y deduplicación; versiones sin sobrescritura; descarga con permiso verificado y registrada; envío irreversible en una transacción (folio, snapshot, correo encolado); acuse PDF con escritor propio (3 KB); comprobación en red de las ligas de video, con defensas contra SSRF; recordatorios de borrador; bases en PDF e imagen de cabecera. | ✅ Hecho |
+| 7 | **Revisión documental y subsanación.** Bandeja con filtros y tablero; toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos, documentos y listas; solicitud de subsanación con su correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | ✅ Hecho |
+| 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador, envío y congelación al cierre; avance propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **aislamiento entre jurados probado** con un barrido de todos los endpoints. | ✅ Hecho |
+| 9a | **Archivo, búsqueda y descargas masivas.** Un solo listado para todas las ediciones, con visibilidad que no caduca; búsqueda FTS5 tolerante a acentos y por fragmento; filtros combinables en la URL, orden y paginación; CSV del resultado; vistas guardadas; enlace permanente por folio; ZIP en segundo plano con selección de tipos, nomenclatura predecible y `manifiesto.csv`, registrado y con vigencia de 7 días. | ✅ Hecho |
+| 9b | **Reportes, expediente y tableros.** Generador de reportes CSV con catálogo de campos, granularidad por postulación u obra, filtros, rango de puntaje y plantillas reutilizables; reporte de resultados con empates; expediente PDF individual y por convocatoria, **recortado según quién lo pide**, con fotografía, índice y marcadores; tablero de la convocatoria y estadísticas de la edición, con cifras navegables. | ✅ Hecho |
+| 10a | **Continuidad, portal público y anonimización.** `fimnme-cli verify` del acervo; espejo con `VACUUM INTO`, manifiesto firmado con HMAC-SHA256 y acervo replicado por contenido; alerta de espacio en disco; exportación sanitizada al portal público (lista blanca hecha tipo) con publicación explícita de la nómina; anonimización ARCO con confirmación doble. | ✅ Hecho |
+| 10b | **Extensión de campos e importación asistida.** `fimnme-cli schema add` / `drop` sobre la lista blanca de nodos, con columnas `x_…`, diccionario y DDL auditado; los campos aparecen solos en el formulario, los reportes y el expediente. Importación en dos fases (Analyze → Commit) de dotaciones y de cuentas de jurado y revisor, desde `.csv` o `.xlsx`, por la API y por `fimnme-cli import`: nada entra sin que una persona resuelva cada conflicto. | ✅ Hecho |
+| 10c | **Modo interactivo y `export-csv`.** `fimnme-cli --tui`: un diálogo por menús para administrar ediciones, convocatorias (bases, calendario, estado), dotaciones, requisitos, criterios y jurados y revisores, con las mismas reglas y los mismos mensajes que el panel. `fimnme-cli export-csv`: un reporte desde una plantilla guardada, con el mismo generador que la API y en nombre de una cuenta que supervisa. | ✅ Hecho |
 
-### Backend
-
-| # | Paso | Requerimientos | Estado |
-|---|---|---|---|
-| 7 | **Revisión documental y subsanación.** Bandeja y toma blanda; dictamen por documento con motivo; observaciones; señalamiento de campos; solicitud de subsanación con plantilla de correo; motor de desbloqueo selectivo; solicitudes de desbloqueo; reenvío con acuse nuevo y *diff*; dictamen validada / descartada; vencimiento sin descarte automático. | RF-REV-01 a 10, §4.2, RF-POST-13 y 14, RN-11 a 13 | Pendiente |
-| 8 | **Evaluación por jurado.** `JuradoRepo` y `SupervisionRepo` separados; evaluación por postulación (Intérpretes) o por obra (Compositores); borrador y congelación al cierre; progreso propio; matriz y suma de los 3 jurados para supervisión; dictamen final; **prueba automatizada de aislamiento entre jurados**. | RF-EVA-01 a 11, RF-CONV-10, §8.4, RN-15 a 20 | Pendiente |
-| 9 | **Archivo, búsqueda, reportes y descargas.** Archivo histórico de sólo lectura con visibilidad que no caduca; FTS5 (acentos y erratas); filtros en la URL, orden, paginación y vistas guardadas; reportes CSV con plantillas; ZIP asíncrono con manifiesto; expediente PDF recortado por perfil; datos de tableros. | §5.12, §5.7, §5.13, RN-23 a 27 | Pendiente |
-| 10 | **`fimnme-cli` y continuidad.** Importación asistida en dos fases; `export-json` y endpoint de interoperabilidad con lista blanca; extensión dinámica de nodos con lista blanca; `verify` del acervo; anonimización ARCO; espejo con `VACUUM INTO` y HMAC-SHA256; TUI. | §5.14 a 5.17, RN-28 a 34 | Pendiente |
+Con el paso 10c **el backend está completo**.
 
 ### Frontal
 
 | # | Paso | Estado |
 |---|---|---|
-| 11 | **Postulante.** Panel «Mis postulaciones»; formulario por pasos con autoguardado e indicador de completitud; obras e integrantes dinámicos; subida con barra de progreso; revisión y envío; vista de subsanación con lo editable resaltado. Accesibilidad AA y móvil. | Pendiente |
-| 12 | **Revisor y jurado.** Bandeja con filtros; vista de revisión y dictámenes; solicitud de subsanación; ficha de evaluación; visor de PDF y reproductor de audio. | Pendiente |
-| 13 | **Administración, supervisión y archivo.** Configuración de ediciones y convocatorias; usuarios y asignaciones; plantillas de correo; matriz de resultados; buscador global, filtros y descargas; bitácora; importación asistida; publicación al portal; tableros. | Pendiente |
+| 11a | **Postulante: panel y formulario.** Panel «Mis postulaciones» con el historial de todas las ediciones y las convocatorias abiertas; formulario por pasos (datos generales, propuesta de concierto, obras) pintado de la definición del modelo, con guardado automático por htmx y confirmación «Guardado a las…»; barra de pasos con lo que le falta a cada uno; integrantes, ligas de video y obras dinámicos; cambio de subcategoría; todo funciona sin JavaScript. Tema visual en un solo archivo, con rasgos del sitio del 48º. | ✅ Hecho |
+| 11b | **Postulante: documentos, envío y subsanación.** Documentos por postulación y por obra según la dotación, con subida con barra de progreso, reemplazo y retiro; revisión y envío con la postulación completa en sólo lectura, lo que falta con su enlace y las dos declaraciones; estado de la postulación enviada con sus acuses; subsanación con lo editable resaltado y su motivo, solicitudes de desbloqueo y reenvío. Corrige el límite que rechazaba toda subida de más de 1 MiB. | ✅ Hecho |
+| 12a | **Revisor documental.** Portada de revisión; bandeja con tablero por estado y filtros en la URL; vista de revisión con la postulación en sólo lectura, lo que cambió en el último reenvío, documentos con visor (PDF en un marco, audio, imagen) y dictamen, observaciones internas, subsanación, desbloqueos y dictamen. El observador lo ve todo sin actuar. | ✅ Hecho |
+| 12b | **Jurado.** Lista de trabajo con su avance; ficha de evaluación con la postulación y sus documentos en el visor (en Compositores, cada obra por separado), escala por criterio en borrador o enviada, observaciones y excusa por conflicto de interés. Ninguna página deja ver lo de otro jurado. | ✅ Hecho |
+| 13a | **Administración: configuración.** Ediciones; ficha de configuración de cada convocatoria (estado con lo que falta para avanzar, títulos y límites, bases en Markdown, PDF e imagen, calendario en hora de la Ciudad de México, dotaciones, requisitos documentales, criterios); jurados y revisores (búsqueda, alta con enlace de activación, retiro); cuentas internas. El observador lo ve todo sin poder cambiar nada. | ✅ Hecho |
+| 13b | **Supervisión.** Tablero de cada convocatoria (por estado, documentos, subsanaciones, ritmo de envíos y avance de los jurados, sin puntajes); matriz de resultados con el resultado del proceso; generador de reportes CSV con plantillas; estadísticas de la edición; publicación y retiro de la nómina con vista previa. | ✅ Hecho |
+| 13c | **Archivo.** Buscador de todas las ediciones con texto, filtros en la URL, orden y páginas; vistas guardadas; CSV; descarga masiva en ZIP y expediente de una convocatoria desde la búsqueda; «Mis descargas»; enlace permanente por folio también para el personal. | ✅ Hecho |
+| 13d | **Operación.** Plantillas de correo editables (API y pantalla) con variables validadas, versiones, vista previa y correo de prueba; bitácora con filtros; importación asistida en dos fases con resolución de conflictos; anonimización ARCO con doble confirmación. | ✅ Hecho |
 
 ### Operación
 
 | # | Paso | Estado |
 |---|---|---|
-| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | Pendiente |
+| 14 | **Puesta en operación.** `Containerfile`, `compose.yaml` y Quadlet; respaldos automatizados con prueba de restauración; script de migración a MariaDB; SMTP propio (SPF, DKIM, DMARC) con prueba de entregabilidad; prueba de carga final; manuales de Adopción y Validación. | En curso: transporte de correo (ADR 0025) y respaldos automatizados con prueba de restauración (ADR 0026) contenedores (ADR 0027) y prueba de carga (ADR 0028) hechos |
 
 ## Notas del plan
 
@@ -89,12 +94,527 @@ páginas de manual.
   el log, de donde se toma el enlace de verificación. En el entorno `produccion` el log
   no muestra el cuerpo, de modo que las cuentas no pueden verificarse ni recuperarse
   hasta que exista el SMTP.
-- **La configuración se hace por API hasta el paso 13.** No hay pantallas de
-  administración todavía: se usa `curl` o cualquier cliente HTTP (ejemplos en el README).
+- **La configuración tiene pantallas desde el paso 13a** (`/administracion`). La API y
+  el modo interactivo de `fimnme-cli` siguen disponibles, con las mismas reglas.
 - **Prioridades S y C.** Los requerimientos «should» y «could» (2FA, antivirus, XLSX,
   excusa del jurado, volúmenes de ZIP, comparativas) no están en los pasos de arriba; se
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
+
+## Paso 13d — qué se entregó
+
+Última entrega del paso 13: todo lo que la API permite hacer tiene pantalla.
+
+**Decisiones:** [ADR 0024](adr/0024-plantillas-de-correo-y-pantallas-de-operacion.md).
+
+- **Plantillas de correo** (`/administracion/correos` y cinco operaciones nuevas en la
+  API): catálogo con las variables que recibe cada correo y las indispensables;
+  versiones que no se editan ni se borran; vista previa idéntica al correo; correo de
+  prueba; validación que impide variables inexistentes o la falta de las
+  indispensables.
+- **Bitácora** con filtros, quién, IP, antes y después, enlace a la historia de cada
+  registro y CSV.
+- **Importación asistida**: subir la hoja, resolver cada renglón (vincular, crear,
+  omitir; en bloque los que no se parecen a nada), confirmar todo o nada, cancelar.
+- **Anonimización ARCO** por folio, con fundamento, folio escrito de nuevo y casilla.
+- Repositorio: `VersionesDePlantilla`, `GuardarVersionDePlantilla`,
+  `ImportacionesRecientes`. Sin migraciones ni dependencias.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: plantillas (lista,
+editor, observador en sólo lectura y 403, vista previa con variables señaladas, rechazos
+con lo escrito, versión nueva que usa el siguiente correo real, historial y carga de una
+versión anterior, prueba, API completa); que cada plantilla sembrada pase su
+validación; bitácora (permisos, filtros, enlace por entidad, filtro inválido);
+importación desde la pantalla hasta aplicarse; ARCO (permisos, doble confirmación,
+resultado, bitácora). Cuatro mutaciones (validación de la versión, permiso de edición,
+permiso de anonimizar, catálogo de variables) hacen fallar las pruebas. En un navegador
+real: editar la plantilla de subsanación con una variable inexistente (vista previa y
+rechazo), corregirla, guardarla y probarla; importar dotaciones resolviendo cada
+renglón; consultar la bitácora; anonimizar una postulación; en el teléfono, sin
+desbordes.
+
+## Paso 13c — qué se entregó
+
+Tercera entrega del paso 13: el archivo ya no exige la API. Lo que quedaba del 13c
+original (bitácora, importación asistida, plantillas de correo) pasa a un 13d, junto con
+la anonimización.
+
+**Decisiones:** [ADR 0023](adr/0023-pantallas-del-archivo.md).
+
+- **Archivo** en el menú para el personal (supervisión, revisores, jurados), con el
+  alcance de cada perfil que no caduca.
+- **Buscador**: texto tolerante a acentos y fragmentos, filtros principales y «Más
+  filtros», orden, páginas; búsqueda en vivo con htmx y URL limpia; sin JavaScript, con
+  su botón.
+- **Vistas guardadas** propias, siempre dentro de `/archivo`.
+- **CSV** del resultado, **descarga masiva en ZIP** (con tipos de documento) y
+  **expediente** de una convocatoria, desde la misma búsqueda.
+- **Mis descargas**, que se actualiza sola mientras algo se arma.
+- **Enlace permanente por folio** para el personal: a la revisión o a la ficha de
+  evaluación según el perfil; 404 a quien no puede verla.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: alcance de cada perfil en
+el buscador (supervisión 4, revisora 2, jurado 1, postulante 403), búsqueda, filtros
+inválidos, páginas, CSV; vistas (sin página, dentro del archivo, duplicadas, ajenas);
+ZIP sólo de partituras y su lista; expediente; enlace permanente para diez casos de
+perfil y estado. Mutaciones en el permiso de descarga masiva, en la ruta de las vistas y
+en la visibilidad del enlace hacen fallar las pruebas. En un navegador real: búsqueda en
+vivo, vista guardada, ZIP y expediente armados por el trabajador y bajados, enlace
+permanente, teléfono sin desborde y modo oscuro.
+
+## Paso 13b — qué se entregó
+
+Segunda entrega del paso 13: la supervisión ya no exige la API.
+
+**Decisiones:** [ADR 0022](adr/0022-pantallas-de-supervision.md).
+
+- **Supervisión** en el menú, para administrador y observador; cada convocatoria con
+  pestañas Tablero, Resultados, Reportes y (administrador) Nómina.
+- **Tablero**: postulaciones por estado (las de la revisión llevan a la bandeja filtrada),
+  documentos por dictaminar, subsanaciones, ritmo de envíos por día y avance de cada
+  jurado, sin un solo puntaje.
+- **Resultados**: la matriz con lugar, puntaje comparable, suma, promedio, resultado y lo
+  de cada jurado, con excusas y observaciones; el administrador captura el resultado del
+  proceso (una vez por postulación en Compositores). Descarga en CSV.
+- **Reportes**: generador con el catálogo de la convocatoria, granularidad, orden,
+  separador, idioma y filtros; descarga directa; plantillas que se guardan, cargan,
+  descargan y borran desde la misma página.
+- **Estadísticas** de la edición o de una convocatoria, con barras.
+- **Nómina**: vista previa exacta de lo que sale al portal, publicación y retiro con
+  confirmación, historial con SHA-256.
+- Corrige un desborde en el teléfono de toda tabla desplazable con textos ocultos.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra (jurado,
+revisora y postulante, 403; el observador ve todo menos la nómina y no dictamina), el
+tablero sin puntajes, la matriz con la excusa y el comparable, el resultado del proceso
+con su rechazo y su bitácora, el formulario único por postulación en Compositores, los
+reportes (descarga, rechazo con lo elegido, plantillas propias y ajenas, plantilla de
+otro tipo), las estadísticas y la nómina hasta el portal y su retiro. Tres mutaciones
+(permiso del dictamen, permiso de la nómina, borrado de plantillas ajenas) hacen fallar
+las pruebas. En un navegador real, en escritorio y teléfono: tres jurados (uno excusado),
+tablero, matriz, resultado, descarga de un CSV, plantilla, rechazo, estadísticas, cierre
+y publicación de la nómina, verificada en el JSON del portal.
+
+## Paso 13a — qué se entregó
+
+Primera de tres entregas del paso 13: la configuración ya no exige la API.
+
+**Decisiones:** [ADR 0021](adr/0021-pantallas-de-administracion.md).
+
+- **Administración** en el menú, para administrador y observador. Portada con las
+  ediciones y sus convocatorias; alta de edición.
+- **Edición**: sus datos; alta de una convocatoria en blanco (con los requisitos y
+  criterios iniciales de su tipo) o copiada de otra edición (sin calendario ni jurados).
+- **Ficha de configuración** con índice: estado con lo que falta para avanzar y el cambio
+  forzado (retroceder pide motivo); títulos y límites; bases en Markdown en dos idiomas,
+  sus PDF y la imagen; calendario en hora de la Ciudad de México; dotaciones (se retiran,
+  no se borran); requisitos documentales y criterios, plegados, con alta, edición y
+  borrado; jurados y revisores con búsqueda, alta con enlace de activación, reenvío y
+  retiro.
+- **Cuentas internas** (`/administracion/usuarios`): búsqueda, alta con perfil global
+  opcional y reenvío del enlace.
+- **Lo rechazado vuelve junto a su formulario con lo escrito.** Un elemento de otra
+  convocatoria no se toca desde una ficha (404). El observador ve todo deshabilitado.
+- Crear y asignar comprueba antes la asignación, para no dejar cuentas huérfanas.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra y quién puede
+enviar (el observador recibe 403 en cada acción y no cambia nada), la configuración
+completa desde los formularios hasta publicar, cada rechazo con lo escrito, el calendario
+convertido a UTC, el aislamiento entre fichas, la copia a otra edición, la cuota de
+jurados, el retiro y las cuentas. Tres mutaciones (permiso del administrador, pertenencia
+del elemento, repintado de lo escrito) hacen fallar las pruebas. En un navegador real, en
+escritorio, teléfono y modo oscuro: se crea una edición y una convocatoria, se configura
+entera, se rechaza un calendario desordenado conservando lo escrito, se asignan tres
+jurados y un revisor, y se publica; el observador ve la ficha sin un solo control activo.
+
+## Paso 12b — qué se entregó
+
+Segunda entrega del paso 12: con ella están las pantallas del revisor y del jurado.
+
+**Decisiones:** [ADR 0020](adr/0020-pantallas-del-jurado.md).
+
+- **Evaluación** en el menú, sólo para los jurados; portada con sus convocatorias y su
+  avance.
+- **Lista de trabajo**: «Has evaluado 1 de 3», barra de avance, el estado de cada unidad
+  y la siguiente por evaluar.
+- **Ficha de evaluación**: la postulación en sólo lectura con sus documentos en el visor
+  (en Compositores, sólo la obra que se califica); la escala de cada criterio en botones
+  grandes; borrador o envío, modificable hasta el cierre; observaciones; excusa por
+  conflicto de interés y su retiro.
+- **Aislamiento**: las páginas sólo usan el acceso del jurado de la sesión. Una prueba
+  barre todas con cada jurado buscando lo que escribió el otro.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra, la lista,
+la ficha con sus rechazos (incompleta, fuera de escala), el envío, el barrido de
+aislamiento, el cierre de la etapa, la ficha por obra y la excusa. Una mutación en el
+permiso del jurado hace fallar las pruebas. En un navegador real, en escritorio y en
+móvil: un jurado entra desde el menú, va a la siguiente por evaluar, intenta enviar
+incompleta y la envía completa.
+
+## Paso 12a — qué se entregó
+
+El paso 12 se parte en dos: **12a** (esto, el revisor documental) y **12b** (el jurado).
+
+**Decisiones:** [ADR 0019](adr/0019-pantallas-del-revisor-y-visor-de-documentos.md).
+
+- **Revisión** en el menú para quien revisa o supervisa; portada con sus convocatorias.
+- **Bandeja** (`/revision/convocatorias/{id}`): todas las enviadas, con una cifra por
+  estado y filtros en la URL (estado, subcategoría, quién la tomó, folio o nombre); con
+  htmx se filtra al escribir.
+- **Vista de revisión**: la postulación entera en sólo lectura; quién la tomó; lo que
+  cambió en el último reenvío; documentos con **visor** y dictamen; observaciones
+  internas; subsanaciones con sus solicitudes de desbloqueo (conceder o negar); pedir
+  una subsanación; validar o descartar.
+- **Visor de documentos**: PDF en un marco con el visor del navegador, audio con su
+  reproductor, imagen; siempre con enlaces para abrir y descargar. La CSP admite marcos y
+  audio del propio origen, y los documentos sólo se dejan enmarcar por la plataforma.
+- El observador ve todo, sin formularios. El titular y los revisores de otra convocatoria
+  reciben 404.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo: quién entra, la bandeja y
+sus filtros, cada acción con sus rechazos, un documento de otra postulación por la ruta
+de ésta, observaciones que el titular no ve, subsanación con la partitura inválida
+sumada sola, desbloqueo, descarte que el titular no ve, y las cabeceras del visor. En un
+navegador real: el recorrido de una revisora desde el menú hasta pedir la subsanación,
+con el filtro al escribir y el visor pidiendo el PDF.
+
+**No se hizo:** comprobar que el navegador dibuje el PDF dentro del marco (el Chromium
+sin interfaz del entorno no trae visor de PDF); probar el reproductor con un audio real
+(la convocatoria de la demostración que pide audio no está abierta).
+
+## Paso 11b — qué se entregó
+
+Segunda y última entrega del paso 11: con ella están completas las pantallas del
+postulante.
+
+**Decisiones:** [ADR 0018](adr/0018-documentos-envio-y-subsanacion-del-postulante.md).
+
+- **Documentos**: lo que se pide de la postulación y de cada obra, según su dotación, con
+  formato y tamaño; lo entregado, con descarga; **subida con barra de progreso**,
+  reemplazo y retiro. El error se dice en la ranura misma.
+- **Revisión y envío**: la postulación completa en sólo lectura, lo que falta con un
+  enlace al control exacto, las dos declaraciones y el envío. Después, el **estado**:
+  folio, fecha, en qué va y los acuses. El enlace del correo lleva aquí.
+- **Subsanación**: un aviso en todos los pasos; lo editable resaltado con el motivo del
+  revisor; la lista de lo señalado con enlaces; **solicitud de desbloqueo** con
+  justificación y su respuesta; reenvío con nuevo acuse.
+- **Defecto corregido**: desde el paso 6, toda subida de más de 1 MiB se rechazaba (el
+  límite general de los formularios seguía mandando). Ahora cada subida tiene el límite
+  de su requisito; una prueba con una partitura de 25 MB lo vigila.
+- La subida y el envío de la API pasaron a funciones compartidas con las páginas; la API
+  no cambia.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de las tres pantallas, con
+htmx y sin JavaScript, y de la subsanación entera. En un navegador real: el recorrido
+completo en escritorio y en móvil con archivos de 2 y 12 MB, una revisora que pide la
+subsanación y la postulante que la atiende y reenvía; la subida sin JavaScript en modo
+oscuro.
+
+**No se hizo:** una auditoría con lector de pantalla (queda para el cierre del frontal);
+el visor de PDF y el reproductor de audio integrados son del revisor y el jurado (paso 12).
+
+## Paso 11a — qué se entregó
+
+El paso 11 se parte en dos: **11a** (esto) y **11b** (documentos, revisión y envío,
+postulación enviada y subsanación).
+
+**Decisiones:** [ADR 0017](adr/0017-pantallas-del-postulante-y-tema-visual.md).
+
+- **Panel «Mis postulaciones»** (`/postulaciones`): el historial de la cuenta en todas las
+  ediciones, con su estado tal como lo ve el titular, y las convocatorias en las que puede
+  postular hoy (en Intérpretes, eligiendo solista o ensamble). El enlace por folio es
+  permanente.
+- **Formulario por pasos**: datos generales, propuesta de concierto (Intérpretes) y obras.
+  Los campos salen de la definición del modelo; un campo extendido nuevo aparece solo.
+  La barra de pasos dice cuánto falta en cada uno y cada paso lista lo suyo, con enlace al
+  control.
+- **Guardado automático** con htmx: «Guardado a las 14:32»; sólo se escribe lo que cambió;
+  una cola por paso; aviso si no se pudo guardar; lo no confirmado se envía al salir. El
+  error de cada campo aparece en su lugar.
+- **Listas dinámicas**: integrantes (un renglón a medias no se guarda, se avisa), ligas de
+  video con el resultado de su comprobación, y obras (añadir, mover, quitar, con el
+  máximo de la convocatoria).
+- **Sin JavaScript** todo funciona con botones; en **inglés**, con los nombres de los
+  países en inglés; en **móvil** y en **modo oscuro**.
+- **Tema visual** en `views/static/css/tema.css`: todos los colores y tipografías. Para
+  la imagen del 49º se cambian ese archivo, el logotipo y el icono. Rasgos tomados del
+  sitio del 48º: bandas de título, títulos de sección en versalitas, botones en píldora,
+  menú plegable en móvil.
+- Sin migraciones, dependencias ni operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de las páginas por sus dos
+caminos (htmx y sin JavaScript), comprobando en la base lo guardado: panel, permisos (lo
+ajeno da 404; una mutación que quita esa comprobación hace fallar las pruebas), guardado
+parcial con rechazos, entidad y sede que cambian de forma, integrantes, ligas, obras,
+cambio de subcategoría, inglés, campos extendidos y fuera de plazo. Otra prueba impide
+colores fuera de `tema.css`. En un navegador real (Playwright): el recorrido completo a
+1280 y a 390 px sin errores de consola, sin JavaScript y en modo oscuro; contraste AA de
+todos los pares de color medido en claro y en oscuro.
+
+**No se hizo:** los pasos de documentos y de revisión y envío (11b); una auditoría con
+lector de pantalla; incrustar tipografías (esperan la imagen del 49º).
+
+## Paso 10c — qué se entregó
+
+Tercera y última entrega del paso 10. Con ella termina el backend.
+
+**Decisiones:** [ADR 0016](adr/0016-modo-interactivo-y-export-csv.md).
+
+- **Modo interactivo** (`fimnme-cli --tui`, RF-CLI-02): administra ediciones,
+  convocatorias (títulos, límites, bases desde un archivo Markdown, calendario y cambio
+  de estado), dotaciones, requisitos documentales, criterios de evaluación y jurados y
+  revisores. También crea una convocatoria copiando la configuración de otra edición.
+- Es un **diálogo por renglones**, no una pantalla dibujada: sin `golang.org/x/term` ni
+  ninguna otra dependencia, funciona igual por SSH, en `podman exec` o con un lector de
+  pantalla, y se prueba entero.
+- **No tiene reglas propias**: cada cambio llama a la misma operación del repositorio que
+  la API, y lo que el modelo rechaza se explica con los textos del panel.
+- **`fimnme-cli export-csv`** (RF-CLI-05): genera un reporte desde una plantilla guardada.
+  El armado del reporte salió del manejador HTTP a `controllers.GenerarReporte`, que usan
+  la API y la herramienta: el mismo reporte sale idéntico por los dos caminos.
+- `export-csv` exige `--como`, la cuenta de un administrador o de la coordinación
+  nacional: se genera con sus permisos y queda en la bitácora a su nombre.
+- Sin migraciones, sin dependencias nuevas y sin operaciones nuevas en la API.
+
+**Verificado.** `make verificar`. Una prueba recorre el modo interactivo de punta a punta
+(alta de edición y convocatoria, rechazo al publicarla incompleta, bases, calendario,
+dotaciones, requisitos, criterios, asignaciones, publicación, copia desde otra edición,
+entrada que se acaba a media ficha y bitácora) comprobando en la base lo que cada diálogo
+dejó. Otra recorre `export-csv`: rechazos, salida estándar byte por byte, archivo con
+permisos `0600`, y bitácora a nombre de la cuenta. Dos mutaciones sembradas —quitar la
+comprobación de permisos del generador y la de la herramienta— hacen fallar las pruebas.
+En vivo, con los binarios: el modo interactivo en una terminal real (pty) sobre la base
+de las entregas anteriores, y `export-csv` a la salida estándar y a un archivo, en
+español y en inglés.
+
+**No se hizo:** una interfaz de terminal a pantalla completa (véase el ADR, §1); editar
+plantillas de correo y de reporte desde la terminal; y el ejemplo de temporizador para
+programar un reporte, que irá con los demás en el paso 14.
+
+## Paso 10b — qué se entregó
+
+El paso 10 quedó en tres entregas: 10a, **10b** (esto) y 10c (modo interactivo `--tui` y
+`export-csv`).
+
+**Decisiones:** [ADR 0015](adr/0015-extension-dinamica-e-importacion-asistida.md).
+
+- **Extensión dinámica de campos** (`fimnme-cli schema list | add | drop`): añade y quita
+  campos con `ALTER TABLE`, sin recompilar, sólo sobre la lista blanca de nodos y sólo
+  columnas `x_…`. Las tablas probatorias no se dejan tocar. Cada DDL queda en la bitácora.
+- Un campo extendido **aparece solo** en el formulario de postulación (si lo ve el
+  postulante), en el catálogo de reportes y en el expediente. Es siempre opcional, no
+  entra en el acuse y no se desbloquea en una subsanación.
+- **Captura** por el postulante (autoguardado) o por la administración
+  (`PUT /api/v1/extendidos/{tabla}/{id}`), según quién lo ve.
+- **Importación asistida** (`fimnme-cli import` y `/api/v1/importaciones`): analiza un
+  `.csv` o `.xlsx`, levanta un conflicto por cada renglón sin correspondencia unívoca, una
+  persona los resuelve, y el Commit entra entero o no entra. Tipos: dotaciones, cuentas
+  de jurado y cuentas de revisor.
+- Sin migraciones ni dependencias nuevas.
+
+**Verificado.** `make verificar`. Pruebas del modelo (lectura de CSV y XLSX, forma de los
+renglones, análisis, reglas, la cerca del DDL), de extremo a extremo (un campo extendido
+por todo su ciclo; importación de dotaciones y de cuentas con sus rechazos y su «todo o
+nada») y de la herramienta. En vivo, con los binarios: hojas XLSX reales escritas por
+LibreOffice, openpyxl y xlsxwriter; una importación completa; y `schema add` y `drop` con
+el servidor en marcha, viendo el campo en la API, en un reporte y en el expediente.
+
+**De paso** se corrigió una prueba anterior que fallaba de vez en cuando: dependía del
+orden en que se recorre un mapa.
+
+**No se hizo:** la conciliación de postulantes recurrentes (RF-IMP-06), la captura de
+campos extendidos en integrantes y ligas de video, y la exportación de los campos a
+MariaDB (paso 14). Véase el ADR.
+
+## Paso 10a — qué se entregó
+
+El paso 10 se partió en dos: **10a** (esto) y **10b** (importación asistida, extensión
+dinámica de campos y TUI).
+
+**Decisiones:** [ADR 0014](adr/0014-continuidad-portal-publico-y-anonimizacion.md).
+
+- **`fimnme-cli verify`**: compara el acervo con lo que la base registra. Distingue
+  pérdida, alteración, purga pendiente y huérfanos; termina con error si falta o cambió
+  algo. `--rapido` y `--purgar`.
+- **`fimnme-cli mirror`**: `snapshot` copia la base en caliente, replica el acervo por
+  contenido y firma un manifiesto con HMAC-SHA256; `verify` lo comprueba todo sin la base
+  en producción; `nueva-clave` y `list`.
+- **Alerta de espacio en disco** en `fimnme-web`: log y correo diario a los
+  administradores por debajo de `FIMNME_DISCO_MIN_GB`.
+- **Exportación al portal público**: `GET /api/v1/interop/convocatoria.json` y
+  `fimnme-cli export-json`. Bases, calendario y dotaciones en vivo; la **nómina de
+  seleccionados, sólo la que el administrador publicó** tras el cierre, congelada.
+- **Anonimización ARCO**: `fimnme-cli arco anonimizar FOLIO` y
+  `POST /api/v1/postulaciones/{id}/anonimizacion`. Borra los datos personales y los
+  archivos que los llevan; conserva obra, dictamen, evaluaciones y estadísticas.
+- Migración `0007`.
+
+**Verificado.** `make verificar`. Pruebas del modelo (firma y manipulación del manifiesto,
+verificación y réplica del acervo, lista blanca del portal campo por campo, reglas de la
+anonimización), de extremo a extremo (el portal en cada momento del proceso, con una lista
+negra que nunca debe aparecer; la anonimización, con los agregados idénticos antes y
+después; la alerta de disco) y de la herramienta. Una mutación que quita el filtro de
+seleccionadas hace fallar las pruebas. En vivo, con los binarios: migración de una base
+del paso 9b, `verify`, instantánea y su verificación sin base, exportación, y una
+anonimización completa —con sus rechazos— seguida de la retirada de los archivos del
+espejo.
+
+**Sin verificar aquí.** El transporte de la instantánea a otro servidor (rsync, `timer`
+de systemd), que es del paso 14. La verificación completa sobre un acervo de decenas de
+gigas.
+
+**No se hizo:** `export-csv` (prioridad S; va con el 10b).
+
+## Paso 9b — qué se entregó
+
+**Decisiones:** [ADR 0013](adr/0013-reportes-expediente-y-tableros.md).
+
+- **Expediente en PDF de una postulación** (`GET /api/v1/postulaciones/{id}/expediente`),
+  con fotografía, en español o inglés. **Cada quien recibe lo suyo**: el titular, su
+  postulación; el jurado, además su propia evaluación; el revisor, la revisión documental;
+  la supervisión, todo. Queda registrado.
+- **Expediente por convocatoria** (`POST /api/v1/expedientes`), en segundo plano: un solo
+  PDF con portada, índice, marcadores y una postulación por sección; con hoja de
+  calificación en blanco si se pide. El contenido se decide con los permisos vigentes
+  **al generarse**. Avisa por correo al terminar.
+- **Generador de reportes CSV**: catálogo de campos que sale del formulario, granularidad
+  por postulación o por obra, los filtros del archivo, rango y orden por puntaje,
+  separador, idioma y **plantillas** que sirven en ediciones posteriores.
+- **Reporte de resultados** en CSV, con los empates a la vista.
+- **Tablero de la convocatoria** y **estadísticas de la edición**; cada cifra trae el
+  filtro del archivo que la produce.
+- Migración `0006`: tabla `plantilla_reporte` y plantilla de correo `exportacion_lista`.
+- El escritor de PDF ganó imágenes JPEG, marcadores, saltos de página e índice; el acuse
+  sigue saliendo igual, byte por byte.
+
+**Verificado.** `make verificar`. Pruebas de extremo a extremo de lo que cada perfil
+recibe en el expediente, del expediente por convocatoria (índice, marcadores, permisos al
+generar), de los reportes y de los tableros. Dos mutaciones del recorte —dar supervisión
+a todos, leer la evaluación de otro jurado— hacen fallar las pruebas. En vivo, con los
+binarios: migración de una base del paso 9a, expediente individual y por convocatoria
+validados con `pdfinfo`, `pdftotext` y `pdfimages`, y revisados a la vista; reporte,
+tablero, estadísticas y aviso por correo.
+
+**Sin verificar aquí.** Un expediente de cientos de postulaciones con fotografías reales
+de teléfono (probado con imágenes generadas, incluida la orientación EXIF).
+
+**No se hizo:** anexar las partituras al expediente (RF-ARCH-44, prioridad S), reportes en
+segundo plano (S), XLSX y comparativa entre ediciones (C).
+
+## Paso 9a — qué se entregó
+
+El paso 9 se partió en dos: **9a** (esto) y **9b** (reportes, expediente PDF y tableros).
+
+**Decisiones:** [ADR 0012](adr/0012-archivo-busqueda-y-descargas-masivas.md).
+
+- **Un solo listado**, `GET /api/v1/archivo`, para todas las ediciones, vivas y archivadas.
+  Lo que cada cuenta ve lo decide `models.AlcanceDe` y no caduca: supervisión, todo;
+  revisor, lo enviado en su convocatoria; jurado, sólo lo que pasó a evaluación.
+- **Búsqueda de texto completo** (FTS5) sobre folio, nombres, nombre artístico, ensamble,
+  integrantes, títulos de obra, compositores y correos. Sin distinguir acentos ni
+  mayúsculas, por inicio de palabra y, si no hay resultados, por fragmento. El índice se
+  actualiza en la misma transacción que la postulación.
+- **Filtros combinables en la URL**: edición, convocatoria, tipo, subcategoría, estado,
+  dotación, entidad de residencia y del concierto, nacionalidad, país, género, estreno,
+  fechas de envío, con subsanaciones, documentos pendientes, ligas con problema y
+  selección por ids. **Orden** por seis columnas y **paginación** con el total.
+- **CSV del resultado** (`formato=csv`) y **vistas guardadas** por cuenta.
+- **Enlace permanente por folio**: `GET /api/v1/folios/{folio}`.
+- **Descarga masiva en ZIP**, en segundo plano: mismos filtros que el listado, selección
+  de tipos de documento, carpetas por folio y por obra, `manifiesto.csv` con SHA-256,
+  vigencia de siete días, sólo para quien la pidió, y registrada. El jurado no descarga
+  en masa; el postulante, sólo su postulación.
+- `fimnme-cli migrate` reconstruye el índice de búsqueda.
+
+**Verificado.** `make verificar`; pruebas de extremo a extremo de búsqueda, filtros,
+alcance por perfil, vistas y ZIP (contenido byte por byte, manifiesto, permisos,
+vencimiento y tarea interrumpida); una mutación que relaja el alcance del jurado hace
+fallar las pruebas. En vivo, con los binarios: migración de una base del paso 8, listado,
+CSV, ZIP y descarga por rangos.
+
+**Sin verificar aquí.** Un ZIP de varios gigas detrás de nginx o Caddy reales (los
+tiempos de espera de los ejemplos de `deploy/` ya contemplan descargas largas).
+
+**No se hizo** (prioridad C): volúmenes de ZIP y XLSX.
+
+## Paso 8 — qué se entregó
+
+- **Lista de trabajo del jurado** (RF-EVA-01 y 07). Las unidades por evaluar, el estado de
+  su evaluación de cada una y su avance.
+- **Unidad de evaluación** (RF-EVA-02, RN-16). La postulación en Intérpretes; cada obra en
+  Compositores.
+- **Calificación** (RF-EVA-03, 04 y 06, RN-17 a 19). Criterios de la convocatoria, enteros
+  dentro de su escala; observaciones opcionales; borrador incompleto; envío completo;
+  corrección mientras dure la etapa; congelación al cierre.
+- **Aislamiento entre jurados** (RF-EVA-05, RN-15, §8.4). Estructural: `JuradoRepo` sólo
+  alcanza lo propio; lo que cruza jurados vive en `SupervisionRepo`. Lo vigilan dos
+  pruebas que leen el código y una que barre todos los endpoints con la sesión de cada
+  jurado.
+- **Evaluación no a ciegas** (decisión de la CNMO). El jurado ve la postulación completa
+  y descarga sus documentos.
+- **Paso a evaluación** (RN-20). Las validadas pasan al jurado. La convocatoria avanza
+  aunque queden postulaciones en revisión: se validan después y se suman.
+- **Excusa por conflicto de interés** (RF-EVA-12). El jurado se excusa de una unidad, con
+  motivo; la matriz ordena por un puntaje que promedia entre quienes sí calificaron, para
+  que la excusa no perjudique.
+- **Postulación evaluada** (RF-EVA-09, RN-18) cuando los tres han enviado todo.
+- **Matriz de resultados** (RF-EVA-08). Puntaje por jurado y criterio, suma, promedio y
+  lugar. Sólo para supervisión; cada consulta queda en la bitácora.
+- **Dictamen final** (RF-CONV-10). Lo registra el administrador; sólo lo ve la supervisión.
+- **Sin migraciones nuevas**: todo cabía en el esquema de §8.3.
+
+Decisiones: [ADR 0011](adr/0011-evaluacion-por-jurado.md).
+
+**Lo que este paso NO incluye:**
+
+- **Correos al jurado** (RF-NOT-09 y 10, prioridad S).
+- **Matriz en CSV**: paso 9.
+- **Pantallas del jurado y de la matriz**: pasos 12 y 13.
+
+## Paso 7 — qué se entregó
+
+- **Bandeja del revisor** (RF-REV-01 y 10). Todas las postulaciones enviadas de la
+  convocatoria, sin reparto; filtros por estado, subcategoría, toma y texto; tablero de
+  avance. Marca las subsanadas y las vencidas.
+- **Toma blanda** (RF-REV-01b). «La reviso yo» informa a los demás y no bloquea.
+- **Dictamen por documento** (RF-REV-02 y 03, RN-11). Válido, inválido —con motivo
+  obligatorio— o pendiente. Se conserva el historial.
+- **Observaciones** internas, sobre la postulación o sobre una obra (RF-REV-04).
+- **Subsanación** (RF-REV-05 y 05b, §4.2). El revisor señala campos, documentos y listas;
+  los documentos inválidos se añaden solos. Un solo correo al postulante con la lista y el
+  plazo, en su idioma.
+- **Desbloqueo selectivo** (RN-12, 12b y 12c). Durante la subsanación el postulante
+  modifica **exactamente** lo señalado; todo lo demás se rechaza. Un solo objeto,
+  `PermisoDeEdicion`, gobierna todas las escrituras.
+- **Solicitudes de desbloqueo** (RF-POST-14, RF-REV-05c, RN-12d). El postulante pide
+  corregir algo no señalado; el revisor concede o niega, con motivo.
+- **Reenvío** (RF-REV-07, RN-13). Misma validación; mismo folio; acuse versión 2, sin
+  tocar el anterior; aviso a los revisores; la vista de revisión trae el *diff* entre los
+  dos envíos.
+- **Dictamen** (RF-REV-08). Validada o descartada, con motivo al descartar. Sin correo.
+- **Vencimiento** (RF-REV-09). No descarta: marca la postulación para el revisor.
+- **Límites de los documentos**, por decisión de la CNMO: audio, partitura y particellas
+  hasta 30 MB; las particellas, en un solo PDF.
+- **El descarte no se muestra al postulante**: es un estado interno de la revisión.
+- **Migraciones `0004` y `0005`**: plantillas de correo de la subsanación y los límites.
+- **Pruebas.** El motor de desbloqueo caso por caso; y un recorrido completo por la API:
+  revisión, subsanación, lo que el postulante puede y no puede tocar, desbloqueos,
+  reenvío, *diff*, dictamen y vencimiento.
+
+Decisiones: [ADR 0010](adr/0010-revision-documental-y-subsanacion.md).
+
+**Lo que este paso NO incluye:**
+
+- **Catálogo de motivos frecuentes** (parte de RF-REV-03): el motivo es texto libre.
+- **Pantallas del revisor**: paso 12.
+- **Paso de las validadas a evaluación**: paso 8.
+- **Búsqueda tolerante a acentos y erratas** en la bandeja: paso 9.
 
 ## Paso 6 — qué se entregó
 
@@ -366,10 +886,9 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 18. **Rangos admitidos:** duración de una obra de 1 a 600 minutos; año de fundación del
     ensamble de 1900 al año en curso. La especificación no los fija. La lista de
     integrantes es de longitud libre, con un tope de cordura de 300.
-19. **Formatos en Intérpretes.** La numeralia de 2026 distingue solista, dúo, trío,
-    cuarteto y ensamble (cinco o más), con un tabulador de pagos por formato. La
-    plataforma sólo distingue solista y ensamble, como la especificación; el formato
-    puede derivarse del número de integrantes. Confirmar si debe capturarse aparte.
+19. ~~Formatos en Intérpretes.~~ **Resuelto (13-nov-2026):** la plataforma distingue sólo
+    solista y ensamble. El tabulador por formato es para los pagos y no tiene que ver con
+    la convocatoria.
 20. **Bases oficiales de las convocatorias.** El repositorio del 48º Foro no las trae;
     las de la plataforma son texto de demostración hasta que se entreguen.
 21. **El acuse imprime los países por su código** («MX») hasta que el backend tenga sus
@@ -381,6 +900,145 @@ Decisiones tomadas provisionalmente en el paso 1 que conviene validar:
 23. **Formato del folio:** `FIM49-INT-0137`, consecutivo por convocatoria, como el ejemplo
     de la especificación.
 24. **Tope de 30 versiones por documento** y de **200 MB** por archivo (el máximo de cada
-    documento lo fija el administrador; por omisión, 100 MB para audio).
-25. **Formatos de audio:** WAV, FLAC y MP3 (RF-DOC-04). Confirmar si se necesitan otros
-    (AIFF, M4A, OGG).
+    documento lo fija el administrador; por omisión, 30 MB para audio).
+25. ~~Formatos de audio.~~ **Resuelto (13-nov-2026):** WAV, FLAC y MP3, con un máximo de
+    **30 MB** (ADR 0010, §11).
+26. ~~Qué ve el postulante de un descarte.~~ **Resuelto (13-nov-2026):** nada. El descarte
+    es un estado interno; al postulante su postulación le sigue apareciendo «en revisión».
+    Los demás estados sí los ve (ADR 0010, §8).
+27. **El revisor ve las postulaciones enviadas desde que llegan**, pero sólo puede actuar
+    en la etapa de revisión documental.
+28. **Un dictamen puede corregirse** (de validada a descartada o al revés) mientras la
+    convocatoria siga en revisión documental; cada cambio queda en la bitácora.
+29. **Plazo máximo de una subsanación: 90 días.** La especificación no lo fija.
+30. ~~Tamaños de los demás documentos.~~ **Resuelto (13-nov-2026):** audio, partitura y
+    particellas, 30 MB; las particellas, en un solo PDF; autorización (10 MB) y fotografía
+    (5 MB), como estaban.
+31. ~~Paso a evaluación con postulaciones sin dictaminar.~~ **Resuelto (13-nov-2026):** la
+    convocatoria avanza aunque falte alguna por subsanar; la revisión sigue durante la
+    evaluación y la postulación, al validarse, se suma a lo que el jurado tiene por
+    calificar (ADR 0011, §6).
+32. **Una evaluación enviada puede corregirse** mientras dure la etapa de evaluación; al
+    cerrarse queda congelada. La especificación dice que «la modifica mientras la etapa
+    esté abierta».
+33. **El postulante ve «en evaluación» y «evaluada»**, pero no el dictamen final ni
+    ninguna calificación.
+34. **La excusa de un jurado surte efecto al declararla**, sin aprobación del
+    administrador, que la ve en la matriz con su motivo. La especificación dice que «el
+    administrador resuelve» (ADR 0011, §7).
+35. **La matriz ordena por puntaje comparable** (promedio por jurado, llevado a tres), no
+    por la suma, para que una excusa no perjudique. Con tres jurados es la suma.
+36. **Al cerrar la evaluación, lo que siga en revisión queda fuera.** El sistema no lo
+    impide; la configuración muestra cuántas postulaciones quedan por dictaminar.
+37. **Una descarga masiva vive 7 días** y sólo puede bajarla quien la pidió. La
+    especificación pide un «enlace temporal» sin fijar el plazo (ADR 0012, §5).
+38. **El jurado no descarga en masa**: baja los documentos uno por uno. El postulante
+    puede pedir el ZIP de su propia postulación.
+39. **Administrador y observador encuentran también los borradores** en el archivo; los
+    revisores, no.
+40. **La tolerancia a erratas del buscador es por fragmento** («arril» encuentra
+    «Carrillo»), no por parecido («Carillo» no la encuentra). Lo segundo exigiría una
+    extensión de SQLite, es decir, una dependencia (ADR 0012, §3).
+41. **El buscador incluye los correos** de la cuenta y de contacto. Como la evaluación no
+    es a ciegas, el jurado también puede buscar por ellos.
+42. **El titular puede generar el expediente de su propia postulación** (§2.2), sin nada
+    interno. El pie de cada página lleva el nombre de quien lo generó.
+43. **El jurado puede pedir el expediente de su convocatoria** —su carpeta de trabajo—,
+    con su propia evaluación y ninguna otra (ADR 0013, §1).
+44. **Los campos de la evaluación en un reporte piden la granularidad de lo que se
+    califica**: por postulación en Intérpretes, por obra en Compositores.
+45. **Las claves del catálogo de reportes son las rutas del formulario**
+    (`datos.nombre_ensamble`), no las del extracto de §9 (`ensamble.nombre`).
+46. **Las plantillas de reporte se comparten** entre administrador y observador; el
+    observador puede guardar las suyas y borrar sólo ésas.
+47. **Los empates comparten lugar** en la matriz y en el reporte de resultados (1, 2, 2, 4).
+48. **El rango de puntaje de los reportes usa el puntaje comparable** (el mismo por el que
+    se ordena la matriz).
+49. **Las estadísticas cuentan las postulaciones enviadas**, también las descartadas; los
+    borradores no.
+50. **Las partituras no se anexan al expediente** por ahora: se bajan con la descarga
+    masiva (ADR 0013, §3).
+51. **De la nómina publicada salen el nombre artístico, la subcategoría, la semblanza y
+    los títulos de las obras.** No sale el compositor de cada obra de un programa de
+    Intérpretes: la lista blanca de la especificación no lo menciona (ADR 0014, §4).
+52. **La semblanza que se publica es la que el postulante capturó** en su postulación. Si
+    el portal debe llevar otra, hará falta un campo aparte.
+53. **El resultado se registra por postulación**, también en Compositores, donde el jurado
+    califica cada obra: una postulación seleccionada publica todas sus obras.
+54. **Qué conserva una anonimización**: partitura, particellas y audio (la obra); el año
+    de nacimiento, sin día ni mes; género, nacionalidad, país y entidad. Todo documento
+    que no sea la obra se borra (ADR 0014, §5).
+55. **Una postulación sólo se anonimiza con su proceso terminado**: convocatoria cerrada o
+    archivada, o postulación descartada.
+56. **La cuenta sólo se anonimiza si se pide** y si no tiene otras postulaciones.
+57. **Las instantáneas del espejo se conservan 90 días.** Hasta entonces, las anteriores a
+    una anonimización siguen conteniendo los datos borrados.
+58. **Umbral de la alerta de disco: 10 GB libres**, configurable.
+59. **La nómina se publica desde la API**, no desde la línea de órdenes: el registro exige
+    la cuenta del administrador que la autoriza.
+60. **Conciliación de postulantes recurrentes entre ediciones** (RF-IMP-06): no se hizo.
+    En este modelo un postulante es su cuenta y no hay una entidad «persona» sobre la
+    cual fundir dos cuentas. Hace falta decidir qué significaría (ADR 0015, §8).
+61. **Los campos extendidos de integrantes y de ligas de video** se pueden crear pero aún
+    no capturar (ADR 0015, §5).
+62. **Los campos extendidos sólo se añaden y se quitan desde `fimnme-cli`**, no desde el
+    panel: el servidor web nunca altera el esquema.
+63. **Una dotación sólo se da por existente si su nombre es idéntico**; con otras
+    mayúsculas o sin acento, lo decide una persona.
+64. **En una importación de cuentas todo renglón pide una decisión**, también cuando el
+    correo coincide con el de una cuenta (RN-30).
+65. **Columnas de las hojas**: dotaciones, `nombre_es` (obligatoria), `nombre_en`,
+    `descripcion_es`, `descripcion_en`; cuentas, `email`, `nombre`, `apellidos`
+    (obligatorias) e `idioma`.
+66. **El modo interactivo es un diálogo por menús**, no una pantalla dibujada: la
+    especificación preveía `golang.org/x/term` y no se usó (ADR 0016, §1).
+67. **Lo que se hace en el modo interactivo queda en la bitácora con el usuario del
+    sistema**, no con una cuenta del panel: no pide `--como`. Si la CNMO prefiere que
+    cada cambio de configuración lleve el nombre de un administrador, se le añade.
+68. **`export-csv` genera reportes en nombre de una cuenta** de administrador o de la
+    coordinación nacional (`--como`), con sus permisos, y así queda en la bitácora.
+69. **La imagen del 49º Foro** (colores, logotipo, tipografía) se aplica cambiando
+    `tema.css`, el logotipo y el icono. Mientras no exista, se usa la del 48º.
+70. **Sin JavaScript, cada lista del formulario es un formulario aparte**: lo escrito en
+    los datos generales se pierde si se pulsa «Añadir integrante» sin guardar antes. Con
+    JavaScript (el caso normal) no ocurre.
+71. **Los nombres de los países** son los de CLDR, con algunos ajustes a su forma corta.
+    México va primero en la lista.
+72. **Qué ve el postulante después de enviar**: «validada», «en evaluación» y «evaluada»
+    se le muestran, con el aviso de que el resultado se comunica por los medios oficiales
+    del Foro. El descarte no se le muestra (aparece «en revisión»).
+73. **Durante una subsanación**, el mensaje completo del correo se ofrece plegado en la
+    página, además de la lista de lo señalado.
+74. **Seis elementos por subsanación desde la pantalla**: si hacen falta más, se pide otra
+    cuando el postulante atienda la primera (la API admite hasta 100).
+75. **El revisor ve el correo del titular** en la vista de revisión.
+76. **El jurado ve la postulación completa, con los datos de contacto**, conforme a la
+    decisión de que la evaluación no es a ciegas. Si sólo debiera ver los datos
+    artísticos, se recortan en la ficha.
+77. **Las fechas del calendario se escriben en hora de la Ciudad de México**, no en la del
+    navegador de quien configura.
+78. **Las dotaciones no se borran**, ni por la API ni desde la pantalla: se retiran. Si se
+    quiere borrar una dotación capturada por error que nadie eligió, hace falta una
+    operación nueva.
+79. **El observador ve la configuración completa** (bases, requisitos, criterios, jurados
+    y revisores con sus correos), sin poder cambiarla.
+80. **La nómina (vista previa y publicación) es sólo del administrador**, como en la API.
+    Si el observador debe ver la vista previa, se abre en modo de consulta.
+81. **El observador ve en la matriz las observaciones de cada jurado**, además de sus
+    puntajes, conforme a «supervisión global de sólo lectura».
+82. **Las cifras del tablero que no son de la revisión** (borradores) todavía no llevan a
+    un listado. Con el buscador del archivo (13c) ya podrían llevar a él; queda para
+    cuando se revise el tablero con la CNMO.
+83. **El jurado no ve en el archivo lo que no llegó a evaluación**, aunque sea de su
+    convocatoria, y tampoco puede pedir descargas masivas (ADR 0012). Sí puede pedir el
+    expediente de su convocatoria, con su evaluación y ninguna otra.
+84. **Las descargas de «Mis descargas» se listan hasta 30**, las más recientes.
+85. **Plantillas de correo**: el catálogo es el de los correos que el sistema envía hoy.
+    Los de RF-NOT-09 y 10 (inicio de la evaluación y recordatorio a jurados, prioridad
+    S) aún no existen; cuando se hagan, entran al catálogo con sus variables.
+86. **El correo de prueba no queda en la bitácora**: queda en la bandeja de salida, como
+    cualquier correo. Las versiones nuevas sí quedan en la bitácora.
+87. **El observador ve las plantillas de correo en la pantalla**, en sólo lectura; la API
+    de plantillas es sólo del administrador.
+88. **La ayuda de las variables y la vista previa usan valores de muestra fijos**
+    («FIM49-INT-0137»); el nombre es el de quien edita.

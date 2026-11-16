@@ -85,7 +85,11 @@ func main() {
 		dirDatos       string
 		urlBase        string
 		correoMinuto   int
+		discoMinGB     int
 		mostrarVersion bool
+		// Transporte de correo (paso 14).
+		correoModo, correoDir, remitente      string
+		smtpServidor, smtpSeguridad, smtpUser string
 	)
 	// -s y --serve son la misma bandera, como en los demás sistemas de la CNMO.
 	const ayudaServe = "dirección IP en la que escucha el servidor (FIMNME_SERVE)"
@@ -103,6 +107,20 @@ func main() {
 		"dirección pública del sitio, para los enlaces de los correos; p. ej. https://postula.ejemplo.mx (FIMNME_URL_BASE)")
 	flag.IntVar(&correoMinuto, "correo-por-minuto", enteroDeEntorno("FIMNME_CORREO_POR_MINUTO", 30),
 		"máximo de correos que se envían por minuto (FIMNME_CORREO_POR_MINUTO)")
+	flag.IntVar(&discoMinGB, "disco-min-gb", enteroDeEntorno("FIMNME_DISCO_MIN_GB", 10),
+		"espacio libre mínimo del disco de datos, en GB; por debajo se alerta. 0 no vigila (FIMNME_DISCO_MIN_GB)")
+	flag.StringVar(&correoModo, "correo", entorno("FIMNME_CORREO", "registro"),
+		"transporte de correo: registro (sólo el log), archivo (.eml en --correo-dir) o smtp (FIMNME_CORREO)")
+	flag.StringVar(&correoDir, "correo-dir", entorno("FIMNME_CORREO_DIR", ""),
+		"directorio de los .eml con --correo archivo; por omisión <datos>/correo (FIMNME_CORREO_DIR)")
+	flag.StringVar(&remitente, "remitente", entorno("FIMNME_REMITENTE", "FIMNME <no-responder@localhost>"),
+		"remitente de los correos, p. ej. «FIMNME <foro@dominio.mx>» (FIMNME_REMITENTE)")
+	flag.StringVar(&smtpServidor, "smtp-servidor", entorno("FIMNME_SMTP_SERVIDOR", "127.0.0.1:25"),
+		"servidor SMTP host:puerto, con --correo smtp (FIMNME_SMTP_SERVIDOR)")
+	flag.StringVar(&smtpSeguridad, "smtp-seguridad", entorno("FIMNME_SMTP_SEGURIDAD", controllers.SMTPSinTLS),
+		"starttls (587), tls (465) o ninguno (sólo hacia 127.0.0.1) (FIMNME_SMTP_SEGURIDAD)")
+	flag.StringVar(&smtpUser, "smtp-usuario", entorno("FIMNME_SMTP_USUARIO", ""),
+		"usuario SMTP; vacío, sin autenticación. La contraseña va SÓLO en FIMNME_SMTP_PASSWORD (FIMNME_SMTP_USUARIO)")
 	flag.BoolVar(&mostrarVersion, "version", false, "muestra la versión y termina")
 	flag.Parse()
 
@@ -174,16 +192,36 @@ func main() {
 
 	app := controllers.Nueva(controllers.Config{
 		Vistas: vistas, Datos: repositorio, Entorno: modo, Log: log, URLBase: urlBase,
-		Almacen: almacen, Enlaces: verificador,
+		Almacen: almacen, Enlaces: verificador, Exportaciones: filepath.Join(dirDatos, "exportaciones"),
 	})
 
-	// Transporte de correo. Aún no existe el SMTP propio (paso 14 del plan):
-	// los mensajes se escriben en el log en vez de enviarse. El cuerpo, que
-	// lleva enlaces de un solo uso, sólo se muestra en desarrollo.
-	mailer := controllers.MailerRegistro{Log: log, MostrarCuerpo: modo == controllers.EntornoDesarrollo}
-	if modo == controllers.EntornoProduccion {
-		log.Warn("NO hay transporte de correo real: los mensajes no se envían y sus enlaces no se muestran; " +
-			"las cuentas no podrán verificarse ni recuperarse hasta configurar el SMTP")
+	// Transporte de correo (§5.9). «registro» no envía nada: escribe cada
+	// mensaje en el log (el cuerpo, con sus enlaces de un solo uso, sólo en
+	// desarrollo). «archivo» guarda el mensaje completo como .eml: para un
+	// servidor que no puede enviar correo. «smtp» lo entrega: al Postfix
+	// local en la instalación final, o a un relevo externo.
+	lector := controllers.LectorDeArchivos{Datos: repositorio, Almacen: almacen}
+	var mailer models.Mailer
+	switch correoModo {
+	case "registro":
+		mailer = controllers.MailerRegistro{Log: log, MostrarCuerpo: modo == controllers.EntornoDesarrollo}
+		if modo == controllers.EntornoProduccion {
+			log.Warn("correo en modo registro: los mensajes no se envían y sus enlaces no se muestran; " +
+				"las cuentas no podrán verificarse ni recuperarse. Use --correo archivo o --correo smtp")
+		}
+	case "archivo":
+		if correoDir == "" {
+			correoDir = filepath.Join(dirDatos, "correo")
+		}
+		mailer = controllers.MailerArchivo{LectorDeArchivos: lector, Directorio: correoDir, Remitente: remitente}
+		log.Warn("correo en modo archivo: los mensajes NO se envían; se guardan como .eml", "directorio", correoDir)
+	case "smtp":
+		mailer = controllers.MailerSMTP{LectorDeArchivos: lector, Servidor: smtpServidor, Seguridad: smtpSeguridad,
+			Usuario: smtpUser, Password: os.Getenv("FIMNME_SMTP_PASSWORD"), Remitente: remitente}
+		log.Info("correo por SMTP", "servidor", smtpServidor, "seguridad", smtpSeguridad, "remitente", remitente)
+	default:
+		fmt.Fprintf(os.Stderr, "fimnme-web: transporte de correo desconocido: %q (registro, archivo o smtp)\n", correoModo)
+		os.Exit(2)
 	}
 	trabajador := &controllers.TrabajadorCorreo{Bandeja: repositorio, Mailer: mailer, Log: log, PorMinuto: correoMinuto}
 	servidor := &http.Server{
@@ -209,7 +247,13 @@ func main() {
 	etapas := &controllers.TrabajadorEtapas{Datos: repositorio, Log: log}
 	enlaces := &controllers.TrabajadorEnlaces{Datos: repositorio, Verificador: verificador, Log: log}
 	recordatorios := &controllers.TrabajadorRecordatorios{Datos: repositorio, Vistas: vistas, Log: log, URLBase: urlBase}
-	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar} {
+	exportaciones := &controllers.TrabajadorExportaciones{Datos: repositorio, Almacen: almacen, Vistas: vistas, Log: log,
+		Directorio: filepath.Join(dirDatos, "exportaciones"), URLBase: urlBase}
+	// Vigilante del espacio en disco: alerta antes de que el disco se llene.
+	disco := &controllers.TrabajadorDisco{Datos: repositorio, Vistas: vistas, Log: log, Directorio: dirDatos,
+		MinimoLibre: uint64(max(discoMinGB, 0)) << 30}
+	for _, ejecutar := range []func(context.Context){trabajador.Ejecutar, etapas.Ejecutar, enlaces.Ejecutar, recordatorios.Ejecutar,
+		exportaciones.Ejecutar, disco.Ejecutar} {
 		trabajadores.Go(func() { ejecutar(ctx) })
 	}
 

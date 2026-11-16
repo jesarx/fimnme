@@ -1,0 +1,87 @@
+{{- /*
+  Matriz de resultados (RF-EVA-08 y 09): por unidad de evaluación, lo que
+  calificó cada jurado por criterio, la suma, el puntaje comparable por el
+  que se ordena —una excusa no perjudica—, el promedio, las observaciones de
+  los jurados y el dictamen final. Recibe en .Datos una vistaMatriz.
+
+  Sólo la ve la supervisión. El dictamen final se captura aquí si la sesión
+  es administrador y la convocatoria está en evaluación o cerrada; no se
+  comunica al postulante.
+*/ -}}
+{{define "banda"}}{{template "banda_supervision" .}}{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+{{template "pestanas_supervision" .}}
+{{- $criterios := len $v.Criterios}}
+
+<div class="supervision__cabeza">
+  <p class="campo__ayuda">{{.T "supervision.resultados_ayuda"}}</p>
+  {{- if $v.Filas}}<p><a class="boton boton--menor boton--secundario" href="{{$v.DescargarCSV}}">{{.T "supervision.descargar_resultados"}}</a></p>{{end}}
+</div>
+{{- if and $v.Error (not $v.ErrorDeID)}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+
+{{- if $v.Filas}}
+<div class="tabla-contenedor">
+<table class="tabla tabla--compacta matriz">
+  <caption class="oculto">{{.T "supervision.resultados"}}</caption>
+  <thead>
+    <tr>
+      <th scope="col" rowspan="2">{{.T "reporte.campo.eval.lugar"}}</th>
+      <th scope="col" rowspan="2">{{.T "reporte.postulante"}}</th>
+      {{- if $v.PorObra}}<th scope="col" rowspan="2">{{.T "reporte.obra"}}</th>{{end}}
+      <th scope="col" rowspan="2" class="matriz__numero">{{.T "reporte.campo.eval.puntaje"}}</th>
+      <th scope="col" rowspan="2" class="matriz__numero">{{.T "reporte.campo.eval.total"}}</th>
+      <th scope="col" rowspan="2" class="matriz__numero">{{.T "reporte.campo.eval.promedio"}}</th>
+      <th scope="col" rowspan="2">{{.T "reporte.campo.dictamen"}}</th>
+      {{- range $v.Jurados}}<th scope="colgroup" colspan="{{$criterios}}" class="matriz__jurado">{{.}}</th>{{end}}
+    </tr>
+    <tr>
+      {{- range $v.Jurados}}{{range $v.Criterios}}<th scope="col" class="matriz__criterio">{{.}}</th>{{end}}{{end}}
+    </tr>
+  </thead>
+  <tbody>
+    {{- range $v.Filas}}
+    <tr id="{{.Ancla}}">
+      <td class="matriz__numero">{{if .Lugar}}{{.Lugar}}{{else}}—{{end}}</td>
+      <td class="matriz__postulante">
+        <a href="{{.Revision}}">{{.Folio}}</a><br>{{.Nombre}}
+        <br><span class="nota">{{$.T .Estado}} · {{$.T "supervision.evaluaron" .Evaluaron}}</span>
+        {{- if .Observaciones}}
+        <details class="matriz__observaciones">
+          <summary>{{$.T "supervision.observaciones_n" (len .Observaciones)}}</summary>
+          <dl>{{range .Observaciones}}<dt>{{.Jurado}}</dt><dd>{{.Texto}}</dd>{{end}}</dl>
+        </details>
+        {{- end}}
+      </td>
+      {{- if $v.PorObra}}<td>{{.Obra}}</td>{{end}}
+      <td class="matriz__numero"><b>{{.Comparable}}</b></td>
+      <td class="matriz__numero">{{if .Evaluaron}}{{.Total}}{{end}}</td>
+      <td class="matriz__numero">{{.Promedio}}</td>
+      <td class="matriz__dictamen">
+        {{- if and .ConFormulario $v.PuedeDictaminar}}
+        {{- if and $v.Error (eq $v.ErrorDeID .Ancla)}}<p class="campo__error" role="alert">{{$v.Error}}</p>{{end}}
+        <form method="post" action="/supervision/postulaciones/{{.PostulacionID}}/dictamen-final" class="matriz__formulario">
+          <label for="d-{{.PostulacionID}}" class="oculto">{{$.T "reporte.campo.dictamen"}} · {{.Folio}}</label>
+          <select id="d-{{.PostulacionID}}" name="dictamen">
+            {{- $elegido := .DictamenValor}}
+            {{- range $v.Dictamenes}}<option value="{{.Valor}}"{{if eq .Valor $elegido}} selected{{end}}>{{.Texto}}</option>{{end}}
+          </select>
+          <button class="boton boton--menor" type="submit">{{$.T "admin.guardar"}}</button>
+        </form>
+        {{- else if .Dictamen}}{{$.T .Dictamen}}
+        {{- else}}<span class="campo__vacio">{{$.T "supervision.sin_dictamen"}}</span>{{end}}
+      </td>
+      {{- range .Celdas}}
+      {{- if .Excusado}}<td colspan="{{$criterios}}" class="matriz__excusa">{{$.T "expediente.excusa"}}</td>
+      {{- else}}{{range .Puntajes}}<td class="matriz__numero">{{if .}}{{.}}{{else}}<span class="campo__vacio" title="{{$.T "supervision.sin_enviar"}}">·</span>{{end}}</td>{{end}}{{end}}
+      {{- end}}
+    </tr>
+    {{- end}}
+  </tbody>
+</table>
+</div>
+{{- else}}
+<p class="vacio">{{.T "supervision.sin_resultados"}}</p>
+{{- end}}
+{{end}}

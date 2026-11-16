@@ -89,6 +89,8 @@ func Nuevo() (*Motor, error) {
 	funciones := template.FuncMap{
 		"estatico": m.URLEstatico,
 		"dict":     dict,
+		// suma: para numerar desde 1 los renglones de una lista.
+		"suma": func(a, b int) int { return a + b },
 		// anio: el año en curso en la Ciudad de México, para el aviso de derechos.
 		"anio": func() int { return time.Now().In(ZonaMexico()).Year() },
 	}
@@ -169,6 +171,42 @@ func (m *Motor) Render(w http.ResponseWriter, estado int, plantilla string, p *P
 	return err
 }
 
+// RenderFragmento ejecuta un solo bloque ({{define}}) de una página y lo
+// escribe. Es lo que se le responde a htmx: el trozo de HTML que cambió —el
+// aviso de guardado, una obra recién añadida—, no la página entera. El bloque
+// recibe la misma *Pagina que la página completa, y también se genera primero
+// en memoria.
+func (m *Motor) RenderFragmento(w http.ResponseWriter, estado int, plantilla, bloque string, p *Pagina) error {
+	t, ok := m.paginas[plantilla]
+	if !ok {
+		return fmt.Errorf("plantilla desconocida: %s", plantilla)
+	}
+	p.motor = m
+	var salida bytes.Buffer
+	if err := t.ExecuteTemplate(&salida, bloque, p); err != nil {
+		return fmt.Errorf("bloque %s de %s: %w", bloque, plantilla, err)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(estado)
+	_, err := salida.WriteTo(w)
+	return err
+}
+
+// FechaCivil formatea una fecha sin hora en el idioma dado (véase
+// Traducciones.FechaCivil).
+func (m *Motor) FechaCivil(idioma, texto string) string {
+	return m.textos.FechaCivil(idioma, texto)
+}
+
+// TextoOpcional traduce una clave que puede no existir, como la ayuda de un
+// campo: si no hay texto en ningún idioma devuelve "", no la propia clave.
+func (m *Motor) TextoOpcional(idioma, clave string) string {
+	if texto := m.textos.T(idioma, clave); texto != clave {
+		return texto
+	}
+	return ""
+}
+
 // Pagina es el dato raíz que recibe toda plantilla. Sus métodos resuelven
 // traducción y formato en el idioma de la petición, por lo que dentro de un
 // {{range}} se invocan con $ (p. ej. {{$.T "clave"}}).
@@ -218,6 +256,42 @@ func (p *Pagina) T(clave string, args ...any) string {
 	return p.motor.textos.T(p.Idioma, clave, args...)
 }
 
+// EnSeccion indica si la página actual está bajo una ruta, para marcar en el
+// menú la sección en la que se está: «/postulaciones» lo están el panel y
+// todos los pasos de una postulación.
+func (p *Pagina) EnSeccion(prefijo string) bool {
+	return p.Ruta == prefijo || strings.HasPrefix(p.Ruta, prefijo+"/")
+}
+
+// VeArchivo indica si el menú debe ofrecer el archivo: al personal
+// (supervisión, revisores y jurados), no al postulante.
+func (p *Pagina) VeArchivo() bool {
+	return !models.AlcanceDe(p.Sesion).Vacio()
+}
+
+// VeAdministracion indica si el menú debe ofrecer la administración: a quien
+// supervisa (el observador la ve, sin poder cambiar nada).
+func (p *Pagina) VeAdministracion() bool {
+	return models.PuedeSupervisar(p.Sesion)
+}
+
+// Administra indica si la sesión puede cambiar la configuración: las pantallas
+// de administración muestran sus formularios sólo entonces.
+func (p *Pagina) Administra() bool {
+	return models.PuedeAdministrar(p.Sesion)
+}
+
+// VeEvaluacion indica si el menú debe ofrecer la evaluación: sólo a quien
+// es jurado de alguna convocatoria.
+func (p *Pagina) VeEvaluacion() bool {
+	return len(models.EvaluacionesDe(p.Sesion)) > 0
+}
+
+// VeRevision indica si el menú debe ofrecer la revisión documental.
+func (p *Pagina) VeRevision() bool {
+	return models.PuedeEntrarARevision(p.Sesion)
+}
+
 // OtroIdioma devuelve el idioma al que conmuta el selector de la cabecera.
 func (p *Pagina) OtroIdioma() string {
 	if p.Idioma == models.IdiomaEN {
@@ -239,6 +313,13 @@ func (p *Pagina) Fecha(t time.Time) string {
 // FechaHora formatea día y hora con la zona horaria explícita (RF-I18N-06).
 func (p *Pagina) FechaHora(t time.Time) string {
 	return p.motor.textos.FechaHora(p.Idioma, t)
+}
+
+// Hora formatea sólo la hora, en la de la Ciudad de México y con la zona
+// explícita: «14:32 h (hora de la Ciudad de México)». Es la del aviso
+// «Guardado a las…»; fimnme.js la cambia por la hora local de quien mira.
+func (p *Pagina) Hora(t time.Time) string {
+	return p.motor.textos.Hora(p.Idioma, t)
 }
 
 // ISO devuelve la marca en ISO-8601 UTC para el atributo datetime de <time>.

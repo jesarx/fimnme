@@ -1,0 +1,445 @@
+{{- /*
+  Parciales del formulario de postulación (§5.3). Los comparten la página
+  completa de cada paso y los fragmentos que recibe htmx tras un guardado.
+
+  Guardado automático: cada formulario se envía solo poco después de que se
+  deja de escribir (input … delay) y al salir de un control (change). Todas
+  las peticiones de un paso van por UNA cola (hx-sync sobre .paso): así, al
+  pulsar «Quitar» o «Añadir» con algo recién escrito, el guardado sale antes
+  y termina antes de que la lista se repinte.
+
+  Los bloques comunes —"guardado", "avance" y "faltantes"— reciben la
+  *views.Pagina y se pintan «fuera de banda» (hx-swap-oob) cuando .Datos.OOB
+  es verdadero: así un guardado actualiza el aviso, la barra de avance y la
+  lista de lo que falta sin tocar el control donde se está escribiendo.
+
+  Ninguno decide nada: pintan lo que el controlador ya resolvió.
+*/ -}}
+
+{{- /* "avance": barra de pasos, con lo que le falta a cada uno (RF-POST-04). */ -}}
+{{define "avance"}}
+<nav id="avance" class="avance" aria-label="{{.T "postulacion.pasos"}}"{{if .Datos.OOB}} hx-swap-oob="true"{{end}}>
+  <ol>
+    {{- range .Datos.Pasos}}
+    <li class="avance__paso{{if .Actual}} avance__paso--actual{{end}}{{if .Completo}} avance__paso--completo{{end}}">
+      {{- if .URL}}<a href="{{.URL}}"{{if .Actual}} aria-current="step"{{end}}>{{else}}<span class="avance__sin-pantalla">{{end}}
+      <span class="avance__numero" aria-hidden="true">{{.Numero}}</span>
+      <span class="avance__nombre">{{.Etiqueta}}</span>
+      <span class="avance__estado">
+        {{- if .Completo}}{{$.T "postulacion.paso_completo"}}
+        {{- else if eq .Pendientes 1}}{{$.T "postulacion.paso_falta_uno"}}
+        {{- else}}{{$.T "postulacion.paso_faltan" .Pendientes}}{{end -}}
+      </span>
+      {{- if .URL}}</a>{{else}}</span>{{end}}
+    </li>
+    {{- end}}
+  </ol>
+</nav>
+{{end}}
+
+{{- /*
+  "guardado": confirmación explícita del guardado (RF-POST-03, RNF-02). Es
+  una región viva: un lector de pantalla la anuncia. fimnme.js escribe en
+  ella «Guardando…» mientras hay algo sin confirmar y el aviso de falla si el
+  servidor no responde; los textos le llegan en los atributos data-.
+*/ -}}
+{{define "guardado"}}
+<p id="guardado" class="guardado{{if .Datos.Fallo}} guardado--error{{end}}" role="status" aria-live="polite"
+  data-pendiente="{{.T "postulacion.guardando"}}" data-fallo="{{.T "postulacion.guardado_fallo"}}"{{if .Datos.OOB}} hx-swap-oob="true"{{end}}>
+  {{- if .Datos.Fallo}}{{.Datos.Fallo}}
+  {{- else if .Datos.GuardadoAhora}}{{.T "postulacion.guardado_a_las"}} <time datetime="{{.ISO .Datos.GuardadoAt}}" data-hora-local>{{.Hora .Datos.GuardadoAt}}</time>
+  {{- else}}{{.T "postulacion.ultimo_guardado"}} <time datetime="{{.ISO .Datos.GuardadoAt}}">{{.FechaHora .Datos.GuardadoAt}}</time>
+  {{- end -}}
+</p>
+{{end}}
+
+{{- /* "faltantes": lo que le falta a este paso para poder enviar, con enlace a cada dato. */ -}}
+{{define "faltantes"}}
+<section id="faltantes" class="faltantes"{{if .Datos.OOB}} hx-swap-oob="true"{{end}}>
+  {{- if .Datos.Faltantes}}
+  <h3 class="titulo-seccion">{{.T "postulacion.falta_en_paso"}}</h3>
+  <ul>
+    {{- range .Datos.Faltantes}}
+    <li><a href="#{{.Ancla}}">{{.Mensaje}}</a></li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="faltantes__listo">{{.T "postulacion.paso_listo"}}</p>
+  {{- end}}
+</section>
+{{end}}
+
+{{- /*
+  "pcampo": un campo del formulario, pintado a partir de su definición.
+  Argumentos (con dict): P (*views.Pagina), C (el campo) y OOB (opcional).
+  Si quien lo mira no puede modificarlo se muestra como texto.
+
+  El párrafo del error existe siempre, vacío si no lo hay: es donde htmx
+  escribe el motivo cuando el servidor rechaza un valor.
+*/ -}}
+{{define "pcampo"}}
+{{- $c := .C}}{{$p := .P}}
+<div class="campo{{if not $c.Editable}} campo--fijo{{end}}{{if $c.Resaltado}} campo--resaltado{{end}}" id="c-{{$c.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  {{- if $c.Editable}}
+  {{- if $c.Resaltado}}
+  <p class="senalado" id="s-{{$c.ID}}"><span class="senalado__rotulo">{{$p.T "subsanacion.por_corregir"}}</span>{{if $c.Senalado}} {{$c.Senalado}}{{end}}</p>
+  {{- end}}
+  <label for="{{$c.ID}}">{{$c.Etiqueta}}
+    {{- if $c.Condicional}} <span class="campo__opcional">{{$p.T "form.si_aplica"}}</span>
+    {{- else if not $c.Obligatorio}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span>{{end}}</label>
+  {{- if $c.Ayuda}}
+  <p class="campo__ayuda" id="a-{{$c.ID}}">{{$c.Ayuda}}</p>
+  {{- end}}
+  {{- if eq $c.Control "area"}}
+  <textarea id="{{$c.ID}}" name="{{$c.Ruta}}" rows="6"{{if $c.Longitud}} maxlength="{{$c.Longitud}}"{{end}}
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">{{$c.Valor}}</textarea>
+  {{- else if eq $c.Control "seleccion"}}
+  <select id="{{$c.ID}}" name="{{$c.Ruta}}"
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
+    <option value="">{{$p.T "form.elige"}}</option>
+    {{- range $c.Opciones}}
+    <option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>
+    {{- end}}
+  </select>
+  {{- else}}
+  <input id="{{$c.ID}}" name="{{$c.Ruta}}" type="{{$c.Tipo}}" value="{{$c.Valor}}"
+    {{- if $c.Numerico}} inputmode="numeric"{{end}}
+    {{- if $c.Autocompletar}} autocomplete="{{$c.Autocompletar}}"{{end}}
+    {{- if $c.Longitud}} maxlength="{{$c.Longitud}}"{{end}}
+    {{- if $c.Obligatorio}} aria-required="true"{{end}} aria-describedby="{{if $c.Resaltado}}s-{{$c.ID}} {{end}}{{if $c.Ayuda}}a-{{$c.ID}} {{end}}e-{{$c.ID}}">
+  {{- end}}
+  <p class="campo__error" id="e-{{$c.ID}}">{{$c.Error}}</p>
+  {{- else}}
+  <p class="campo__rotulo">{{$c.Etiqueta}}</p>
+  <p class="campo__valor">{{if $c.Texto}}{{$c.Texto}}{{else}}<span class="campo__vacio">{{$p.T "form.sin_dato"}}</span>{{end}}</p>
+  {{- end}}
+</div>
+{{end}}
+
+{{- /* "pgrupo": un bloque de campos con su título. Argumentos: P, G y OOB. */ -}}
+{{define "pgrupo"}}
+<fieldset class="grupo" id="{{.G.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}>
+  <legend class="titulo-seccion">{{.P.T .G.Titulo}}</legend>
+  {{- if .G.Nota}}
+  <p class="nota">{{.G.Nota}}</p>
+  {{- end}}
+  {{- range .G.Campos}}
+  {{template "pcampo" (dict "P" $.P "C" .)}}
+  {{- end}}
+</fieldset>
+{{end}}
+
+{{- /*
+  "integrantes": la lista de integrantes de un ensamble (RF-POST-06). Es un
+  formulario propio: se guarda sola mientras se escribe y, al añadir o quitar
+  un renglón, el servidor la devuelve entera. Sin JavaScript, los mismos
+  botones la envían.
+*/ -}}
+{{define "integrantes"}}
+<form id="integrantes" class="lista{{if and .Datos.IntegrantesEditable (not .Datos.Total)}} lista--resaltada{{end}}" method="post" action="{{.Datos.Base}}/integrantes" novalidate
+  {{- if .Datos.IntegrantesEditable}} data-autoguardado hx-post="{{.Datos.Base}}/integrantes" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all"{{end}}>
+  <fieldset class="grupo">
+    <legend class="titulo-seccion">{{.T "campo.integrantes"}}</legend>
+    {{- if .Datos.IntegrantesEditable}}
+    <p class="nota">{{.T "postulacion.integrantes_nota"}}</p>
+    <ol class="renglones">
+      {{- range $i, $x := .Datos.Integrantes}}
+      <li class="renglon">
+        <div class="campo">
+          <label for="i-nombre-{{$i}}">{{$.T "postulacion.integrante_nombre"}}</label>
+          <input id="i-nombre-{{$i}}" name="nombre" type="text" value="{{$x.Nombre}}" maxlength="200" autocomplete="off"{{if $x.Nuevo}} autofocus{{end}}>
+        </div>
+        <div class="campo">
+          <label for="i-instrumento-{{$i}}">{{$.T "postulacion.integrante_instrumento"}}</label>
+          <input id="i-instrumento-{{$i}}" name="instrumento" type="text" value="{{$x.Instrumento}}" maxlength="200" autocomplete="off">
+        </div>
+        <button class="boton boton--menor boton--secundario renglon__quitar" type="submit" name="accion" value="quitar:{{$i}}"
+          hx-post="{{$.Datos.Base}}/integrantes" hx-vals='{"accion": "quitar:{{$i}}"}' hx-target="#integrantes" hx-swap="outerHTML">
+          {{- $.T "postulacion.quitar"}}<span class="oculto"> {{$.T "postulacion.integrante_n" (suma $i 1)}}</span></button>
+      </li>
+      {{- end}}
+    </ol>
+    <p class="campo__error" id="nota-integrantes">{{.Datos.NotaIntegrantes}}</p>
+    <p class="lista__acciones">
+      <button class="boton boton--menor boton--secundario" type="submit" name="accion" value="agregar"
+        hx-post="{{.Datos.Base}}/integrantes" hx-vals='{"accion": "agregar"}' hx-target="#integrantes" hx-swap="outerHTML">{{.T "postulacion.agregar_integrante"}}</button>
+      <button class="boton boton--menor solo-sin-js" type="submit">{{.T "postulacion.guardar_integrantes"}}</button>
+    </p>
+    {{- else if .Datos.Integrantes}}
+    <ol class="lista-fija">
+      {{- range .Datos.Integrantes}}
+      <li>{{.Nombre}} <span class="lista-fija__detalle">{{.Instrumento}}</span></li>
+      {{- end}}
+    </ol>
+    {{- else}}
+    <p class="campo__valor"><span class="campo__vacio">{{.T "form.sin_dato"}}</span></p>
+    {{- end}}
+  </fieldset>
+</form>
+{{end}}
+
+{{- /*
+  "videos": las ligas a videos de ejecución (RF-POST-08). Siempre hay tantos
+  renglones como admite la convocatoria; los que quedan en blanco no cuentan.
+  Bajo cada liga va el resultado de su comprobación en red.
+*/ -}}
+{{define "videos"}}
+<form id="videos" class="lista{{if and .Datos.VideosEditable (not .Datos.Total)}} lista--resaltada{{end}}" method="post" action="{{.Datos.Base}}/videos" novalidate
+  {{- if .Datos.VideosEditable}} data-autoguardado hx-post="{{.Datos.Base}}/videos" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all"{{end}}>
+  <fieldset class="grupo">
+    <legend class="titulo-seccion">{{.T "campo.videos"}}</legend>
+    {{- if .Datos.VideosEditable}}
+    <p class="nota">{{.T "postulacion.videos_nota" (len .Datos.Videos)}}</p>
+    {{- range .Datos.Videos}}
+    <div class="campo">
+      <label for="v-{{.Numero}}">{{$.T "postulacion.video_n" .Numero}}{{if gt .Numero 1}} <span class="campo__opcional">{{$.T "form.opcional"}}</span>{{end}}</label>
+      <input id="v-{{.Numero}}" name="liga" type="url" value="{{.URL}}" maxlength="2000" autocomplete="off" aria-describedby="ve-{{.Numero}} nota-videos">
+      <p class="campo__ayuda enlace-estado" id="ve-{{.Numero}}">{{.Estado}}</p>
+    </div>
+    {{- end}}
+    <p class="campo__error" id="nota-videos">{{.Datos.NotaVideos}}</p>
+    <p class="lista__acciones solo-sin-js"><button class="boton boton--menor" type="submit">{{.T "postulacion.guardar_videos"}}</button></p>
+    {{- else}}
+    <ol class="lista-fija">
+      {{- range .Datos.Videos}}{{if .URL}}
+      <li><a href="{{.URL}}" rel="noopener noreferrer">{{.URL}}</a> <span class="lista-fija__detalle">{{.Estado}}</span></li>
+      {{- end}}{{end}}
+    </ol>
+    {{- end}}
+  </fieldset>
+</form>
+{{end}}
+
+{{- /*
+  "obra": una obra del programa. Argumentos: P y O. Lleva dos formularios:
+  el de sus acciones (subir, bajar, quitar), que hace repintar la lista, y el
+  de sus campos, que se guarda solo.
+*/ -}}
+{{define "obra"}}
+{{- $p := .P}}{{$o := .O}}
+<li class="obra" id="obra-{{$o.ID}}">
+  <div class="obra__cabeza">
+    <h3 id="t-obra-{{$o.ID}}"{{if $o.Foco}} tabindex="-1" autofocus{{end}}>{{$p.T "postulacion.obra_n" $o.Numero}}{{if $o.Titulo}} <span class="obra__titulo">{{$o.Titulo}}</span>{{end}}</h3>
+    {{- if $o.Editable}}
+    <div class="obra__acciones">
+      <form method="post" action="{{$p.Datos.Base}}/obras/{{$o.ID}}" hx-post="{{$p.Datos.Base}}/obras/{{$o.ID}}" hx-target="#obras" hx-swap="outerHTML" hx-sync="closest .paso:queue all">
+        <button class="boton boton--menor boton--secundario" type="submit" name="accion" value="subir"{{if $o.Primera}} disabled{{end}}>
+          <span aria-hidden="true">↑</span><span class="oculto">{{$p.T "postulacion.subir_obra" $o.Numero}}</span></button>
+        <button class="boton boton--menor boton--secundario" type="submit" name="accion" value="bajar"{{if $o.Ultima}} disabled{{end}}>
+          <span aria-hidden="true">↓</span><span class="oculto">{{$p.T "postulacion.bajar_obra" $o.Numero}}</span></button>
+      </form>
+      <form method="post" action="{{$p.Datos.Base}}/obras/{{$o.ID}}" hx-post="{{$p.Datos.Base}}/obras/{{$o.ID}}" hx-target="#obras" hx-swap="outerHTML" hx-sync="closest .paso:queue all"
+        hx-confirm="{{$p.T "postulacion.confirmar_quitar_obra" $o.Numero}}">
+        <button class="boton boton--menor boton--secundario" type="submit" name="accion" value="quitar">
+          {{- $p.T "postulacion.quitar"}}<span class="oculto"> {{$p.T "postulacion.obra_n" $o.Numero}}</span></button>
+      </form>
+    </div>
+    {{- end}}
+  </div>
+  <form class="obra__campos" method="post" action="{{$p.Datos.Base}}/obras/{{$o.ID}}" novalidate aria-labelledby="t-obra-{{$o.ID}}"
+    data-autoguardado hx-post="{{$p.Datos.Base}}/obras/{{$o.ID}}" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all">
+    {{- range $o.Campos}}
+    {{template "pcampo" (dict "P" $p "C" .)}}
+    {{- end}}
+    {{- if $p.Datos.Editable}}
+    <p class="lista__acciones solo-sin-js"><button class="boton boton--menor" type="submit">{{$p.T "postulacion.guardar_obra" $o.Numero}}</button></p>
+    {{- end}}
+  </form>
+</li>
+{{end}}
+
+{{- /* "obras_resumen": cuántas obras lleva el programa y cuánto dura. */ -}}
+{{define "obras_resumen"}}
+<p id="obras-resumen" class="nota"{{if .Datos.OOB}} hx-swap-oob="true"{{end}}>
+  {{- if .Datos.MaxObras}}{{.T "postulacion.obras_maximo" (len .Datos.Obras) .Datos.MaxObras}}{{else}}{{.T "postulacion.obras_cuenta" (len .Datos.Obras)}}{{end}}
+  {{- if .Datos.DuracionTotal}} · {{.T "postulacion.duracion_total" .Datos.DuracionTotal}}{{end}}
+  {{- if .Datos.DuracionMaxima}} · {{.T "postulacion.duracion_maxima" .Datos.DuracionMaxima}}{{end -}}
+</p>
+{{end}}
+
+{{- /* "obras": el programa de obras (RF-POST-05), con el botón para añadir otra. */ -}}
+{{define "obras"}}
+<section id="obras" class="obras" aria-label="{{.T "campo.obras"}}">
+  {{- if .Datos.Obras}}
+  <ol class="obras__lista">
+    {{- range .Datos.Obras}}
+    {{template "obra" (dict "P" $ "O" .)}}
+    {{- end}}
+  </ol>
+  {{- else}}
+  <p class="vacio">{{.T "postulacion.sin_obras"}}</p>
+  {{- end}}
+  {{- if .Datos.ObrasEditable}}
+  <form class="obras__agregar" method="post" action="{{.Datos.Base}}/obras" hx-post="{{.Datos.Base}}/obras" hx-target="#obras" hx-swap="outerHTML" hx-sync="closest .paso:queue all">
+    <button class="boton boton--secundario" type="submit"{{if not .Datos.PuedeAgregarObra}} disabled{{end}}>{{.T "postulacion.agregar_obra"}}</button>
+    {{- if not .Datos.PuedeAgregarObra}}
+    <span class="nota">{{.T "postulacion.obras_tope"}}</span>
+    {{- end}}
+  </form>
+  {{- end}}
+</section>
+{{end}}
+
+{{- /*
+  "subsanacion_aviso": durante una subsanación, en todos los pasos: qué pasa,
+  hasta cuándo y dónde está la lista de lo señalado (RF-POST-13).
+*/ -}}
+{{define "subsanacion_aviso"}}
+{{- with .Datos.Subsanacion}}
+<div class="aviso aviso--espera subsanacion-aviso">
+  <p class="aviso__titulo">{{$.T "subsanacion.titulo"}}</p>
+  <p>{{$.T "subsanacion.explicacion"}} {{$.T "subsanacion.plazo"}} <time datetime="{{$.ISO .FechaLimite}}">{{$.FechaHora .FechaLimite}}</time>.</p>
+  {{- if ne $.Datos.Paso "envio"}}
+  <p><a href="{{$.Datos.Base}}/envio#subsanacion">{{$.T "subsanacion.ver_y_reenviar"}}</a></p>
+  {{- end}}
+</div>
+{{- end}}
+{{end}}
+
+{{- /*
+  "requisito": la ranura de un documento: qué se pide, lo entregado y, si se
+  puede, el formulario para subir. Argumentos: P y R.
+
+  La subida es un formulario multipart normal: sin JavaScript se envía con su
+  botón. Con htmx se envía igual y fimnme.js llena la barra de progreso con
+  el avance de la petición (RF-POST-07). Los campos ocultos van antes del
+  archivo: el servidor los lee primero para saber cuánto puede medir.
+*/ -}}
+{{define "requisito"}}
+{{- $p := .P}}{{$r := .R}}
+<li class="requisito{{if $r.Resaltado}} requisito--resaltado{{end}}{{if $r.Error}} requisito--error{{end}}" id="{{$r.Ancla}}">
+  <h4 class="requisito__titulo" id="t-{{$r.Ancla}}"{{if $r.Foco}} tabindex="-1" autofocus{{end}}>{{$r.Etiqueta}}
+    {{- if not $r.Obligatorio}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span>{{end}}</h4>
+  {{- if $r.Resaltado}}
+  <p class="senalado"><span class="senalado__rotulo">{{$p.T "subsanacion.por_corregir"}}</span>{{if $r.Senalado}} {{$r.Senalado}}{{end}}</p>
+  {{- end}}
+  {{- if $r.Ayuda}}
+  <p class="campo__ayuda">{{$r.Ayuda}}</p>
+  {{- end}}
+  <p class="campo__ayuda" id="f-{{$r.Ancla}}">{{$p.T "documentos.formatos" $r.Formatos $r.TamanoMax}}{{if gt $r.MaxArchivos 1}} {{$p.T "documentos.hasta_n" $r.MaxArchivos}}{{end}}</p>
+  {{- if $r.Documentos}}
+  <ul class="entregados">
+    {{- range $r.Documentos}}
+    <li class="entregado">
+      <a href="{{.URL}}" rel="noopener">{{.Nombre}}</a>
+      <span class="entregado__detalle">{{.Tamano}} · {{$p.FechaHora .Subido}}</span>
+      {{- if .Quitar}}
+      <form class="entregado__quitar" method="post" action="{{$p.Datos.Base}}/documentos/{{.ID}}/quitar"
+        hx-post="{{$p.Datos.Base}}/documentos/{{.ID}}/quitar" hx-target="#documentos" hx-swap="outerHTML" hx-confirm="{{$p.T "documentos.confirmar_quitar"}}">
+        <button class="boton boton--menor boton--secundario" type="submit">{{$p.T "postulacion.quitar"}}<span class="oculto"> {{.Nombre}}</span></button>
+      </form>
+      {{- end}}
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="campo__valor"><span class="campo__vacio">{{$p.T "documentos.sin_entregar"}}</span></p>
+  {{- end}}
+  <p class="campo__error" id="e-{{$r.Ancla}}">{{$r.Error}}</p>
+  {{- if $r.PuedeSubir}}
+  <form class="subida" method="post" action="{{$p.Datos.Base}}/documentos" enctype="multipart/form-data"
+    hx-post="{{$p.Datos.Base}}/documentos" hx-encoding="multipart/form-data" hx-target="#documentos" hx-swap="outerHTML">
+    <input type="hidden" name="clave" value="{{$r.Clave}}">
+    {{- if $r.ObraID}}<input type="hidden" name="obra_id" value="{{$r.ObraID}}">{{end}}
+    {{- if $r.Reemplaza}}<input type="hidden" name="reemplaza" value="{{$r.Reemplaza}}">{{end}}
+    <label class="subida__etiqueta" for="a-{{$r.Ancla}}">{{if $r.Reemplaza}}{{$p.T "documentos.reemplazar"}}{{else}}{{$p.T "documentos.elegir"}}{{end}}</label>
+    <input class="subida__archivo" id="a-{{$r.Ancla}}" name="archivo" type="file" accept="{{$r.Accept}}" required aria-describedby="f-{{$r.Ancla}} e-{{$r.Ancla}}">
+    <progress class="subida__progreso" max="100" value="0" hidden aria-label="{{$p.T "documentos.progreso"}}"></progress>
+    <button class="boton boton--menor" type="submit">{{$p.T "documentos.subir"}}</button>
+  </form>
+  {{- else if and $r.Editable (not $r.PuedeSubir)}}
+  <p class="nota">{{$p.T "documentos.lleno"}}</p>
+  {{- end}}
+</li>
+{{end}}
+
+{{- /* "documentos": el paso de documentos, agrupado por postulación y por obra. */ -}}
+{{define "documentos"}}
+<section id="documentos" class="documentos" aria-label="{{.T "seccion.documentos"}}">
+  {{- range .Datos.Documentos}}
+  <section class="grupo" id="{{.ID}}" aria-labelledby="t-{{.ID}}">
+    <h3 class="titulo-seccion" id="t-{{.ID}}">{{.Titulo}}</h3>
+    {{- if .Nota}}
+    <p class="nota">{{.Nota}}</p>
+    {{- end}}
+    {{- if .Requisitos}}
+    <ul class="requisitos">
+      {{- range .Requisitos}}
+      {{template "requisito" (dict "P" $ "R" .)}}
+      {{- end}}
+    </ul>
+    {{- else}}
+    <p class="nota">{{$.T "documentos.nada_que_entregar"}}</p>
+    {{- end}}
+  </section>
+  {{- end}}
+</section>
+{{end}}
+
+{{- /* --- Fragmentos: lo que se le responde a htmx --------------------------------- */ -}}
+
+{{- /*
+  "f_guardado": respuesta a un guardado de campos. Todo va fuera de banda: el
+  aviso, el avance, lo que falta, el error de cada campo enviado y, si cambió
+  de forma, algún campo o grupo.
+*/ -}}
+{{define "f_guardado"}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{- if eq .Datos.Paso "obras"}}{{template "obras_resumen" .}}{{end}}
+{{- range .Datos.Errores}}
+<p class="campo__error" id="e-{{.ID}}" hx-swap-oob="true">{{.Mensaje}}</p>
+{{- end}}
+{{- range .Datos.Repintar}}
+{{template "pcampo" (dict "P" $ "C" . "OOB" true)}}
+{{- end}}
+{{- range .Datos.Regrupar}}
+{{template "pgrupo" (dict "P" $ "G" . "OOB" true)}}
+{{- end}}
+{{end}}
+
+{{- /*
+  "f_lista_guardada": respuesta al guardado, mientras se escribe, de la lista
+  de integrantes o de las ligas de video. No toca los renglones: sólo las
+  notas y el resultado de cada liga.
+*/ -}}
+{{define "f_lista_guardada"}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{- if .Datos.TieneIntegrantes}}
+<p class="campo__error" id="nota-integrantes" hx-swap-oob="true">{{.Datos.NotaIntegrantes}}</p>
+{{- end}}
+{{- if .Datos.TieneVideos}}
+<p class="campo__error" id="nota-videos" hx-swap-oob="true">{{.Datos.NotaVideos}}</p>
+{{- range .Datos.Videos}}
+<p class="campo__ayuda enlace-estado" id="ve-{{.Numero}}" hx-swap-oob="true">{{.Estado}}</p>
+{{- end}}
+{{- end}}
+{{end}}
+
+{{- /* "f_integrantes": la lista entera, tras añadir o quitar un renglón. */ -}}
+{{define "f_integrantes"}}
+{{- template "integrantes" .}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{end}}
+
+{{- /* "f_obras": el programa entero, tras añadir, quitar o mover una obra. */ -}}
+{{define "f_obras"}}
+{{- template "obras" .}}
+{{- template "obras_resumen" .}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{end}}
+
+{{- /* "f_documentos": los documentos enteros, tras subir o quitar uno. */ -}}
+{{define "f_documentos"}}
+{{- template "documentos" .}}
+{{- template "guardado" .}}
+{{- template "avance" .}}
+{{- template "faltantes" .}}
+{{end}}

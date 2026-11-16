@@ -78,19 +78,10 @@ func crearUsuario(args []string) func(context.Context, *models.Repositorio) erro
 			return errors.New("el esquema no está al día; ejecute primero: fimnme-cli migrate")
 		}
 
-		claro, resumen, err := models.NuevoSecreto()
-		if err != nil {
-			return err
-		}
-		token := models.NuevoToken{
-			Resumen:   resumen,
-			Proposito: models.TokenActivacion,
-			ExpiraAt:  time.Now().Add(models.VigenciaActivacion),
-		}
-		_, err = repositorio.CrearUsuario(ctx, actorCLI(), models.NuevoUsuario{
+		_, enlace, err := altaConEnlace(ctx, repositorio, models.NuevoUsuario{
 			Email: correo, Nombre: *nombre, Apellidos: *apellidos, Idioma: *idioma,
 			PasswordHash: models.PasswordSinDefinir, Perfil: models.Perfil(*perfil),
-		}, &token)
+		}, *urlBase)
 		if errors.Is(err, models.ErrEmailEnUso) {
 			return fmt.Errorf("ya existe una cuenta con el correo %s", correo)
 		}
@@ -99,9 +90,30 @@ func crearUsuario(args []string) func(context.Context, *models.Repositorio) erro
 		}
 
 		fmt.Printf("Cuenta creada: %s (perfil %s).\n\n", correo, *perfil)
-		fmt.Printf("Enlace de activación, válido %d días y de un solo uso:\n\n    %s/cuenta/activar?token=%s\n\n",
-			int(models.VigenciaActivacion.Hours()/24), strings.TrimRight(*urlBase, "/"), url.QueryEscape(claro))
+		fmt.Printf("Enlace de activación, válido %d días y de un solo uso:\n\n    %s\n\n",
+			int(models.VigenciaActivacion.Hours()/24), enlace)
 		fmt.Println("Entréguelo a su titular por un canal seguro: quien lo abra elige la contraseña de la cuenta.")
 		return nil
 	}
+}
+
+// altaConEnlace crea una cuenta interna sin contraseña y devuelve su id y el
+// enlace de activación, de un solo uso. El enlace no se envía por correo: lo
+// entrega quien opera la herramienta, para no depender de que el correo ya
+// esté configurado. La usan «crear-usuario» y el modo interactivo.
+func altaConEnlace(ctx context.Context, repositorio *models.Repositorio, nuevo models.NuevoUsuario, urlBase string) (int64, string, error) {
+	claro, resumen, err := models.NuevoSecreto()
+	if err != nil {
+		return 0, "", err
+	}
+	token := models.NuevoToken{
+		Resumen:   resumen,
+		Proposito: models.TokenActivacion,
+		ExpiraAt:  time.Now().Add(models.VigenciaActivacion),
+	}
+	id, err := repositorio.CrearUsuario(ctx, actorCLI(), nuevo, &token)
+	if err != nil {
+		return 0, "", err
+	}
+	return id, strings.TrimRight(urlBase, "/") + "/cuenta/activar?token=" + url.QueryEscape(claro), nil
 }

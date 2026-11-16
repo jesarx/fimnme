@@ -1,0 +1,179 @@
+{{- /*
+  Buscador del archivo histórico (§5.12, RF-ARCH-10 a 18 y 30 a 45): todas
+  las ediciones en un solo listado, con búsqueda de texto tolerante a acentos
+  y a erratas, filtros combinables reflejados en la URL, orden, páginas, CSV,
+  vistas guardadas, descarga masiva en ZIP y expediente de una convocatoria.
+  Recibe en .Datos una vistaArchivo.
+
+  Con htmx, al cambiar un filtro sólo se reemplaza #resultado; sin
+  JavaScript, el botón «Buscar» manda el formulario. Lo que depende de la
+  búsqueda (CSV, vista, descargas) vive dentro de #resultado para que siempre
+  lleve los filtros vigentes.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "sitio.plataforma"}}</p>
+    <h1 class="banda__titulo">{{.T "archivo.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "archivo.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{- /* "filtro": un selector del buscador. */ -}}
+{{define "filtro"}}
+<div class="campo">
+  <label for="f-{{.Nombre}}">{{.P.T .Etiqueta}}</label>
+  <select id="f-{{.Nombre}}" name="{{.Nombre}}">{{range .Opciones}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="admin__atajos"><a href="/archivo/descargas">{{.T "archivo.mis_descargas"}} →</a></p>
+{{template "aviso" .}}
+
+{{- if $v.Vistas}}
+<nav class="archivo__vistas" aria-label="{{.T "archivo.vistas_guardadas"}}">
+  <span class="campo__rotulo">{{.T "archivo.vistas_guardadas"}}</span>
+  {{- range $v.Vistas}}
+  <span class="archivo__vista">
+    <a href="{{.URL}}"{{if .Actual}} aria-current="true"{{end}}>{{.Nombre}}</a>
+    <form method="post" action="/archivo/vistas/{{.ID}}/borrar" class="en-linea">
+      <button class="archivo__quitar" type="submit" aria-label="{{$.T "archivo.borrar_vista" .Nombre}}" title="{{$.T "archivo.borrar_vista" .Nombre}}">×</button>
+    </form>
+  </span>
+  {{- end}}
+</nav>
+{{- end}}
+
+<form class="filtros archivo__filtros" method="get" action="/archivo" role="search"
+  hx-get="/archivo" hx-trigger="change, input delay:400ms from:#f-q" hx-target="#resultado" hx-select="#resultado" hx-swap="outerHTML" hx-push-url="true">
+  <div class="campo campo--ancho">
+    <label for="f-q">{{.T "archivo.buscar"}}</label>
+    <input id="f-q" name="q" type="search" value="{{$v.Texto}}" autocomplete="off" aria-describedby="f-q-ayuda">
+    <p class="campo__ayuda" id="f-q-ayuda">{{.T "archivo.buscar_ayuda"}}</p>
+  </div>
+  {{template "filtro" (dict "P" . "Nombre" "edicion" "Etiqueta" "archivo.filtro_edicion" "Opciones" $v.Ediciones)}}
+  {{template "filtro" (dict "P" . "Nombre" "convocatoria" "Etiqueta" "archivo.filtro_convocatoria" "Opciones" $v.Convocatorias)}}
+  {{template "filtro" (dict "P" . "Nombre" "tipo" "Etiqueta" "archivo.filtro_tipo" "Opciones" $v.Tipos)}}
+  {{template "filtro" (dict "P" . "Nombre" "estado" "Etiqueta" "archivo.filtro_estado" "Opciones" $v.Estados)}}
+  {{template "filtro" (dict "P" . "Nombre" "orden" "Etiqueta" "archivo.filtro_orden" "Opciones" $v.Ordenes)}}
+  <details class="archivo__avanzados"{{if $v.FiltrosAvanzados}} open{{end}}>
+    <summary>{{.T "archivo.mas_filtros"}}</summary>
+    <div class="filtros archivo__mas">
+      {{template "filtro" (dict "P" . "Nombre" "subcategoria" "Etiqueta" "archivo.filtro_subcategoria" "Opciones" $v.Subcategorias)}}
+      {{- if $v.Dictamenes}}{{template "filtro" (dict "P" . "Nombre" "dictamen" "Etiqueta" "archivo.filtro_dictamen" "Opciones" $v.Dictamenes)}}{{end}}
+      {{template "filtro" (dict "P" . "Nombre" "entidad_residencia" "Etiqueta" "archivo.filtro_entidad_residencia" "Opciones" $v.Entidades)}}
+      {{template "filtro" (dict "P" . "Nombre" "pais" "Etiqueta" "archivo.filtro_pais" "Opciones" $v.Paises)}}
+      {{template "filtro" (dict "P" . "Nombre" "nacionalidad" "Etiqueta" "archivo.filtro_nacionalidad" "Opciones" $v.Nacionalidades)}}
+      {{template "filtro" (dict "P" . "Nombre" "genero" "Etiqueta" "archivo.filtro_genero" "Opciones" $v.Generos)}}
+      {{template "filtro" (dict "P" . "Nombre" "estreno" "Etiqueta" "archivo.filtro_estreno" "Opciones" $v.Estrenos)}}
+      <div class="campo"><label for="f-enviada_desde">{{.T "archivo.filtro_enviada_desde"}}</label>
+        <input id="f-enviada_desde" name="enviada_desde" type="date" value="{{$v.EnviadaDesde}}"></div>
+      <div class="campo"><label for="f-enviada_hasta">{{.T "archivo.filtro_enviada_hasta"}}</label>
+        <input id="f-enviada_hasta" name="enviada_hasta" type="date" value="{{$v.EnviadaHasta}}"></div>
+      {{template "filtro" (dict "P" . "Nombre" "con_subsanaciones" "Etiqueta" "archivo.filtro_con_subsanaciones" "Opciones" $v.Subsanaciones)}}
+      {{template "filtro" (dict "P" . "Nombre" "documentos_pendientes" "Etiqueta" "archivo.filtro_documentos_pendientes" "Opciones" $v.Pendientes)}}
+      {{template "filtro" (dict "P" . "Nombre" "ligas_con_problema" "Etiqueta" "archivo.filtro_ligas_con_problema" "Opciones" $v.Ligas)}}
+    </div>
+  </details>
+  <p class="filtros__acciones"><button class="boton boton--menor" type="submit">{{.T "archivo.buscar_boton"}}</button>
+    <a class="boton boton--menor boton--secundario" href="/archivo">{{.T "archivo.limpiar"}}</a></p>
+</form>
+
+<section id="resultado" class="resultado" aria-live="polite">
+  {{- if $v.Rechazo}}<div class="aviso aviso--error" role="alert"><p>{{$v.Rechazo}}</p></div>{{end}}
+  {{- if $v.Errores}}
+  <div class="aviso aviso--error" role="alert">
+    <p class="aviso__titulo">{{.T "archivo.filtros_invalidos"}}</p>
+    <ul>{{range $v.Errores}}<li>{{.}}</li>{{end}}</ul>
+  </div>
+  {{- else}}
+  <div class="archivo__cabeza">
+    <p class="nota">{{.T "archivo.encontradas" $v.Total}}{{if gt $v.Paginas 1}} · {{.T "archivo.pagina_de" $v.Pagina $v.Paginas}}{{end}}</p>
+    {{- if $v.Total}}<p><a class="boton boton--menor boton--secundario" href="{{$v.CSV}}">{{.T "archivo.descargar_csv"}}</a></p>{{end}}
+  </div>
+
+  {{- if $v.Renglones}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead>
+      <tr>
+        <th scope="col">{{.T "panel.folio"}}</th>
+        <th scope="col">{{.T "revision.columna_nombre"}}</th>
+        <th scope="col">{{.T "archivo.columna_convocatoria"}}</th>
+        <th scope="col">{{.T "revision.columna_estado"}}</th>
+        <th scope="col">{{.T "revision.columna_enviada"}}</th>
+        <th scope="col">{{.T "supervision.obras"}}</th>
+        <th scope="col"><span class="oculto">{{.T "archivo.expediente"}}</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{- range $v.Renglones}}
+      <tr>
+        <th scope="row">{{if .URL}}<a href="{{.URL}}">{{.Folio}}</a>{{else}}<span class="tabla__detalle">{{$.T "estado.postulacion.borrador"}}</span>{{end}}</th>
+        <td>{{.Nombre}}</td>
+        <td>{{.Convocatoria}} <span class="tabla__detalle">{{$.T "archivo.edicion_n" .Edicion}}</span></td>
+        <td><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></td>
+        <td>{{if not .Enviada.IsZero}}<time datetime="{{$.ISO .Enviada}}">{{$.Fecha .Enviada}}</time>{{end}}</td>
+        <td>{{.Obras}}</td>
+        <td><a href="{{.Expediente}}">{{$.T "archivo.expediente_pdf"}}</a></td>
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- if or $v.Anterior $v.Siguiente}}
+  <nav class="paginas" aria-label="{{.T "archivo.paginas"}}">
+    {{- if $v.Anterior}}<a class="boton boton--menor boton--secundario" href="{{$v.Anterior}}" rel="prev">← {{.T "archivo.anterior"}}</a>{{end}}
+    {{- if $v.Siguiente}}<a class="boton boton--menor boton--secundario" href="{{$v.Siguiente}}" rel="next">{{.T "archivo.siguiente"}} →</a>{{end}}
+  </nav>
+  {{- end}}
+  {{- else}}
+  <p class="vacio">{{.T "archivo.sin_resultados"}}</p>
+  {{- end}}
+
+  <div class="admin__columnas archivo__acciones">
+    <form method="post" action="/archivo/vistas" class="admin__caja admin__form">
+      <h2 class="admin__subtitulo">{{.T "archivo.guardar_vista"}}</h2>
+      <input type="hidden" name="consulta" value="{{$v.Consulta}}">
+      <div class="campo"><label for="v-nombre">{{.T "archivo.nombre_vista"}}</label>
+        <input id="v-nombre" name="nombre" type="text" required maxlength="100"></div>
+      <p><button class="boton boton--menor boton--secundario" type="submit">{{.T "archivo.guardar_vista_boton"}}</button></p>
+    </form>
+    {{- if and $v.PuedeZIP $v.Total}}
+    <form method="post" action="/archivo/descargas" class="admin__caja admin__form">
+      <h2 class="admin__subtitulo">{{.T "archivo.descarga_masiva"}}</h2>
+      <p class="campo__ayuda">{{.T "archivo.descarga_masiva_ayuda" $v.Total}}</p>
+      <input type="hidden" name="consulta" value="{{$v.Consulta}}">
+      {{- if $v.TiposDeDocumento}}
+      <fieldset class="admin__opciones">
+        <legend>{{.T "archivo.tipos_de_documento"}}</legend>
+        {{- range $v.TiposDeDocumento}}<label class="admin__opcion"><input type="checkbox" name="tipos" value="{{.Valor}}"> {{.Texto}}</label>{{end}}
+      </fieldset>
+      <p class="campo__ayuda">{{.T "archivo.tipos_ayuda"}}</p>
+      {{- end}}
+      <p><button class="boton boton--menor" type="submit">{{.T "archivo.pedir_zip"}}</button></p>
+    </form>
+    {{- end}}
+    {{- if and $v.PuedeExpediente $v.Total}}
+    <form method="post" action="/archivo/expedientes" class="admin__caja admin__form">
+      <h2 class="admin__subtitulo">{{.T "archivo.expediente_convocatoria"}}</h2>
+      <p class="campo__ayuda">{{.T "archivo.expediente_convocatoria_ayuda" $v.Total}}</p>
+      <input type="hidden" name="consulta" value="{{$v.Consulta}}">
+      <div class="campo"><label for="x-idioma">{{.T "supervision.idioma_reporte"}}</label>
+        <select id="x-idioma" name="idioma"><option value="es"{{if eq .Idioma "es"}} selected{{end}}>{{.T "cuenta.idioma_es"}}</option><option value="en"{{if eq .Idioma "en"}} selected{{end}}>{{.T "cuenta.idioma_en"}}</option></select></div>
+      <div class="campo campo--casilla"><input id="x-fotografia" name="fotografia" type="checkbox" value="no">
+        <label for="x-fotografia">{{.T "archivo.sin_fotografia"}}</label></div>
+      <div class="campo campo--casilla"><input id="x-hoja" name="hoja" type="checkbox" value="si">
+        <label for="x-hoja">{{.T "archivo.hoja_calificacion"}}</label></div>
+      <p><button class="boton boton--menor" type="submit">{{.T "archivo.pedir_expediente"}}</button></p>
+    </form>
+    {{- else if not $v.ConvocatoriaDelFiltro}}
+    <p class="campo__ayuda archivo__nota-expediente">{{.T "archivo.expediente_elige_convocatoria"}}</p>
+    {{- end}}
+  </div>
+  {{- end}}
+</section>
+{{end}}

@@ -1,0 +1,26 @@
+{{- /*
+  Parciales de las pantallas de administración.
+*/ -}}
+
+{{- /*
+  "campos_cuenta": datos de una cuenta interna nueva. Argumentos (con dict):
+    P   *views.Pagina
+    V   map[string]string con lo escrito (email, nombre, apellidos, idioma)
+    ID  prefijo de los id, para que dos formularios convivan en una página
+*/ -}}
+{{define "campos_cuenta"}}
+{{- $id := .ID}}
+<div class="campo"><label for="{{$id}}-email">{{.P.T "cuenta.email"}}</label>
+  <input id="{{$id}}-email" name="email" type="email" required autocomplete="off" value="{{index .V "email"}}"></div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-nombre">{{.P.T "cuenta.nombre"}}</label>
+    <input id="{{$id}}-nombre" name="nombre" type="text" required autocomplete="off" value="{{index .V "nombre"}}"></div>
+  <div class="campo"><label for="{{$id}}-apellidos">{{.P.T "cuenta.apellidos"}}</label>
+    <input id="{{$id}}-apellidos" name="apellidos" type="text" required autocomplete="off" value="{{index .V "apellidos"}}"></div>
+</div>
+<div class="campo"><label for="{{$id}}-idioma">{{.P.T "admin.idioma_cuenta"}}</label>
+  <select id="{{$id}}-idioma" name="idioma">
+    <option value="es"{{if ne (index .V "idioma") "en"}} selected{{end}}>{{.P.T "cuenta.idioma_es"}}</option>
+    <option value="en"{{if eq (index .V "idioma") "en"}} selected{{end}}>{{.P.T "cuenta.idioma_en"}}</option>
+  </select></div>
+{{end}}

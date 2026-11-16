@@ -1,0 +1,53 @@
+{{- /*
+  Parciales de las pantallas de supervisión.
+*/ -}}
+
+{{- /*
+  "banda_supervision": la banda de una convocatoria en supervisión. Recibe la
+  *views.Pagina; .Datos lleva incrustada una vistaPestanasSupervision.
+*/ -}}
+{{define "banda_supervision"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Edicion}} · {{.T .Datos.Tipo}}</p>
+    <h1 class="banda__titulo">{{.Datos.Titulo}}</h1>
+    <p class="banda__entrada"><span class="estado estado--{{.Datos.Clase}}">{{.T .Datos.Estado}}</span></p>
+  </div>
+</div>
+{{end}}
+
+{{- /*
+  "pestanas_supervision": la navegación entre las páginas de una convocatoria
+  en supervisión. La pestaña actual lleva aria-current.
+*/ -}}
+{{define "pestanas_supervision"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/supervision">← {{.T "supervision.titulo"}}</a> · <a href="{{$v.Estadistica}}">{{.T "supervision.estadisticas"}}</a></p>
+<nav class="pestanas" aria-label="{{.T "supervision.secciones"}}">
+  <a href="{{$v.Base}}"{{if eq $v.Actual "tablero"}} aria-current="page"{{end}}>{{.T "supervision.tablero"}}</a>
+  <a href="{{$v.Base}}/resultados"{{if eq $v.Actual "resultados"}} aria-current="page"{{end}}>{{.T "supervision.resultados"}}</a>
+  <a href="{{$v.Base}}/reporte"{{if eq $v.Actual "reporte"}} aria-current="page"{{end}}>{{.T "supervision.reportes"}}</a>
+  {{- if $v.VeNomina}}
+  <a href="{{$v.Base}}/nomina"{{if eq $v.Actual "nomina"}} aria-current="page"{{end}}>{{.T "supervision.nomina"}}</a>
+  {{- end}}
+</nav>
+{{template "aviso" .}}
+{{end}}
+
+{{- /*
+  "barras": una distribución como tabla con una barra (<meter>) por renglón.
+  Argumentos (con dict): P *views.Pagina, Titulo (clave), Columna (clave),
+  Barras []vistaBarra.
+*/ -}}
+{{define "barras"}}
+<table class="tabla tabla--compacta barras">
+  <caption>{{.P.T .Titulo}}</caption>
+  <thead><tr><th scope="col">{{.P.T .Columna}}</th><th scope="col" class="barras__numero">{{.P.T "supervision.cantidad"}}</th><th scope="col"><span class="oculto">{{.P.T "supervision.proporcion"}}</span></th></tr></thead>
+  <tbody>
+    {{- range .Barras}}
+    <tr><th scope="row">{{.Etiqueta}}</th><td class="barras__numero">{{.Cantidad}}</td>
+      <td class="barras__celda"><meter class="barras__barra" min="0" max="{{.Maximo}}" value="{{.Cantidad}}" aria-hidden="true"></meter></td></tr>
+    {{- end}}
+  </tbody>
+</table>
+{{end}}

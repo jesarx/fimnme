@@ -1,0 +1,73 @@
+{{- /*
+  Bitácora de auditoría (RF-AUD-03): quién hizo qué, cuándo, desde dónde y
+  qué cambió. La ven el administrador y el observador. Recibe en .Datos una
+  vistaBitacora.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "bitacora.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "bitacora.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+<form class="filtros" method="get" action="/administracion/bitacora" role="search">
+  <div class="campo"><label for="b-accion">{{.T "bitacora.accion"}}</label>
+    <input id="b-accion" name="accion" type="text" value="{{$v.Accion}}" placeholder="convocatoria.estado" aria-describedby="b-accion-ayuda">
+    <p class="campo__ayuda" id="b-accion-ayuda">{{.T "bitacora.accion_ayuda"}}</p></div>
+  <div class="campo"><label for="b-entidad">{{.T "bitacora.entidad"}}</label>
+    <input id="b-entidad" name="entidad" type="text" value="{{$v.Entidad}}" placeholder="postulacion"></div>
+  <div class="campo"><label for="b-entidad_id">{{.T "bitacora.entidad_id"}}</label>
+    <input id="b-entidad_id" name="entidad_id" type="number" min="1" inputmode="numeric" value="{{$v.EntidadID}}"></div>
+  <div class="campo"><label for="b-actor_id">{{.T "bitacora.actor_id"}}</label>
+    <input id="b-actor_id" name="actor_id" type="number" min="1" inputmode="numeric" value="{{$v.ActorID}}"></div>
+  <div class="campo"><label for="b-desde">{{.T "bitacora.desde"}}</label>
+    <input id="b-desde" name="desde" type="date" value="{{$v.Desde}}"></div>
+  <div class="campo"><label for="b-hasta">{{.T "bitacora.hasta"}}</label>
+    <input id="b-hasta" name="hasta" type="date" value="{{$v.Hasta}}"></div>
+  <p class="filtros__acciones"><button class="boton boton--menor" type="submit">{{.T "archivo.buscar_boton"}}</button>
+    <a class="boton boton--menor boton--secundario" href="/administracion/bitacora">{{.T "archivo.limpiar"}}</a></p>
+</form>
+
+{{- if $v.Invalido}}
+<div class="aviso aviso--error" role="alert"><p>{{.T "bitacora.filtro_invalido" (.T (printf "bitacora.%s" $v.Invalido))}}</p></div>
+{{- else}}
+<div class="archivo__cabeza">
+  <p class="nota">{{.T "bitacora.asientos" $v.Total}}{{if gt $v.Paginas 1}} · {{.T "archivo.pagina_de" $v.Pagina $v.Paginas}}{{end}}</p>
+  {{- if $v.Total}}<p><a class="boton boton--menor boton--secundario" href="{{$v.CSV}}">{{.T "archivo.descargar_csv"}}</a></p>{{end}}
+</div>
+{{- if $v.Asientos}}
+<div class="tabla-contenedor">
+<table class="tabla tabla--compacta bitacora">
+  <thead><tr><th scope="col">{{.T "bitacora.momento"}}</th><th scope="col">{{.T "bitacora.quien"}}</th><th scope="col">{{.T "bitacora.accion"}}</th><th scope="col">{{.T "bitacora.sobre"}}</th><th scope="col">{{.T "bitacora.cambios"}}</th></tr></thead>
+  <tbody>
+    {{- range $v.Asientos}}
+    <tr>
+      <td class="bitacora__momento"><time datetime="{{$.ISO .Momento}}">{{$.FechaHora .Momento}}</time></td>
+      <td>{{.Actor}}<br><span class="tabla__detalle">{{.Perfil}}{{if .IP}} · {{.IP}}{{end}}</span></td>
+      <td><code>{{.Accion}}</code></td>
+      <td>{{if .FiltroDel}}<a href="{{.FiltroDel}}">{{.Entidad}}</a>{{else}}{{.Entidad}}{{end}}</td>
+      <td>{{if or .Antes .Despues}}<details class="bitacora__cambios"><summary>{{$.T "bitacora.ver"}}</summary>
+        {{- if .Antes}}<p class="campo__rotulo">{{$.T "bitacora.antes"}}</p><pre>{{.Antes}}</pre>{{end}}
+        {{- if .Despues}}<p class="campo__rotulo">{{$.T "bitacora.despues"}}</p><pre>{{.Despues}}</pre>{{end}}</details>{{end}}</td>
+    </tr>
+    {{- end}}
+  </tbody>
+</table>
+</div>
+{{- if or $v.Anterior $v.Siguiente}}
+<nav class="paginas" aria-label="{{.T "archivo.paginas"}}">
+  {{- if $v.Anterior}}<a class="boton boton--menor boton--secundario" href="{{$v.Anterior}}" rel="prev">← {{.T "archivo.anterior"}}</a>{{end}}
+  {{- if $v.Siguiente}}<a class="boton boton--menor boton--secundario" href="{{$v.Siguiente}}" rel="next">{{.T "archivo.siguiente"}} →</a>{{end}}
+</nav>
+{{- end}}
+{{- else}}
+<p class="vacio">{{.T "bitacora.sin_asientos"}}</p>
+{{- end}}
+{{- end}}
+{{end}}

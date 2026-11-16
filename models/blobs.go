@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // Almacén de archivos (§7.8). Los documentos de las postulaciones —partituras,
@@ -60,6 +61,10 @@ type BlobStore interface {
 	Guardar(origen io.Reader, limite int64) (Blob, error)
 	// Abrir devuelve el contenido de una clave. Quien llama debe cerrarlo.
 	Abrir(clave string) (io.ReadSeekCloser, error)
+	// Borrar quita el contenido de una clave. Sólo lo usa la anonimización
+	// ARCO, que es la única operación destructiva del sistema (RN-28).
+	// Borrar lo que ya no está no es un error.
+	Borrar(clave string) error
 }
 
 // AlmacenEnDisco guarda cada contenido en raiz/ab/cd/abcd…, donde «abcd…» es
@@ -169,6 +174,95 @@ func (a *AlmacenEnDisco) Abrir(clave string) (io.ReadSeekCloser, error) {
 		return nil, fmt.Errorf("abrir archivo del almacén: %w", err)
 	}
 	return archivo, nil
+}
+
+// AbrirAlmacenExistente abre un almacén que ya existe, sin crearlo y sin
+// limpiar las subidas en curso. Es el modo de fimnme-cli, que puede
+// ejecutarse mientras el servidor está recibiendo archivos.
+func AbrirAlmacenExistente(raiz string) (*AlmacenEnDisco, error) {
+	info, err := os.Stat(raiz)
+	if err != nil {
+		return nil, fmt.Errorf("abrir el almacén de archivos: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("el almacén de archivos %s no es un directorio", raiz)
+	}
+	return &AlmacenEnDisco{raiz: raiz}, nil
+}
+
+// Borrar quita un archivo del almacén. Si ya no estaba, no hace nada.
+func (a *AlmacenEnDisco) Borrar(clave string) error {
+	if !claveDeBlob.MatchString(clave) {
+		return fmt.Errorf("clave de almacenamiento inválida %q", clave)
+	}
+	if err := os.Remove(filepath.Join(a.raiz, filepath.FromSlash(clave))); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("borrar archivo del almacén: %w", err)
+	}
+	return nil
+}
+
+// Suma lee un archivo del almacén y devuelve el SHA-256 de su contenido y su
+// tamaño. Si no está devuelve ErrNoEncontrado.
+func (a *AlmacenEnDisco) Suma(clave string) (sha string, tamano int64, err error) {
+	contenido, err := a.Abrir(clave)
+	if err != nil {
+		return "", 0, err
+	}
+	suma := sha256.New()
+	tamano, err = io.Copy(suma, contenido)
+	if errCerrar := contenido.Close(); err == nil {
+		err = errCerrar
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf("leer archivo del almacén: %w", err)
+	}
+	return hex.EncodeToString(suma.Sum(nil)), tamano, nil
+}
+
+// Tamano devuelve el tamaño de un archivo del almacén sin leerlo, o
+// ErrNoEncontrado.
+func (a *AlmacenEnDisco) Tamano(clave string) (int64, error) {
+	if !claveDeBlob.MatchString(clave) {
+		return 0, fmt.Errorf("clave de almacenamiento inválida %q", clave)
+	}
+	info, err := os.Stat(filepath.Join(a.raiz, filepath.FromSlash(clave)))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, ErrNoEncontrado
+	}
+	if err != nil {
+		return 0, fmt.Errorf("consultar archivo del almacén: %w", err)
+	}
+	return info.Size(), nil
+}
+
+// Recorrer llama a visitar con la clave de cada archivo guardado. No entra
+// al subdirectorio de subidas en curso. Lo que haya en el almacén con un
+// nombre que no es una clave se entrega a ajeno, si no es nil: no debería
+// haber nada, y si lo hay conviene saberlo.
+func (a *AlmacenEnDisco) Recorrer(visitar func(clave string) error, ajeno func(ruta string)) error {
+	return filepath.WalkDir(a.raiz, func(ruta string, entrada os.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("recorrer el almacén: %w", err)
+		}
+		relativa, err := filepath.Rel(a.raiz, ruta)
+		if err != nil {
+			return err
+		}
+		if entrada.IsDir() {
+			if relativa == subdirectorioTemporal {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		clave := filepath.ToSlash(relativa)
+		if !claveDeBlob.MatchString(clave) || filepath.Base(clave)[:4] != strings.ReplaceAll(filepath.Dir(clave), "/", "") {
+			if ajeno != nil {
+				ajeno(clave)
+			}
+			return nil
+		}
+		return visitar(clave)
+	})
 }
 
 var _ BlobStore = (*AlmacenEnDisco)(nil)

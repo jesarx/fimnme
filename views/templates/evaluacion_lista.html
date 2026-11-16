@@ -1,0 +1,58 @@
+{{- /*
+  Lista de trabajo del jurado (RF-EVA-07): lo que tiene por calificar, en qué
+  va cada unidad y su avance. Sólo lo SUYO: nada de los demás jurados.
+  Recibe en .Datos una vistaListaDelJurado.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Edicion}}</p>
+    <h1 class="banda__titulo">{{.Datos.Titulo}}</h1>
+    <p class="banda__entrada">{{.T "evaluacion.lista"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- with .Datos}}
+<p class="migas"><a href="/evaluacion">← {{$.T "evaluacion.titulo"}}</a></p>
+{{- if not .Abierta}}
+<div class="aviso aviso--info"><p>{{$.T "evaluacion.cerrada"}}</p></div>
+{{- end}}
+<section class="grupo avance-de-jurado" aria-labelledby="t-avance">
+  <h2 class="titulo-seccion" id="t-avance">{{$.T "evaluacion.tu_avance"}}</h2>
+  <p class="avance-de-jurado__cifra">{{$.T "evaluacion.avance" .Enviadas .Total}}{{if .Excusadas}} · {{$.T "evaluacion.excusadas_n" .Excusadas}}{{end}}</p>
+  {{- if .Total}}<progress class="avance-jurado" max="{{.Total}}" value="{{.Enviadas}}" aria-label="{{$.T "evaluacion.tu_avance"}}"></progress>{{end}}
+  {{- if and .Abierta .SiguientePendiente}}
+  <p><a class="boton" href="{{.SiguientePendiente}}">{{$.T "evaluacion.siguiente_pendiente"}} →</a></p>
+  {{- else if and .Abierta .Total (not .Pendientes)}}
+  <p class="faltantes__listo">{{$.T "evaluacion.todo_enviado"}}</p>
+  {{- end}}
+</section>
+
+{{- if .Unidades}}
+<div class="tabla-contenedor">
+<table class="tabla">
+  <thead>
+    <tr>
+      <th scope="col">{{$.T "panel.folio"}}</th>
+      <th scope="col">{{$.T "revision.columna_nombre"}}</th>
+      <th scope="col">{{$.T "evaluacion.columna_estado"}}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{- range .Unidades}}
+    <tr>
+      <th scope="row"><a href="{{.URL}}">{{.Folio}}</a></th>
+      <td>{{.Nombre}}{{if .Obra}} <span class="tabla__detalle">{{.Obra}}</span>{{end}}</td>
+      <td><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></td>
+    </tr>
+    {{- end}}
+  </tbody>
+</table>
+</div>
+{{- else}}
+<p class="vacio">{{$.T "evaluacion.sin_unidades"}}</p>
+{{- end}}
+{{- end}}
+{{end}}

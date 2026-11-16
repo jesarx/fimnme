@@ -19,8 +19,6 @@
 package views
 
 import (
-	"bytes"
-	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -142,23 +140,7 @@ func AuditoriaCSV(asientos []models.AsientoAuditoria) (encabezados []string, fil
 	return encabezados, filas
 }
 
-// CSV escribe una descarga CSV conforme a RF-REP-05: UTF-8 con BOM (para que
-// Excel en Windows abra bien los acentos), comillas según RFC 4180 y fin de
-// línea CRLF. Se arma en memoria: si algo falla no se envía medio archivo.
+// CSV escribe una descarga CSV separada por comas. Véase CSVConSeparador.
 func CSV(w http.ResponseWriter, archivo string, encabezados []string, filas [][]string) error {
-	var salida bytes.Buffer
-	salida.WriteString("\xEF\xBB\xBF") // marca de orden de bytes (BOM) de UTF-8
-	escritor := csv.NewWriter(&salida)
-	escritor.UseCRLF = true
-	if err := escritor.Write(encabezados); err != nil {
-		return err
-	}
-	if err := escritor.WriteAll(filas); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+archivo+`"`)
-	w.Header().Set("Cache-Control", "no-store")
-	_, err := salida.WriteTo(w)
-	return err
+	return CSVConSeparador(w, archivo, "coma", encabezados, filas)
 }

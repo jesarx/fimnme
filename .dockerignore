@@ -1,0 +1,7 @@
+# Contexto de la imagen de contenedor: SÓLO los binarios y los manuales.
+# Nada de data/ (datos personales), ni fuentes, ni historia de git.
+*
+!bin/fimnme-web
+!bin/fimnme-cli
+!docs/man/fimnme-web.1
+!docs/man/fimnme-cli.1

@@ -106,6 +106,8 @@ func (a *App) falloDatos(w http.ResponseWriter, r *http.Request, err error) bool
 		return false
 	case errors.Is(err, models.ErrNoEncontrado):
 		a.errorAPI(w, r, http.StatusNotFound, "no_encontrado")
+	case errors.Is(err, ErrSinSupervision):
+		a.errorAPI(w, r, http.StatusForbidden, "sin_permiso")
 	case errors.Is(err, models.ErrDuplicado), errors.Is(err, models.ErrEmailEnUso):
 		a.errorAPI(w, r, http.StatusConflict, "duplicado")
 	case errors.As(err, &regla):
@@ -639,15 +641,7 @@ func (a *App) apiCrearUsuario(w http.ResponseWriter, r *http.Request) {
 	if nuevo.Idioma == "" {
 		nuevo.Idioma = models.IdiomaES
 	}
-	if errores := models.ValidarCuentaInterna(nuevo); len(errores) > 0 {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
-		return
-	}
-	token, correo, err := a.correoDeActivacion(r, nuevo.Email, nuevo.Nombre, nuevo.Idioma)
-	if a.falloDatos(w, r, err) {
-		return
-	}
-	id, err := a.datos.CrearUsuario(r.Context(), a.actorDe(r), nuevo, &token, correo)
+	id, err := a.crearCuentaInterna(r, nuevo)
 	if a.falloDatos(w, r, err) {
 		return
 	}
@@ -672,16 +666,35 @@ func (a *App) apiReenviarActivacion(w http.ResponseWriter, r *http.Request) {
 	if a.falloDatos(w, r, err) {
 		return
 	}
-	if cuenta.Activada {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "id", Clave: "error.cuenta_activada"}}})
-		return
-	}
-	token, correo, err := a.correoDeActivacion(r, cuenta.Usuario.Email, cuenta.Usuario.Nombre, cuenta.Usuario.Idioma)
-	if a.falloDatos(w, r, err) {
-		return
-	}
-	if a.falloDatos(w, r, a.datos.EmitirToken(r.Context(), a.actorDe(r), id, token, correo)) {
+	if a.falloDatos(w, r, a.reenviarActivacion(r, cuenta)) {
 		return
 	}
 	a.responder(w, http.StatusOK, views.CuentaJSON(cuenta))
+}
+
+// crearCuentaInterna da de alta una cuenta interna sin contraseña y encola el
+// correo con su enlace de activación. La usan la API y la página de cuentas;
+// no responde nada.
+func (a *App) crearCuentaInterna(r *http.Request, nuevo models.NuevoUsuario) (int64, error) {
+	if errores := models.ValidarCuentaInterna(nuevo); len(errores) > 0 {
+		return 0, &models.ErrorValidacion{Errores: errores}
+	}
+	token, correo, err := a.correoDeActivacion(r, nuevo.Email, nuevo.Nombre, nuevo.Idioma)
+	if err != nil {
+		return 0, err
+	}
+	return a.datos.CrearUsuario(r.Context(), a.actorDe(r), nuevo, &token, correo)
+}
+
+// reenviarActivacion emite un enlace de activación nuevo para una cuenta que
+// aún no elige su contraseña; el anterior deja de valer.
+func (a *App) reenviarActivacion(r *http.Request, cuenta models.CuentaAdmin) error {
+	if cuenta.Activada {
+		return &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "id", Clave: "error.cuenta_activada"}}}
+	}
+	token, correo, err := a.correoDeActivacion(r, cuenta.Usuario.Email, cuenta.Usuario.Nombre, cuenta.Usuario.Idioma)
+	if err != nil {
+		return err
+	}
+	return a.datos.EmitirToken(r.Context(), a.actorDe(r), cuenta.Usuario.ID, token, correo)
 }

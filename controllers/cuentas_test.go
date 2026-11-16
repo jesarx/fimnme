@@ -72,7 +72,12 @@ type entornoPrueba struct {
 	app      http.Handler
 	reloj    *relojDePrueba
 	red      *redDePrueba // la «Internet» que ve el verificador de ligas
+	rutas    []rutaAPI    // todas las operaciones de la API, para barrerlas
 	clientes int
+	// almacen y exportaciones son el acervo y el directorio de descargas
+	// masivas: los necesita el trabajador que arma los ZIP.
+	almacen       models.BlobStore
+	exportaciones string
 }
 
 func nuevoEntorno(t *testing.T) *entornoPrueba {
@@ -89,12 +94,15 @@ func nuevoEntorno(t *testing.T) *entornoPrueba {
 	if err != nil {
 		t.Fatal(err)
 	}
+	exportaciones := t.TempDir()
 	app := Nueva(Config{
 		Vistas: vistas, Datos: repo, Entorno: EntornoDesarrollo, URLBase: urlBasePrueba, Ahora: reloj.Ahora, Almacen: almacen,
-		Enlaces: &VerificadorDeEnlaces{Cliente: &http.Client{Transport: red}},
-		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Exportaciones: exportaciones,
+		Enlaces:       &VerificadorDeEnlaces{Cliente: &http.Client{Transport: red}},
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
-	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red}
+	return &entornoPrueba{t: t, repo: repo, app: app.Manejador(), reloj: reloj, red: red, rutas: app.rutasAPI(),
+		almacen: almacen, exportaciones: exportaciones}
 }
 
 // cliente imita a un navegador: recuerda sus cookies y tiene su propia IP.

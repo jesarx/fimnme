@@ -1,0 +1,11 @@
+# FIMNME — prueba de restauración semanal.
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+[Unit]
+Description=FIMNME: prueba de restauración semanal
+
+[Timer]
+OnCalendar=Sun *-*-* 04:40:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

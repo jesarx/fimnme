@@ -1,0 +1,55 @@
+{{- /*
+  Importación asistida (§5.15): subir una hoja (fase Analyze) y las
+  importaciones recientes. Recibe en .Datos una vistaImportaciones.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "importacion.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "importacion.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+<section class="grupo" aria-labelledby="t-nueva">
+  <h2 class="titulo-seccion" id="t-nueva">{{.T "importacion.nueva"}}</h2>
+  <p class="campo__ayuda">{{.T "importacion.nueva_ayuda"}}</p>
+  {{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+  <form method="post" action="/administracion/importaciones" enctype="multipart/form-data" class="admin__form">
+    <div class="admin__fila">
+      <div class="campo"><label for="i-tipo">{{.T "importacion.que"}}</label>
+        <select id="i-tipo" name="tipo">{{range $v.Tipos}}<option value="{{.Valor}}">{{.Texto}}</option>{{end}}</select></div>
+      <div class="campo"><label for="i-convocatoria">{{.T "archivo.filtro_convocatoria"}}</label>
+        <select id="i-convocatoria" name="convocatoria_id">{{range $v.Convocatorias}}<option value="{{.Valor}}">{{.Texto}}</option>{{end}}</select></div>
+    </div>
+    <div class="campo"><label for="i-archivo">{{.T "importacion.hoja"}}</label>
+      <p class="campo__ayuda" id="i-archivo-ayuda">{{.T "importacion.hoja_ayuda"}}</p>
+      <input id="i-archivo" name="archivo" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required aria-describedby="i-archivo-ayuda"></div>
+    <p><button class="boton" type="submit">{{.T "importacion.analizar"}}</button></p>
+  </form>
+</section>
+
+<section class="grupo" aria-labelledby="t-recientes">
+  <h2 class="titulo-seccion" id="t-recientes">{{.T "importacion.recientes"}}</h2>
+  {{- if $v.Importaciones}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead><tr><th scope="col">{{.T "importacion.subida"}}</th><th scope="col">{{.T "importacion.que"}}</th><th scope="col">{{.T "archivo.filtro_convocatoria"}}</th><th scope="col">{{.T "revision.columna_estado"}}</th><th scope="col">{{.T "importacion.renglones"}}</th></tr></thead>
+    <tbody>
+      {{- range $v.Importaciones}}
+      <tr><td><a href="{{.URL}}"><time datetime="{{$.ISO .CreadoAt}}">{{$.FechaHora .CreadoAt}}</time></a></td><td>{{$.T .Tipo}}</td><td>{{.Convocatoria}}</td>
+        <td><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span>{{if .Pendientes}} <span class="tabla__detalle tabla__detalle--alerta">{{$.T "importacion.pendientes_n" .Pendientes}}</span>{{end}}</td>
+        <td>{{.Filas}}</td></tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "importacion.sin_importaciones"}}</p>
+  {{- end}}
+</section>
+{{end}}

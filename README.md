@@ -19,11 +19,89 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
 ## Estado actual
 
-**Paso 6 de 14: documentos, envío y acuse.** Hoy el sistema tiene:
+**Paso 13 de 14 (completo): todas las pantallas.** El backend está completo y todo lo
+que la API permite hacer tiene pantalla: el postulante, el revisor y el jurado trabajan
+desde el navegador; el administrador configura, edita los correos, importa, consulta la
+bitácora y atiende solicitudes ARCO desde `/administracion`, y supervisa desde
+`/supervision`; el personal consulta el archivo histórico desde `/archivo`. Falta el
+paso 14: la puesta en operación. Hoy el sistema tiene:
 
+- **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
+  convocatorias abiertas, para iniciar una postulación.
+- **Formulario por pasos** con **guardado automático** («Guardado a las 14:32»): datos
+  generales, propuesta de concierto, obras y **documentos** (subida con barra de
+  progreso), con lo que le falta a cada paso. Funciona en móvil, en inglés y sin
+  JavaScript.
+- **Revisión y envío** con la postulación completa; después, su **estado** y sus
+  **acuses**. Durante una **subsanación**, lo que puede corregirse aparece resaltado con
+  su motivo, y se puede pedir que se desbloquee algo más.
+- **Revisión documental** (`/revision`): bandeja con filtros y vista de revisión con
+  **visor de documentos** (PDF, audio, imagen), dictámenes, observaciones, subsanación,
+  desbloqueos y dictamen.
+- **Evaluación** (`/evaluacion`): la lista de trabajo de cada jurado con su avance y la
+  ficha de evaluación con el visor, la escala por criterio, el envío y la excusa. Un
+  jurado nunca ve lo de otro.
+- **Administración** (`/administracion`): ediciones; la ficha de configuración de cada
+  convocatoria (estado con lo que falta para avanzar, bases en Markdown, PDF e imagen,
+  calendario en hora de la Ciudad de México, dotaciones, requisitos documentales,
+  criterios, jurados y revisores) y las cuentas internas. El observador lo ve todo sin
+  poder cambiar nada.
+- **Plantillas de correo editables** (`/administracion/correos`), en español e inglés,
+  con versiones, vista previa idéntica al correo, correo de prueba y validación de sus
+  variables; también por la API.
+- **Operación desde el navegador**: bitácora con filtros, importación asistida en dos
+  fases con resolución de cada renglón, y anonimización ARCO con doble confirmación.
+- **Archivo** (`/archivo`): buscador de todas las ediciones con filtros en la URL, vistas
+  guardadas, CSV, descarga masiva en ZIP, expediente de una convocatoria y «Mis
+  descargas». El enlace permanente por folio sirve también al personal.
+- **Supervisión** (`/supervision`): tablero de cada convocatoria con el avance de los
+  jurados sin puntajes; matriz de resultados con el resultado del proceso; generador de
+  reportes CSV con plantillas; estadísticas de la edición; y publicación de la nómina al
+  portal con vista previa.
+- **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
+  imagen del 48º Foro; véase «Cambiar la imagen de la edición».
+- **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
+  convocatorias, calendario, dotaciones, requisitos, criterios y jurados y revisores, con
+  las mismas reglas que el panel.
+- **Reportes programables**: `fimnme-cli export-csv` genera un reporte desde una plantilla
+  guardada, sin pasar por el navegador.
+- **Campos extendidos**: `fimnme-cli schema` añade campos a ciertas tablas sin recompilar;
+  aparecen solos en el formulario, los reportes y el expediente. Las tablas del proceso
+  (evaluaciones, acuses, bitácora) no se dejan tocar.
+- **Importación asistida** de catálogos de dotaciones y de cuentas de jurado y revisor,
+  desde `.csv` o `.xlsx`: nada entra sin que una persona resuelva cada conflicto, y entra
+  todo o nada.
+- **Continuidad operativa** desde `fimnme-cli`: verificación del acervo de archivos contra
+  la base, **instantáneas firmadas** (HMAC-SHA256) para el servidor espejo y alerta de
+  espacio en disco.
+- **Exportación al portal público**: un JSON que sólo puede llevar lo que la lista blanca
+  permite. La nómina de seleccionados sale únicamente cuando el administrador la publica,
+  después del cierre.
+- **Anonimización ARCO**: la única operación destructiva, con confirmación doble.
+- **Expediente en PDF**, de una postulación o de toda una convocatoria (con índice y
+  marcadores), con la fotografía. **Su contenido se recorta según quién lo pide**: un
+  jurado nunca recibe la evaluación de otro.
+- **Reportes CSV** a la medida: se eligen campos, granularidad, filtros y orden, y la
+  definición se guarda como plantilla para los años siguientes. **Reporte de resultados**
+  con los empates a la vista.
+- **Tablero** de cada convocatoria y **estadísticas** de cada edición, con cifras que
+  llevan al listado que las produce.
+- **Archivo histórico por API**: un solo listado para todas las ediciones, con **búsqueda
+  de texto completo** (sin acentos, por inicio de palabra y por fragmento), filtros
+  combinables en la URL, orden, paginación, **CSV** del resultado, vistas guardadas y
+  **enlace permanente por folio**. Lo que cada perfil ve no caduca.
+- **Descarga masiva en ZIP**, armada en segundo plano: por los mismos filtros, eligiendo
+  qué tipos de documento, con carpetas por folio y `manifiesto.csv`. Queda registrada.
+- **Evaluación por API** (para el jurado): lista de trabajo con su avance, calificación
+  por criterios en borrador o enviada, y congelación al cierre. **Un jurado nunca ve lo de
+  otro**: el aislamiento es estructural y lo vigila una prueba que barre todos los
+  endpoints. La **matriz de resultados**, con la suma de los tres, es sólo de supervisión.
 - **Postulación completa por API** (para el postulante): captura con autoguardado, subida
   de documentos, **envío irreversible con folio** y **acuse de recibo en PDF**, que también
   se encola por correo. En todo momento la API dice qué le falta a la postulación.
+- **Revisión documental por API** (para el revisor): bandeja, dictamen de cada documento,
+  observaciones, **subsanación con desbloqueo selectivo** —el postulante corrige sólo lo
+  señalado—, reenvío con acuse nuevo y dictamen final.
 - **Acervo de archivos** en disco, direccionado por SHA-256, con versiones (nada se
   sobrescribe) y descargas registradas.
 - **Comprobación de las ligas de video** en red y **recordatorios** a quien tiene un
@@ -42,13 +120,9 @@ políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 - **Base de datos SQLite** con el esquema completo y migraciones versionadas.
 - **Páginas públicas:** portada, convocatorias, aviso de privacidad.
 
-> **La configuración y la captura aún no tienen pantallas.** Se hacen por la API (`curl`
-> o cualquier cliente HTTP); el formulario del postulante llega en el paso 11 y el panel
-> de administración en el paso 13.
->
-> **Los correos todavía no se envían.** El transporte real (SMTP propio) llega en el
-> paso 14. Mientras tanto cada mensaje **se escribe en el log**, de donde se copia el
-> enlace de verificación, recuperación o activación; véase «Correos en desarrollo».
+> **El correo tiene tres transportes** (`--correo`): `registro` (sólo el log, por
+> omisión), `archivo` (cada mensaje completo como `.eml`, para un VPS que no puede
+> enviar correo) y `smtp` (al Postfix local o a un relevo externo). Véase «Correo».
 
 ## Requisitos
 
@@ -87,6 +161,22 @@ Los correos no se envían: aparecen en la salida del servidor como líneas
 `correo NO enviado: transporte de desarrollo`, con su texto completo. Para probar un
 registro, copie de ahí el enlace `…/cuenta/verificar?token=…` y ábralo en el navegador.
 
+### Correo
+
+| Situación | Configuración |
+|---|---|
+| Desarrollo | Nada: `--correo registro` escribe los mensajes en el log. |
+| VPS que no puede enviar correo (puerto 25 bloqueado) | `FIMNME_CORREO=archivo`: cada mensaje queda como `.eml` en `<datos>/correo`. |
+| VPS con un relevo externo | `FIMNME_CORREO=smtp`, `FIMNME_SMTP_SERVIDOR=smtp.proveedor.com:587`, `FIMNME_SMTP_SEGURIDAD=starttls`, `FIMNME_SMTP_USUARIO=…` y `FIMNME_SMTP_PASSWORD=…` |
+| Instalación final, con SMTP propio | `FIMNME_CORREO=smtp` hacia el Postfix local (`127.0.0.1:25`, por omisión), que firma con DKIM y entrega. Véase el ADR 0025. |
+
+Con `archivo`, para ver el último correo y copiar su enlace en el VPS (el cuerpo va en
+base64, como en cualquier correo; un cliente de correo abre el `.eml` directamente):
+
+```bash
+sudo ls -t /var/lib/fimnme/correo | head -1
+```
+
 ### Crear el primer administrador
 
 Con el servidor detenido o en marcha, en otra terminal:
@@ -97,6 +187,11 @@ go run ./cmd/fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemp
 
 La orden imprime un **enlace de activación**: al abrirlo se elige la contraseña. El otro
 perfil global disponible es `coordinacion_nacional` (observador).
+
+Con la sesión abierta, **Administración** (`/administracion`) lleva a las ediciones y a la
+ficha de configuración de cada convocatoria; desde ahí se crean las demás cuentas
+internas, se asignan jurados y revisores, y se publica la convocatoria. Lo mismo puede
+hacerse por la API o con `fimnme-cli --tui`.
 
 ### Probar la API
 
@@ -258,6 +353,253 @@ Para enviar, el correo de la cuenta debe estar confirmado: en desarrollo, el enl
 verificación está en el log (véase «Correos en desarrollo»). Decisiones de este módulo:
 [ADR 0009](docs/adr/0009-documentos-envio-y-acuse.md).
 
+### API de revisión documental
+
+Para los revisores asignados a la convocatoria y el administrador; el observador sólo
+consulta. Se revisa con la convocatoria en etapa de revisión documental.
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /api/v1/convocatorias/{id}/revision` | Bandeja: todas las postulaciones enviadas y el tablero de avance. Filtros: `estado`, `subcategoria`, `toma` (`libre`, `mia`, `otra`) y `q` (folio o nombre) |
+| `GET /api/v1/postulaciones/{id}` | La misma consulta de siempre; a quien revisa le añade `revision`: dictámenes, observaciones, subsanaciones y los `cambios` del último reenvío |
+| `POST` · `DELETE /api/v1/postulaciones/{id}/toma` | «La reviso yo», o la libera. Informa a los demás; no bloquea |
+| `PUT /api/v1/documentos/{id}/dictamen` | `dictamen`: `valido`, `invalido` (con `motivo`) o `pendiente` |
+| `POST /api/v1/postulaciones/{id}/observaciones` | Nota interna: `texto` y, si es de una obra, `obra_id` |
+| `POST /api/v1/postulaciones/{id}/subsanaciones` | Solicita una subsanación: `problemas` (cada uno con `clase`, `campo`, `obra_id` y `problema`), `fecha_limite` y `nota`. Los documentos inválidos se añaden solos |
+| `PUT /api/v1/postulaciones/{id}/desbloqueos/{solicitud}` | Concede o niega una solicitud de desbloqueo: `concedida` y `motivo` |
+| `POST /api/v1/postulaciones/{id}/dictamen` | `dictamen`: `validada` o `descartada` (con `motivo`) |
+
+Durante una subsanación el postulante usa las mismas rutas de captura, pero sólo puede
+modificar los elementos que lista `subsanacion.problemas`; lo demás responde con un error
+por elemento. Además:
+
+| Método y ruta | Qué hace |
+|---|---|
+| `POST /api/v1/postulaciones/{id}/desbloqueos` | Pide corregir algo no señalado: `clase`, `campo`, `obra_id` y `justificacion` |
+| `POST /api/v1/postulaciones/{id}/envio` | Reenvía la postulación corregida: mismo folio, acuse nuevo |
+
+Ejemplo, con la sesión de un revisor: marcar inválida la partitura (documento 2), pedir
+que se corrija además el teléfono, y dar plazo hasta el 15 de enero.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"dictamen":"invalido","motivo":"Faltan las páginas 3 y 4."}' http://127.0.0.1:8080/api/v1/documentos/2/dictamen
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"fecha_limite":"2027-01-15T23:59:00-06:00","problemas":[{"clase":"campo","campo":"datos.telefono","problema":"Falta la clave lada."}]}' http://127.0.0.1:8080/api/v1/postulaciones/1/subsanaciones
+```
+
+Decisiones de este módulo: [ADR 0010](docs/adr/0010-revision-documental-y-subsanacion.md).
+
+### API de evaluación
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/convocatorias/{id}/evaluacion` | Jurado de la convocatoria | Su lista de trabajo: unidades por evaluar, estado de **su** evaluación y avance |
+| `GET /api/v1/postulaciones/{id}/evaluacion` | Jurado | Su evaluación de una unidad. En Compositores, `?obra_id=` |
+| `PUT /api/v1/postulaciones/{id}/evaluacion` | Jurado | Guarda su evaluación: `puntajes` (por clave de criterio), `observaciones`, `obra_id` y `enviar` |
+| `PUT` · `DELETE /api/v1/postulaciones/{id}/excusa` | Jurado | Se excusa por conflicto de interés (`motivo` y, en Compositores, `obra_id`; sin él, toda la postulación), o retira la excusa |
+| `GET /api/v1/convocatorias/{id}/resultados` | `admin_sistema`, `coordinacion_nacional` | Matriz: puntaje por jurado y criterio, excusas, suma, promedio, **puntaje comparable** y lugar. Queda en la bitácora |
+| `PUT /api/v1/postulaciones/{id}/dictamen-final` | `admin_sistema` | `dictamen`: `seleccionada`, `no_seleccionada`, `lista_espera` o vacío |
+
+En Intérpretes se califica la postulación completa; en Compositores, cada obra. El jurado
+ve la postulación entera con `GET /api/v1/postulaciones/{id}` y descarga sus documentos.
+El administrador no puede evaluar.
+
+La matriz ordena por el **puntaje comparable** (`puntaje`): el promedio por jurado,
+llevado a tres. Así, si un jurado se excusa, la postulación no queda debajo por tener una
+calificación menos. Con tres jurados es igual a la suma.
+
+La convocatoria pasa a evaluación aunque queden postulaciones en revisión: se terminan de
+revisar después y, al validarse, se suman a la lista del jurado.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"puntajes":{"realizacion":4,"artistico":5},"observaciones":"Propuesta sólida.","enviar":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/evaluacion
+```
+
+Decisiones de este módulo, y cómo se garantiza el aislamiento entre jurados:
+[ADR 0011](docs/adr/0011-evaluacion-por-jurado.md).
+
+### API del archivo, búsqueda y descargas masivas
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/archivo` | Supervisión; revisores y jurados (sólo lo suyo) | Listado de postulaciones de todas las ediciones. Con `formato=csv`, el resultado completo |
+| `GET /api/v1/folios/{folio}` | Quien pueda ver la postulación | La postulación de un folio: el enlace permanente |
+| `GET` · `POST /api/v1/vistas` | Cualquier cuenta | Vistas guardadas: `nombre` y `ruta` (del propio sitio) |
+| `DELETE /api/v1/vistas/{id}` | La cuenta que la guardó | Borra una vista |
+| `POST /api/v1/exportaciones` | Supervisión y revisores; el postulante, sólo su postulación | Pide un ZIP de documentos. Responde `202`: se arma en segundo plano |
+| `GET /api/v1/exportaciones/{id}` | Quien la pidió | Estado: `encolado`, `procesando`, `listo` o `error` |
+| `GET /api/v1/exportaciones/{id}/archivo` | Quien la pidió | Baja el ZIP. Vale 7 días; cada descarga queda registrada |
+
+Parámetros del listado, todos opcionales y combinables:
+
+| Parámetro | Filtra por |
+|---|---|
+| `q` | Texto: folio, nombres, nombre artístico, ensamble, integrantes, títulos de obra, compositores y correos |
+| `edicion`, `convocatoria`, `tipo`, `subcategoria`, `estado` | Número de edición, id de convocatoria, `interpretes` / `compositores`, `solista` / `ensamble`, estado |
+| `dotacion`, `estreno` | Alguna de sus obras tiene esa dotación (id) o ese tipo de estreno |
+| `entidad_residencia`, `entidad_concierto`, `nacionalidad`, `pais`, `genero` | Datos generales y propuesta de concierto |
+| `enviada_desde`, `enviada_hasta` | Fecha de envío (`AAAA-MM-DD`, hora de México, o instante ISO-8601) |
+| `con_subsanaciones`, `documentos_pendientes`, `ligas_con_problema` | `si` o `no` |
+| `dictamen` | Resultado del proceso. Sólo surte efecto para la supervisión |
+| `ids` | Selección a mano: `ids=3,8,21` |
+| `orden` | `folio`, `nombre`, `enviada`, `estado`, `obras` o `duracion`; con `-` delante, descendente |
+| `pagina`, `tamano` | Página (desde 1) y tamaño (50 por omisión, 200 como máximo) |
+
+La descarga masiva toma **esos mismos parámetros**, más `tipos` (claves de documento
+separadas por coma) y `postulacion` (una sola, por id). El ZIP trae los documentos vigentes
+de lo que el listado mostraría:
+
+```
+FIM49-COM-0007_Maria_Nunez/fotografia.jpg
+FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/partitura.pdf
+FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/particellas.pdf
+manifiesto.csv
+```
+
+```bash
+curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/archivo?q=nunez&tipo=compositores&orden=-enviada'
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST 'http://127.0.0.1:8080/api/v1/exportaciones?convocatoria=2&tipos=partitura,particellas'
+```
+
+```bash
+curl -b cookies.txt -o documentos.zip http://127.0.0.1:8080/api/v1/exportaciones/1/archivo
+```
+
+Decisiones de este módulo: [ADR 0012](docs/adr/0012-archivo-busqueda-y-descargas-masivas.md).
+
+### API de expediente, reportes y tableros
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/postulaciones/{id}/expediente` | Quien pueda ver la postulación | Expediente en PDF. `idioma=es|en`, `fotografia=no`, `hoja=si` |
+| `POST /api/v1/expedientes` | Supervisión, revisores y jurados (sólo lo suyo) | Expediente de una convocatoria en un solo PDF. `convocatoria` obligatorio; admite los filtros del archivo. Responde `202`; se consulta y se baja en `/api/v1/exportaciones/{id}` |
+| `GET /api/v1/convocatorias/{id}/reporte/campos` | `admin_sistema`, `coordinacion_nacional` | Catálogo de campos para armar un reporte |
+| `GET /api/v1/convocatorias/{id}/reporte` | `admin_sistema`, `coordinacion_nacional` | Reporte CSV |
+| `GET` · `POST /api/v1/reportes/plantillas` | `admin_sistema`, `coordinacion_nacional` | Plantillas de reporte: `nombre`, `tipo` y `consulta` |
+| `DELETE /api/v1/reportes/plantillas/{id}` | El administrador, cualquiera; el observador, las suyas | Borra una plantilla |
+| `GET /api/v1/convocatorias/{id}/resultados?formato=csv` | `admin_sistema`, `coordinacion_nacional` | Reporte de resultados: la matriz en CSV |
+| `GET /api/v1/convocatorias/{id}/tablero` | `admin_sistema`, `coordinacion_nacional` | Postulaciones por estado, envíos por día, documentos y subsanaciones pendientes, avance de cada jurado |
+| `GET /api/v1/ediciones/{id}/estadisticas` | `admin_sistema`, `coordinacion_nacional` | Distribuciones de las postulaciones enviadas. Con `convocatoria`, sólo esa |
+
+**Qué lleva el expediente, según quién lo pide:**
+
+| Quien lo pide | Recibe |
+|---|---|
+| Titular | Su postulación. Nada interno |
+| Jurado | La postulación y **su** evaluación; nunca la de otro jurado ni la suma |
+| Revisor | La postulación y la revisión documental; ninguna evaluación |
+| Administrador y observador | Todo |
+
+Parámetros del reporte, además de los filtros del archivo:
+
+| Parámetro | Qué hace |
+|---|---|
+| `campos` | Claves del catálogo separadas por coma, en el orden de las columnas |
+| `granularidad` | `postulacion` (por omisión) u `obra`: una fila por obra, con los datos de la postulación repetidos |
+| `separador` | `coma` (por omisión) o `punto_y_coma`, que es el que Excel en español espera |
+| `puntaje_min`, `puntaje_max` | Rango de puntaje |
+| `orden` | Los del archivo, o `puntaje` / `-puntaje` |
+| `plantilla` | Id de una plantilla guardada; los demás parámetros mandan sobre ella |
+| `idioma` | `es` o `en`, para encabezados y valores |
+
+Los campos de obra piden `granularidad=obra`. Los de la evaluación (`eval.*`) piden la
+granularidad de lo que califica el jurado: por postulación en Intérpretes, por obra en
+Compositores.
+
+```bash
+curl -b cookies.txt -o expediente.pdf 'http://127.0.0.1:8080/api/v1/postulaciones/1/expediente'
+```
+
+```bash
+curl -b cookies.txt -o reporte.csv 'http://127.0.0.1:8080/api/v1/convocatorias/1/reporte?campos=folio,datos.nombre_completo,datos.entidad_residencia,obras.titulos,eval.total,eval.lugar&orden=-puntaje&separador=punto_y_coma'
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"nombre":"Acta de resultados","tipo":"interpretes","consulta":"campos=folio,datos.nombre_completo,eval.total,eval.lugar&orden=-puntaje"}' http://127.0.0.1:8080/api/v1/reportes/plantillas
+```
+
+Decisiones de este módulo: [ADR 0013](docs/adr/0013-reportes-expediente-y-tableros.md).
+
+### API del portal público y de protección de datos
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `GET /api/v1/interop/convocatoria.json` | Público | Exportación para el portal: bases, calendario, dotaciones y la nómina publicada. `?edicion=N` |
+| `GET /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | Vista previa de la nómina y publicaciones anteriores |
+| `POST /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | `{"confirmo": true}` publica la nómina; con `"retirar": true` la retira. Sólo con la convocatoria cerrada |
+| `POST /api/v1/postulaciones/{id}/anonimizacion` | `admin_sistema` | Anonimiza: `folio` (escrito de nuevo), `fundamento`, `confirmo` y `con_cuenta` |
+
+**Qué sale al portal, y qué no.** Salen los títulos y las bases en ambos idiomas, las
+fechas de cada etapa, el catálogo de dotaciones y, de cada seleccionado, el nombre
+artístico, la semblanza y los títulos de sus obras. **Nunca** salen datos de contacto,
+fechas de nacimiento, documentos, dictámenes, calificaciones, postulaciones no
+seleccionadas ni borradores. Cerrar una convocatoria **no publica** la nómina: hace falta
+la acción explícita del administrador, y lo publicado queda congelado hasta que vuelva a
+publicar.
+
+```bash
+curl http://127.0.0.1:8080/api/v1/interop/convocatoria.json
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"confirmo":true}' http://127.0.0.1:8080/api/v1/convocatorias/1/publicacion
+```
+
+Decisiones de este módulo: [ADR 0014](docs/adr/0014-continuidad-portal-publico-y-anonimizacion.md).
+
+### API de plantillas de correo
+
+Cada correo del sistema es una plantilla en Markdown con variables (`{{nombre}}`,
+`{{liga}}`…), en español y en inglés. Guardar crea una versión nueva, que pasa a ser la
+vigente; ninguna se edita ni se borra. Se rechaza una versión que use una variable que la
+plantilla no recibe o que omita una indispensable. Sólo el administrador.
+
+```bash
+curl -b cookies.txt http://127.0.0.1:8080/api/v1/plantillas-correo
+```
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"asunto":"Recibimos tu postulación {{folio}}","cuerpo_md":"Hola, {{nombre}}:\n\nTu folio es **{{folio}}**."}' http://127.0.0.1:8080/api/v1/plantillas-correo/acuse/es
+```
+
+`…/vista-previa` arma el correo con valores de muestra sin guardar, y `…/prueba` envía
+un correo de prueba a quien lo pide.
+
+### API de importación asistida y campos extendidos
+
+| Método y ruta | Quién | Qué hace |
+|---|---|---|
+| `POST /api/v1/importaciones` | `admin_sistema` | **Analyze**: multipart con `tipo`, `convocatoria_id` y `archivo` (.csv o .xlsx). No escribe nada en el dominio |
+| `GET /api/v1/importaciones/{id}` | `admin_sistema` | Conflictos, candidatos y efecto que tendrá confirmarla |
+| `PUT /api/v1/importaciones/{id}/conflictos/{conflicto}` | `admin_sistema` | Resuelve uno: `resolucion` (`vincular`, `crear_nuevo`, `omitir`) y `entidad_id` |
+| `POST /api/v1/importaciones/{id}/resoluciones` | `admin_sistema` | Resuelve de una vez los que no tienen candidatos: `crear_nuevo` u `omitir` |
+| `POST /api/v1/importaciones/{id}/confirmacion` | `admin_sistema` | **Commit**: `{"confirmo": true}`. Todo o nada |
+| `DELETE /api/v1/importaciones/{id}` | `admin_sistema` | La cancela |
+| `GET /api/v1/extendidos` | `admin_sistema`, `coordinacion_nacional` | Diccionario de campos extendidos |
+| `GET` · `PUT /api/v1/extendidos/{tabla}/{id}` | Supervisión · `admin_sistema` | Valores de los campos extendidos de una fila; `PUT` los captura |
+
+Tipos de importación y columnas de la hoja (el primer renglón, con estos nombres exactos):
+
+| `tipo` | Columnas | Obligatorias |
+|---|---|---|
+| `dotaciones` (sólo Compositores) | `nombre_es`, `nombre_en`, `descripcion_es`, `descripcion_en` | `nombre_es` |
+| `usuarios_jurado`, `usuarios_revisor` | `email`, `nombre`, `apellidos`, `idioma` | las tres primeras |
+
+Una dotación sólo se da por existente si su nombre es **idéntico**; en una importación de
+cuentas **todo** renglón pide una decisión, también cuando el correo coincide con el de
+una cuenta. Una postulación nunca se importa.
+
+```bash
+curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F tipo=dotaciones -F convocatoria_id=2 -F archivo=@dotaciones.xlsx http://127.0.0.1:8080/api/v1/importaciones
+```
+
+Decisiones de este módulo: [ADR 0015](docs/adr/0015-extension-dinamica-e-importacion-asistida.md).
+
 Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
 Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
 `campos`, que dice qué corregir en cada uno.
@@ -279,11 +621,16 @@ crean sus propias bases SQLite temporales; no tocan `./data`.
 ```
 cmd/
   fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
-  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, sembrar-demo)
+  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, verify, mirror,
+                      export-json, export-csv, arco, schema, import, sembrar-demo)
+                      y modo interactivo (--tui)
 models/             MODELO
   entities.go         entidades de dominio
   rules.go            reglas de negocio (la validación existe una sola vez, aquí)
   blobs.go            almacén de archivos en disco, direccionado por SHA-256
+  mirror.go           verificación del acervo e instantáneas firmadas del espejo
+  schema_extender.go  extensión dinámica de campos: lista blanca y composición del DDL
+  importacion.go      importación asistida: lectura de CSV y XLSX, análisis y reglas
   catalogos.go        catálogos fijos: países y entidades federativas
   persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
   repository.go       persistencia sobre SQLite: TODO el SQL del sistema
@@ -298,7 +645,25 @@ controllers/        CONTROLADOR
   api.go              API REST /api/v1: sesión y bitácora
   configuracion.go    API de configuración de ediciones y convocatorias
   postulaciones.go    API de captura de postulaciones
+  postulante.go       páginas del postulante: panel y formulario por pasos
+  postulante_envio.go páginas del postulante: documentos, envío, estado y subsanación
+  revisor.go          páginas del revisor: bandeja y vista de revisión
+  jurado.go           páginas del jurado: lista de trabajo y ficha de evaluación
+  administracion.go   páginas de administración: ediciones, configuración, cuentas
+  supervision.go      páginas de supervisión: tablero, resultados, reportes, nómina
+  archivo_paginas.go  páginas del archivo: buscador, vistas, descargas, expedientes
+  plantillas_correo.go API y páginas de las plantillas de correo
+  operacion.go        páginas de bitácora, importación asistida y anonimización ARCO
   documentos.go       subida y descarga de documentos, envío, acuse y bases
+  revision.go         revisión documental, subsanación y desbloqueos
+  evaluacion.go       evaluación por jurado y matriz de resultados
+  archivo.go          archivo histórico, vistas guardadas y descargas masivas
+  expediente.go       expediente en PDF: qué carga para cada quien
+  interop.go          portal público, publicación de la nómina y anonimización
+  importaciones.go    importación asistida en dos fases
+  extendidos.go       campos extendidos: diccionario y captura
+  disco.go            alerta de espacio en disco
+  reportes.go         reportes CSV, plantillas de reporte y tableros
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
 views/              VISTA (todo incrustado con //go:embed)
@@ -310,9 +675,16 @@ views/              VISTA (todo incrustado con //go:embed)
   configuracion.go    respuestas JSON de la configuración
   postulaciones.go    respuestas JSON de las postulaciones y su formulario
   acuse.go            acuse de recibo en PDF, compuesto desde el snapshot
+  revision.go         respuestas JSON de la revisión y la subsanación
+  evaluacion.go       respuestas JSON del jurado y de la matriz
+  archivo.go          listado del archivo, su CSV y el manifiesto de los ZIP
+  expediente.go       composición del expediente en PDF
+  fotografia.go       reducción de la fotografía para el PDF
+  reportes.go         CSV de reportes y respuestas de tableros
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
-  templates/          html/template
-  static/             CSS propio, htmx, iconos
+  templates/          html/template (páginas y parciales)
+  static/css/         tema.css (identidad de la edición) y fimnme.css (todo lo demás)
+  static/js/          htmx y fimnme.js (mejoras opcionales: todo funciona sin ellos)
   i18n/               es.json, en.json
 deploy/             systemd, proxy inverso y guiones de instalación y actualización
 internal/
@@ -518,6 +890,7 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | `FIMNME_DATOS` | `--datos` | `data` | Directorio de datos. En el VPS la unidad de systemd lo fija en `/var/lib/fimnme`. |
 | `FIMNME_URL_BASE` | `--url-base` | — | Dirección pública del sitio, sin barra final (`https://dev.fimnme.example`). Con ella se arman los enlaces de los correos. En `desarrollo`, si falta, se usa la dirección local y se avisa en el log; en `produccion` el servicio no arranca sin ella. |
 | `FIMNME_CORREO_POR_MINUTO` | `--correo-por-minuto` | `30` | Máximo de correos que se envían por minuto. |
+| `FIMNME_DISCO_MIN_GB` | `--disco-min-gb` | `10` | Espacio libre mínimo del disco de datos, en GB. Por debajo, el servicio lo registra como error y avisa por correo a los administradores una vez al día. `0` no vigila. |
 
 ### Operación diaria
 
@@ -531,6 +904,11 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 | Manual de los binarios | `man fimnme-web` · `man fimnme-cli` |
 | Aplicar migraciones a mano | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme migrate` |
 | Ver los correos (no se envían aún) | `journalctl -u fimnme-web \| grep "correo NO enviado"` |
+| Verificar el acervo (rápido) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify --rapido` |
+| Verificar el acervo (completo) | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify` |
+| Exportación para el portal | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-json --salida /tmp/convocatoria.json` |
+| Administrar la configuración | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui` |
+| Plantillas de reporte | `sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --listar` |
 
 > **Los enlaces de los correos quedan en el log del servicio** mientras el entorno sea
 > `desarrollo`. Son secretos de un solo uso: por eso en `produccion` el log sólo muestra
@@ -543,21 +921,249 @@ equivalentes en la línea de comandos). Tras editar el archivo:
 acervo de archivos** (`blobs/`): las partituras, el audio, las fotografías y los acuses.
 Una cosa sin la otra no sirve: se respaldan siempre juntas.
 
-Los respaldos automatizados y el servidor espejo llegan en los pasos 10 y 14. Mientras
-tanto, para copiar los datos **sin riesgo de corrupción** detenga el servicio y copie el
-directorio completo (el archivo `-wal` puede contener datos aún no integrados):
+El directorio `exportaciones/` guarda los ZIP de las descargas masivas y los expedientes
+por convocatoria durante siete días.
+**No hace falta respaldarlo**: son copias de lo que ya está en `blobs/`.
+
+#### Instantánea firmada (sin detener el servicio)
+
+`fimnme-cli mirror snapshot` copia la base **en caliente**, replica el acervo y firma el
+resultado. Es la forma de respaldar y de alimentar el servidor espejo.
+
+Una sola vez, genere la clave de firma (fuera del directorio de datos y del destino):
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli mirror nueva-clave --clave /etc/fimnme/espejo.clave
+```
+
+Cada vez:
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme mirror snapshot --destino /var/backups/fimnme --clave /etc/fimnme/espejo.clave
+```
+
+En el destino quedan `instantaneas/fimnme-<fecha>.db` con su manifiesto firmado y
+`blobs/` con el acervo. Para comprobar una instantánea —en este servidor o en el espejo,
+donde basta con el destino y la clave—:
+
+```bash
+/opt/fimnme/bin/fimnme-cli mirror verify --destino /var/backups/fimnme --clave /etc/fimnme/espejo.clave
+```
+
+Verifica la firma, que la base sea la del manifiesto, su integridad interna y que estén
+todos los archivos que registra. Las instantáneas se conservan 90 días
+(`--conservar-dias`).
+
+#### Respaldos automatizados
+
+`make deploy` instala dos temporizadores de systemd (ADR 0026):
+
+| Temporizador | Qué hace | Cuándo |
+|---|---|---|
+| `fimnme-respaldo.timer` | Instantánea firmada de la base y del acervo, verificada, con sumas SHA-256; y, si se configura, copia a otro servidor por rsync sobre SSH | Cada 6 horas |
+| `fimnme-restauracion.timer` | **Prueba de restauración**: comprueba las sumas, restaura la última instantánea en un directorio aparte y verifica la base contra el acervo, sin tocar producción | Cada domingo |
+
+El primer despliegue genera la clave de firma en `/etc/fimnme/espejo.clave` (nunca la
+reemplaza). La configuración está en `/etc/fimnme/respaldo.env`: destino, días que se
+conservan y, opcional, el servidor remoto. Para lanzar uno a mano y ver su resultado:
+
+```bash
+sudo systemctl start fimnme-respaldo.service
+```
+
+```bash
+journalctl -u fimnme-respaldo -n 30
+```
+
+```bash
+systemctl list-timers 'fimnme-*'
+```
+
+Para la copia remota, el usuario `fimnme` necesita una llave SSH sin frase autorizada en
+el remoto; póngala en `FIMNME_RESPALDO_REMOTO=usuario@host:/ruta`. La clave de firma se
+copia al espejo una sola vez por un canal seguro y **no** viaja con las instantáneas.
+Durante la etapa de postulación conviene acortar la cadencia
+(`sudo systemctl edit fimnme-respaldo.timer`).
+
+#### Restaurar
+
+Con el servicio detenido, copie la instantánea verificada como `fimnme.db` y el acervo
+como `blobs/`, y borre los archivos `-wal` y `-shm` que hubiera:
 
 ```bash
 sudo systemctl stop fimnme-web
 ```
 
 ```bash
-sudo cp -a /var/lib/fimnme /var/lib/fimnme.respaldo-$(date +%Y%m%d)
+sudo -u fimnme cp /var/backups/fimnme/instantaneas/fimnme-<fecha>.db /var/lib/fimnme/fimnme.db
+```
+
+```bash
+sudo -u fimnme rm -f /var/lib/fimnme/fimnme.db-wal /var/lib/fimnme/fimnme.db-shm
+```
+
+```bash
+sudo -u fimnme cp -a /var/backups/fimnme/blobs/. /var/lib/fimnme/blobs/
+```
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme verify
 ```
 
 ```bash
 sudo systemctl start fimnme-web
 ```
+
+### Con contenedores (opcional)
+
+La instalación de arriba, con systemd y binarios, es la de referencia. Para quien prefiera
+contenedores hay una imagen mínima (ADR 0027) con los mismos binarios:
+
+```bash
+make imagen
+```
+
+```bash
+cp deploy/fimnme-web.env.ejemplo deploy/contenedor/fimnme-web.env
+```
+
+```bash
+docker compose -f deploy/contenedor/compose.yaml up -d
+```
+
+Compose aplica primero las migraciones y después arranca el servidor en 127.0.0.1:8080,
+con el proxy con TLS delante como siempre. `fimnme-cli` corre desde la misma imagen:
+
+```bash
+docker compose -f deploy/contenedor/compose.yaml run --rm web fimnme-cli crear-usuario --perfil admin_sistema --email admin@ejemplo.mx --nombre Ana --apellidos López
+```
+
+Con Podman sin privilegios, `deploy/contenedor/fimnme-web.container` y
+`fimnme-datos.volume` son unidades Quadlet: se copian a `~/.config/containers/systemd/`.
+
+### Prueba de carga
+
+`deploy/carga` reproduce el pico de RNF-01 (200 postulantes, 50 subidas simultáneas) contra
+una instalación **de prueba** en entorno de desarrollo, en la misma máquina (ADR 0028):
+
+```bash
+go run ./deploy/carga --datos /ruta/datos-de-prueba --url http://127.0.0.1:8080 --convocatoria 1
+```
+
+Deja cuentas `carga-…@carga.invalid` en esa base: nunca contra producción.
+
+### Añadir un campo sin recompilar
+
+`fimnme-cli schema` añade campos a las tablas que lo admiten (edición, convocatoria,
+dotación, postulación, obra, datos generales, propuesta de concierto, integrantes y ligas
+de video). Las tablas del proceso —evaluaciones, acuses, descargas, bitácora,
+subsanaciones— no se dejan tocar.
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme schema add --tabla datos_solista --nombre como_se_entero --etiqueta-es "¿Cómo te enteraste?" --etiqueta-en "How did you hear about us?" --visible postulante
+```
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme schema list
+```
+
+- La columna se llama `x_` + el nombre. Tipos: `texto` (por omisión), `entero`, `decimal`.
+- Con `--visible postulante` el campo aparece en el formulario y lo llena quien postula;
+  sin él, es un dato interno que captura la administración. Además del administrador y
+  el observador, pueden verlo `revisor_documental` y `jurado` si se listan.
+- Es siempre opcional, no entra en el acuse y no se desbloquea en una subsanación.
+- No hace falta reiniciar el servicio. Cada `ALTER TABLE` queda en la bitácora.
+
+`schema drop --tabla T --nombre N` quita el campo **y borra sus valores**; pide escribir
+el nombre de la columna para confirmar.
+
+### Importar un catálogo o un jurado
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme import --tipo dotaciones --convocatoria 2 --como admin@ejemplo.mx dotaciones.xlsx
+```
+
+La herramienta analiza la hoja, muestra cada conflicto con sus candidatos y pregunta qué
+hacer (vincular, crear u omitir). Al final dice lo que va a ocurrir y pide escribir
+`IMPORTAR`. Hasta entonces no ha escrito nada; si se interrumpe, se cancela. `--como` es
+el correo del administrador que resuelve: queda registrado en cada decisión. Las cuentas
+nuevas (`--tipo usuarios_jurado` o `usuarios_revisor`) nacen sin contraseña y sus enlaces
+de activación se muestran al terminar.
+
+### Administrar la configuración desde la terminal
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme --tui
+```
+
+Abre un diálogo por menús para administrar ediciones, convocatorias (títulos, límites,
+bases, calendario y estado), dotaciones, requisitos documentales, criterios de evaluación
+y jurados y revisores. Sirve cuando el panel no está a la mano: una instalación nueva, una
+sesión por SSH, el servicio detenido.
+
+- **Intro** conserva el valor que se muestra entre corchetes; **`-`** vacía un dato opcional.
+- Las fechas se escriben `AAAA-MM-DD HH:MM`, en hora de la Ciudad de México.
+- Las bases se cargan de un archivo Markdown: se indica su ruta.
+- Aplica **las mismas reglas que el panel** y explica cada rechazo con sus mismos textos:
+  no publica sin bases ni calendario, no pasa a evaluación sin tres jurados.
+- Cada cambio se guarda al terminar su ficha y queda en la bitácora con el usuario del
+  sistema que lo hizo. Puede usarse con el servicio en marcha.
+- Una cuenta nueva de jurado o revisor nace sin contraseña; su enlace de activación se
+  muestra en la terminal (defina `FIMNME_URL_BASE` para que lleve la dirección pública).
+
+### Generar un reporte desde la terminal
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme export-csv --plantilla "Avance" --edicion 49 --como admin@ejemplo.mx --salida /tmp/avance.csv
+```
+
+Genera el mismo CSV que el generador de reportes del panel, desde una plantilla guardada
+allí (`export-csv --listar` las muestra). La convocatoria se indica con `--edicion N` (la
+del tipo de la plantilla) o con `--convocatoria ID`.
+
+- `--como` es el correo de una cuenta de **administrador o de la coordinación nacional**:
+  el reporte se genera con sus permisos y queda en la bitácora a su nombre.
+- Sin `--salida` el CSV va a la salida estándar. Con `--salida`, el archivo nace con
+  permisos `0600` y nunca queda a medias.
+- `--idioma en` pone encabezados y valores en inglés.
+
+Decisiones: [ADR 0016](docs/adr/0016-modo-interactivo-y-export-csv.md).
+
+### Cambiar la imagen de la edición
+
+La plataforma lleva por ahora la identidad del 48º Foro. Para la del 49º —o la de
+cualquier edición— se cambian tres archivos y se recompila:
+
+1. `views/static/css/tema.css`: colores (claro y oscuro), tipografía, radios. Su
+   encabezado lista los pares de color que deben conservar el contraste AA.
+2. `views/templates/parciales/logos.html`: el dibujo `logo_foro` (SVG).
+3. `views/static/img/favicon.svg`.
+
+Ningún otro archivo tiene colores: `make verificar` falla si alguien los añade a
+`fimnme.css`. Detalles en el [ADR 0017](docs/adr/0017-pantallas-del-postulante-y-tema-visual.md).
+
+### Anonimizar una postulación (solicitud ARCO)
+
+Es **la única operación que borra datos**, y no se puede deshacer. Sólo procede con el
+proceso terminado (la convocatoria cerrada o archivada, o la postulación descartada).
+
+```bash
+sudo runuser -u fimnme -- /opt/fimnme/bin/fimnme-cli --datos /var/lib/fimnme arco anonimizar FIM49-INT-0137 --fundamento "Solicitud ARCO 2031/014"
+```
+
+La herramienta muestra qué va a borrar y pide **dos confirmaciones**: volver a escribir el
+folio y después la palabra `ANONIMIZAR`. Con `--con-cuenta` anonimiza también la cuenta
+del titular, si no tiene otras postulaciones.
+
+- **Se borran:** nombre, nombre artístico, teléfono, correo de contacto, semblanza, el día
+  y el mes de nacimiento, los nombres de los integrantes, las ligas, la fotografía, las
+  autorizaciones, los acuses y el texto de los correos que se le enviaron.
+- **Se conservan:** la obra (títulos, partituras, particellas y audio), el dictamen, las
+  evaluaciones y los datos estadísticos.
+
+En `--fundamento` escriba la referencia de la solicitud, **no datos de la persona**: queda
+en la bitácora. Después tome una instantánea nueva para retirar los archivos del espejo.
+Las instantáneas y los respaldos anteriores conservan los datos hasta que vencen.
 
 ### Volver a una versión anterior
 
@@ -580,9 +1186,9 @@ copia antes de desplegar una versión que traiga migraciones.
 ### Pendiente en despliegue
 
 El despliegue conteinerizado que exige la política institucional (`Containerfile`,
-`compose.yaml`, unidades Quadlet) y los respaldos automatizados corresponden al paso 14
-del plan; el servidor espejo, al paso 10. Para el entorno de desarrollo se usa el flujo
-de binarios + systemd descrito aquí.
+`compose.yaml`, unidades Quadlet), los respaldos automatizados y el transporte de las
+instantáneas al servidor espejo corresponden al paso 14 del plan. Para el entorno de
+desarrollo se usa el flujo de binarios + systemd descrito aquí.
 
 ## Dependencias
 

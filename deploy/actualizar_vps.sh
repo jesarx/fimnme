@@ -39,11 +39,25 @@ datos=/var/lib/fimnme
 install -o root -g root -m 0755 "$origen/fimnme-web" /opt/fimnme/bin/fimnme-web
 install -o root -g root -m 0755 "$origen/fimnme-cli" /opt/fimnme/bin/fimnme-cli
 install -o root -g root -m 0644 "$origen/fimnme-web.service" /etc/systemd/system/fimnme-web.service
+# Respaldos (ADR 0026): guiones, unidades y temporizadores. La clave de
+# firma se genera una sola vez y nunca se reemplaza: sin ella no podrían
+# verificarse las instantáneas ya hechas.
+install -o root -g root -m 0755 "$origen/respaldo_automatizado.sh" "$origen/probar_restauracion.sh" /opt/fimnme/bin/
+install -o root -g root -m 0644 "$origen/fimnme-respaldo.service" "$origen/fimnme-respaldo.timer" \
+    "$origen/fimnme-restauracion.service" "$origen/fimnme-restauracion.timer" /etc/systemd/system/
+install -d -o fimnme -g fimnme -m 0750 /var/backups/fimnme
+if [ ! -f /etc/fimnme/espejo.clave ]; then
+    /opt/fimnme/bin/fimnme-cli mirror nueva-clave --clave /etc/fimnme/espejo.clave
+    chown fimnme:fimnme /etc/fimnme/espejo.clave
+fi
 install -d -o fimnme -g fimnme -m 0750 "$datos"
 # Páginas de manual: «man fimnme-web» y «man fimnme-cli».
 install -d -o root -g root -m 0755 /usr/local/share/man/man1
 install -o root -g root -m 0644 "$origen/fimnme-web.1" "$origen/fimnme-cli.1" /usr/local/share/man/man1/
 systemctl daemon-reload
+# Los temporizadores de respaldo se habilitan (y arrancan) en cada despliegue:
+# habilitar lo que ya lo está no hace nada.
+systemctl enable --now fimnme-respaldo.timer fimnme-restauracion.timer
 
 # 2. y 3. Con el servicio detenido, se migra la base como su dueño. Ejecutar
 #         la herramienta como root dejaría archivos que el servicio no podría

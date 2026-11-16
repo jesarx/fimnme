@@ -1,0 +1,92 @@
+{{- /*
+  Una importación asistida (§5.15, RF-IMP-01 a 09): lo que hará confirmarla y
+  cada renglón que una persona debe resolver —vincular a un registro
+  existente, crear uno nuevo u omitirlo—. Nada se infiere: sin todos los
+  conflictos resueltos no se confirma. Recibe en .Datos una vistaImportacion.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "importacion.titulo"}} · {{.Datos.Convocatoria}}</p>
+    <h1 class="banda__titulo">{{.T .Datos.Tipo}}</h1>
+    <p class="banda__entrada"><span class="estado estado--{{.Datos.Clase}}">{{.T .Datos.Estado}}</span></p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/administracion/importaciones">← {{.T "importacion.titulo"}}</a></p>
+{{template "aviso" .}}
+{{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+
+<section class="grupo" aria-labelledby="t-efecto">
+  <h2 class="titulo-seccion" id="t-efecto">{{if $v.Abierta}}{{.T "importacion.efecto"}}{{else}}{{.T "importacion.efecto_hecho"}}{{end}}</h2>
+  <ul class="tablero">
+    <li><span class="tablero__cifra"><b>{{$v.Filas}}</b> {{.T "importacion.renglones"}}</span></li>
+    <li><span class="tablero__cifra"><b>{{$v.Efecto.SinConflicto}}</b> {{.T "importacion.sin_conflicto"}}</span></li>
+    <li><span class="tablero__cifra"><b>{{$v.Efecto.Crean}}</b> {{.T "importacion.crean"}}</span></li>
+    <li><span class="tablero__cifra"><b>{{$v.Efecto.Vinculan}}</b> {{.T "importacion.vinculan"}}</span></li>
+    <li><span class="tablero__cifra"><b>{{$v.Efecto.Omiten}}</b> {{.T "importacion.omiten"}}</span></li>
+    {{- if $v.Efecto.SinResolver}}<li><span class="tablero__cifra tablero__cifra--activa"><b>{{$v.Efecto.SinResolver}}</b> {{.T "importacion.sin_resolver"}}</span></li>{{end}}
+  </ul>
+  <p class="nota">{{.T "importacion.hoja_conservada"}} <code class="nomina__suma">{{$v.SHA256}}</code></p>
+</section>
+
+{{- if $v.Conflictos}}
+<section class="grupo" id="conflictos" aria-labelledby="t-conflictos">
+  <h2 class="titulo-seccion" id="t-conflictos">{{.T "importacion.conflictos"}}</h2>
+  <p class="campo__ayuda">{{.T "importacion.conflictos_ayuda"}}</p>
+  {{- if and $v.Abierta $v.SinCandidatosPendientes}}
+  <form method="post" action="{{$v.Base}}/resoluciones" class="admin__caja en-linea importacion__masiva">
+    <span>{{.T "importacion.sin_candidatos_n" $v.SinCandidatosPendientes}}</span>
+    <button class="boton boton--menor" type="submit" name="resolucion" value="crear_nuevo">{{.T "importacion.crear_todos"}}</button>
+    <button class="boton boton--menor boton--secundario" type="submit" name="resolucion" value="omitir">{{.T "importacion.omitir_todos"}}</button>
+  </form>
+  {{- end}}
+  {{- range $v.Conflictos}}
+  <div class="admin__elemento importacion__conflicto" id="c-{{.ID}}">
+    <p class="importacion__renglon"><span class="campo__rotulo">{{$.T "importacion.renglon_n" .Fila}} · {{.Columna}}</span> <b>{{.Valor}}</b>
+      {{- if .Resuelto}} <span class="estado estado--abierta">{{$.T .Resuelto}}</span>{{else}} <span class="estado estado--proxima">{{$.T "importacion.pendiente"}}</span>{{end}}</p>
+    {{- if $v.Abierta}}
+    <form method="post" action="{{$v.Base}}/conflictos/{{.ID}}" class="importacion__opciones">
+      <fieldset>
+        <legend class="oculto">{{$.T "importacion.renglon_n" .Fila}}</legend>
+        {{- $c := .}}
+        {{- range .Candidatos}}
+        <label class="admin__opcion"><input type="radio" name="eleccion" value="vincular:{{.ID}}"{{if .Elegido}} checked{{end}} required> {{$.T "importacion.es"}} <b>{{.Descripcion}}</b> <span class="tabla__detalle">{{$.T .Motivo}}</span></label>
+        {{- end}}
+        {{- if not $v.CreaCuentas}}
+        <label class="admin__opcion"><input type="radio" name="eleccion" value="crear_nuevo"{{if eq $c.Resolucion "crear_nuevo"}} checked{{end}} required> {{$.T "importacion.crear"}}</label>
+        {{- else if not $c.Candidatos}}
+        <label class="admin__opcion"><input type="radio" name="eleccion" value="crear_nuevo"{{if eq $c.Resolucion "crear_nuevo"}} checked{{end}} required> {{$.T "importacion.crear_cuenta"}}</label>
+        {{- end}}
+        <label class="admin__opcion"><input type="radio" name="eleccion" value="omitir"{{if eq $c.Resolucion "omitir"}} checked{{end}} required> {{$.T "importacion.omitir"}}</label>
+      </fieldset>
+      <button class="boton boton--menor" type="submit">{{$.T "importacion.resolver"}}</button>
+    </form>
+    {{- end}}
+  </div>
+  {{- end}}
+</section>
+{{- end}}
+
+{{- if $v.Abierta}}
+<section class="grupo" id="confirmar" aria-labelledby="t-confirmar">
+  <h2 class="titulo-seccion" id="t-confirmar">{{.T "importacion.confirmar"}}</h2>
+  {{- if $v.PuedeConfirmarse}}
+  <p class="campo__ayuda">{{.T "importacion.confirmar_ayuda"}}{{if $v.CreaCuentas}} {{.T "importacion.confirmar_cuentas"}}{{end}}</p>
+  <form method="post" action="{{$v.Base}}/confirmacion" class="admin__form">
+    <div class="campo campo--casilla"><input id="i-confirmo" name="confirmo" type="checkbox" value="1" required>
+      <label for="i-confirmo">{{.T "importacion.confirmo"}}</label></div>
+    <p><button class="boton" type="submit">{{.T "importacion.confirmar_boton"}}</button></p>
+  </form>
+  {{- else}}
+  <p class="aviso aviso--espera">{{.T "importacion.faltan_resolver" $v.Efecto.SinResolver}}</p>
+  {{- end}}
+  <form method="post" action="{{$v.Base}}/cancelar" class="importacion__cancelar">
+    <button class="boton boton--menor boton--peligro" type="submit">{{.T "importacion.cancelar"}}</button>
+  </form>
+</section>
+{{- end}}
+{{end}}

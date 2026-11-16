@@ -1,0 +1,485 @@
+{{- /*
+  Ficha de configuración de una convocatoria (§5.2, RF-CONV-01 a 08): estado,
+  textos y límites, bases, calendario, dotaciones, requisitos documentales,
+  criterios de evaluación, y jurados y revisores. Recibe en .Datos una
+  vistaConvocatoriaConfig.
+
+  Cada sección es un formulario normal que vuelve a esta página: con un aviso
+  si salió bien, o con el motivo del rechazo y lo escrito junto al formulario
+  (.Datos.Error, .Datos.ErrorEn). Para el observador los controles quedan
+  deshabilitados y sin botones.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Edicion}} · {{.T .Datos.Tipo}}</p>
+    <h1 class="banda__titulo">{{.Datos.Titulo}}</h1>
+    <p class="banda__entrada"><span class="estado estado--{{.Datos.Clase}}">{{.T .Datos.Estado}}</span></p>
+  </div>
+</div>
+{{end}}
+
+{{- /* "error_admin": el motivo de un rechazo, junto al formulario que lo produjo. */ -}}
+{{define "error_admin"}}
+{{- if and .P.Datos.Error (eq .P.Datos.ErrorEn .En)}}
+<div class="aviso aviso--error" role="alert"><p>{{.P.Datos.Error}}</p></div>
+{{- end}}
+{{end}}
+
+{{- /* "boton_admin": el botón de un formulario, sólo para quien administra. */ -}}
+{{define "boton_admin"}}
+{{- if .P.Administra}}<p class="admin__acciones"><button class="boton{{if .Menor}} boton--menor{{end}}" type="submit">{{.P.T .Texto}}</button></p>{{end}}
+{{end}}
+
+{{- /* "campos_dotacion": los campos de una dotación (nueva o existente). */ -}}
+{{define "campos_dotacion"}}
+{{- $d := .D}}{{$id := .ID}}
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-nombre_es">{{.P.T "admin.nombre_es"}}</label>
+    <input id="{{$id}}-nombre_es" name="nombre_es" type="text" required value="{{$d.NombreES}}"></div>
+  <div class="campo"><label for="{{$id}}-nombre_en">{{.P.T "admin.nombre_en"}}</label>
+    <input id="{{$id}}-nombre_en" name="nombre_en" type="text" required lang="en" value="{{$d.NombreEN}}"></div>
+</div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-descripcion_es">{{.P.T "admin.descripcion_es"}} <span class="campo__opcional">{{.P.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-descripcion_es" name="descripcion_es" rows="2">{{$d.DescripcionES}}</textarea></div>
+  <div class="campo"><label for="{{$id}}-descripcion_en">{{.P.T "admin.descripcion_en"}} <span class="campo__opcional">{{.P.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-descripcion_en" name="descripcion_en" rows="2" lang="en">{{$d.DescripcionEN}}</textarea></div>
+</div>
+<div class="admin__fila">
+  <div class="campo campo--corto"><label for="{{$id}}-orden">{{.P.T "admin.orden"}}</label>
+    <input id="{{$id}}-orden" name="orden" type="number" min="0" inputmode="numeric" value="{{$d.Orden}}"></div>
+  {{- if $d.ID}}
+  <div class="campo campo--casilla"><input id="{{$id}}-activa" name="activa" type="checkbox" value="1"{{if $d.Activa}} checked{{end}}>
+    <label for="{{$id}}-activa">{{.P.T "admin.dotacion_activa"}}</label></div>
+  {{- end}}
+</div>
+{{end}}
+
+{{- /* "campos_requisito": los campos de un requisito documental. */ -}}
+{{define "campos_requisito"}}
+{{- $r := .R}}{{$id := .ID}}{{$p := .P}}
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-clave">{{$p.T "admin.clave"}}</label>
+    <p class="campo__ayuda" id="{{$id}}-clave-ayuda">{{$p.T "admin.clave_ayuda"}}</p>
+    <input id="{{$id}}-clave" name="clave" type="text" required pattern="[a-z][a-z0-9_]*" aria-describedby="{{$id}}-clave-ayuda" value="{{$r.Clave}}"></div>
+  <div class="campo"><label for="{{$id}}-ambito">{{$p.T "admin.ambito"}}</label>
+    <select id="{{$id}}-ambito" name="ambito">
+      <option value="postulacion"{{if eq $r.Ambito "postulacion"}} selected{{end}}>{{$p.T "admin.ambito_postulacion"}}</option>
+      <option value="obra"{{if eq $r.Ambito "obra"}} selected{{end}}>{{$p.T "admin.ambito_obra"}}</option>
+    </select></div>
+  {{- if .Compositores}}
+  <div class="campo"><label for="{{$id}}-dotacion">{{$p.T "admin.dotacion"}}</label>
+    <select id="{{$id}}-dotacion" name="dotacion">
+      {{- range $r.Dotaciones}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}
+    </select></div>
+  {{- end}}
+</div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-etiqueta_es">{{$p.T "admin.etiqueta_es"}}</label>
+    <input id="{{$id}}-etiqueta_es" name="etiqueta_es" type="text" required value="{{$r.EtiquetaES}}"></div>
+  <div class="campo"><label for="{{$id}}-etiqueta_en">{{$p.T "admin.etiqueta_en"}}</label>
+    <input id="{{$id}}-etiqueta_en" name="etiqueta_en" type="text" required lang="en" value="{{$r.EtiquetaEN}}"></div>
+</div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-ayuda_es">{{$p.T "admin.ayuda_es"}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-ayuda_es" name="ayuda_es" rows="2">{{$r.AyudaES}}</textarea></div>
+  <div class="campo"><label for="{{$id}}-ayuda_en">{{$p.T "admin.ayuda_en"}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-ayuda_en" name="ayuda_en" rows="2" lang="en">{{$r.AyudaEN}}</textarea></div>
+</div>
+<fieldset class="admin__opciones">
+  <legend>{{$p.T "admin.formatos"}}</legend>
+  {{- range $r.Mimes}}
+  <label class="admin__opcion"><input type="checkbox" name="mimes" value="{{.Valor}}"{{if .Elegida}} checked{{end}}> {{.Texto}}</label>
+  {{- end}}
+</fieldset>
+<div class="admin__fila">
+  <div class="campo campo--corto"><label for="{{$id}}-tamano_mb">{{$p.T "admin.tamano_mb"}}</label>
+    <input id="{{$id}}-tamano_mb" name="tamano_mb" type="number" min="1" max="200" inputmode="numeric" required value="{{$r.TamanoMB}}"></div>
+  <div class="campo campo--corto"><label for="{{$id}}-max_archivos">{{$p.T "admin.max_archivos"}}</label>
+    <input id="{{$id}}-max_archivos" name="max_archivos" type="number" min="1" max="20" inputmode="numeric" required value="{{$r.MaxArchivos}}"></div>
+  <div class="campo campo--corto"><label for="{{$id}}-orden">{{$p.T "admin.orden"}}</label>
+    <input id="{{$id}}-orden" name="orden" type="number" min="0" inputmode="numeric" value="{{$r.Orden}}"></div>
+  <div class="campo campo--casilla"><input id="{{$id}}-obligatorio" name="obligatorio" type="checkbox" value="1"{{if $r.Obligatorio}} checked{{end}}>
+    <label for="{{$id}}-obligatorio">{{$p.T "admin.obligatorio"}}</label></div>
+</div>
+{{end}}
+
+{{- /* "campos_criterio": los campos de un criterio de evaluación. */ -}}
+{{define "campos_criterio"}}
+{{- $c := .C}}{{$id := .ID}}{{$p := .P}}
+<div class="admin__fila">
+  <div class="campo campo--corto"><label for="{{$id}}-clave">{{$p.T "admin.clave"}}</label>
+    <input id="{{$id}}-clave" name="clave" type="text" required pattern="[a-z][a-z0-9_]*" value="{{$c.Clave}}"></div>
+  <div class="campo campo--corto"><label for="{{$id}}-escala_min">{{$p.T "admin.escala_min"}}</label>
+    <input id="{{$id}}-escala_min" name="escala_min" type="number" min="0" inputmode="numeric" required value="{{$c.EscalaMin}}"></div>
+  <div class="campo campo--corto"><label for="{{$id}}-escala_max">{{$p.T "admin.escala_max"}}</label>
+    <input id="{{$id}}-escala_max" name="escala_max" type="number" min="1" inputmode="numeric" required value="{{$c.EscalaMax}}"></div>
+  <div class="campo campo--corto"><label for="{{$id}}-orden">{{$p.T "admin.orden"}}</label>
+    <input id="{{$id}}-orden" name="orden" type="number" min="0" inputmode="numeric" value="{{$c.Orden}}"></div>
+  <div class="campo campo--casilla"><input id="{{$id}}-obligatorio" name="obligatorio" type="checkbox" value="1"{{if $c.Obligatorio}} checked{{end}}>
+    <label for="{{$id}}-obligatorio">{{$p.T "admin.obligatorio"}}</label></div>
+</div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-etiqueta_es">{{$p.T "admin.etiqueta_es"}}</label>
+    <input id="{{$id}}-etiqueta_es" name="etiqueta_es" type="text" required value="{{$c.EtiquetaES}}"></div>
+  <div class="campo"><label for="{{$id}}-etiqueta_en">{{$p.T "admin.etiqueta_en"}}</label>
+    <input id="{{$id}}-etiqueta_en" name="etiqueta_en" type="text" required lang="en" value="{{$c.EtiquetaEN}}"></div>
+</div>
+<div class="admin__fila">
+  <div class="campo"><label for="{{$id}}-descripcion_es">{{$p.T "admin.descripcion_es"}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-descripcion_es" name="descripcion_es" rows="2">{{$c.DescripcionES}}</textarea></div>
+  <div class="campo"><label for="{{$id}}-descripcion_en">{{$p.T "admin.descripcion_en"}} <span class="campo__opcional">{{$p.T "form.opcional"}}</span></label>
+    <textarea id="{{$id}}-descripcion_en" name="descripcion_en" rows="2" lang="en">{{$c.DescripcionEN}}</textarea></div>
+</div>
+{{end}}
+
+{{- /* "archivo_convocatoria": un archivo público (bases en PDF o imagen). */ -}}
+{{define "archivo_convocatoria"}}
+{{- $v := .P.Datos}}
+<div class="admin__archivo">
+  <p class="campo__rotulo">{{.P.T .Etiqueta}}</p>
+  {{- if .URL}}
+  <p><a href="{{.URL}}" target="_blank" rel="noopener">{{.P.T "admin.ver_archivo"}}</a></p>
+  {{- if .P.Administra}}
+  <form method="post" action="{{$v.Base}}/archivos/{{.Clase}}/quitar" class="en-linea">
+    <button class="boton boton--menor boton--secundario" type="submit">{{.P.T "admin.quitar_archivo"}}</button>
+  </form>
+  {{- end}}
+  {{- else}}
+  <p class="campo__vacio">{{.P.T "admin.sin_archivo"}}</p>
+  {{- end}}
+  {{- if .P.Administra}}
+  <form method="post" action="{{$v.Base}}/archivos/{{.Clase}}" enctype="multipart/form-data" class="admin__subida">
+    <label for="a-{{.Clase}}" class="oculto">{{.P.T .Etiqueta}}</label>
+    <input id="a-{{.Clase}}" name="archivo" type="file" accept="{{.Acepta}}" required>
+    <button class="boton boton--menor" type="submit">{{.P.T "admin.subir_archivo"}}</button>
+  </form>
+  {{- end}}
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="{{$v.EdicionURL}}">← {{$v.Edicion}}</a> · <a href="{{$v.Publica}}">{{.T "admin.ver_publica"}}</a></p>
+{{template "aviso" .}}
+
+<div class="revision">
+  <nav class="revision__indice" aria-label="{{.T "revision.indice"}}">
+    <ul>
+      <li><a href="#estado">{{.T "admin.seccion_estado"}}</a></li>
+      <li><a href="#datos">{{.T "admin.seccion_datos"}}</a></li>
+      <li><a href="#bases">{{.T "admin.seccion_bases"}}</a></li>
+      <li><a href="#calendario">{{.T "admin.seccion_calendario"}}</a></li>
+      {{- if $v.EsCompositores}}<li><a href="#dotaciones">{{.T "admin.seccion_dotaciones"}}</a></li>{{end}}
+      <li><a href="#requisitos">{{.T "admin.seccion_requisitos"}}</a></li>
+      <li><a href="#criterios">{{.T "admin.seccion_criterios"}}</a></li>
+      <li><a href="#asignaciones">{{.T "admin.seccion_asignaciones"}}</a></li>
+    </ul>
+  </nav>
+
+  <div class="revision__cuerpo">
+    {{- /* Estado: al siguiente o al anterior, con lo que falta para avanzar. */}}
+    <section class="grupo" id="estado" aria-labelledby="t-estado">
+      <h2 class="titulo-seccion" id="t-estado">{{.T "admin.seccion_estado"}}</h2>
+      <p>{{.T "admin.estado_actual"}} <span class="estado estado--{{$v.Clase}}">{{.T $v.Estado}}</span></p>
+      <p class="campo__ayuda">{{.T "admin.estado_ayuda"}}</p>
+      {{template "error_admin" (dict "P" . "En" "estado")}}
+      {{- if $v.Siguiente}}
+      <div class="admin__caja">
+        <p class="campo__rotulo">{{.T "admin.siguiente"}} {{.T $v.Siguiente}}</p>
+        {{- if $v.FaltaParaAvanzar}}
+        <p>{{.T "admin.falta_para_avanzar"}}</p>
+        <ul class="admin__faltan">{{range $v.FaltaParaAvanzar}}<li>{{.}}</li>{{end}}</ul>
+        {{- else}}
+        <p class="nota">{{.T "admin.listo_para_avanzar"}}</p>
+        {{- end}}
+        {{- if .Administra}}
+        <form method="post" action="{{$v.Base}}/estado">
+          <input type="hidden" name="destino" value="{{$v.SiguienteValor}}">
+          <button class="boton" type="submit"{{if $v.FaltaParaAvanzar}} disabled{{end}}>{{.T "admin.avanzar_a" (.T $v.Siguiente)}}</button>
+        </form>
+        {{- end}}
+      </div>
+      {{- end}}
+      {{- if and $v.Anterior .Administra}}
+      <details class="admin__caja">
+        <summary>{{.T "admin.retroceder_a" (.T $v.Anterior)}}</summary>
+        <form method="post" action="{{$v.Base}}/estado">
+          <input type="hidden" name="destino" value="{{$v.AnteriorValor}}">
+          <div class="campo"><label for="e-motivo">{{.T "admin.motivo_retroceso"}}</label>
+            <textarea id="e-motivo" name="motivo" rows="2" required></textarea></div>
+          <p><button class="boton boton--secundario" type="submit">{{.T "admin.retroceder"}}</button></p>
+        </form>
+      </details>
+      {{- end}}
+    </section>
+
+    {{- /* Títulos y límites. */}}
+    <section class="grupo" id="datos" aria-labelledby="t-datos">
+      <h2 class="titulo-seccion" id="t-datos">{{.T "admin.seccion_datos"}}</h2>
+      {{template "error_admin" (dict "P" . "En" "datos")}}
+      <form method="post" action="{{$v.Base}}/datos" class="admin__form">
+        <fieldset class="admin__campos"{{if not .Administra}} disabled{{end}}>
+          <legend class="oculto">{{.T "admin.seccion_datos"}}</legend>
+          <div class="campo"><label for="d-titulo_es">{{.T "admin.titulo_es"}}</label>
+            <input id="d-titulo_es" name="titulo_es" type="text" required value="{{$v.TituloES}}"></div>
+          <div class="campo"><label for="d-titulo_en">{{.T "admin.titulo_en"}}</label>
+            <input id="d-titulo_en" name="titulo_en" type="text" required lang="en" value="{{$v.TituloEN}}"></div>
+          <div class="admin__fila">
+            {{- if $v.EsCompositores}}
+            <div class="campo campo--corto"><label for="d-max_obras">{{.T "admin.max_obras"}}</label>
+              <input id="d-max_obras" name="max_obras" type="number" min="1" inputmode="numeric" required value="{{$v.MaxObras}}"></div>
+            {{- else}}
+            <div class="campo campo--corto"><label for="d-duracion_max">{{.T "admin.duracion_max"}}</label>
+              <p class="campo__ayuda" id="d-duracion_max-ayuda">{{.T "admin.cero_sin_limite"}}</p>
+              <input id="d-duracion_max" name="duracion_max" type="number" min="0" inputmode="numeric" aria-describedby="d-duracion_max-ayuda" value="{{$v.DuracionMax}}"></div>
+            <div class="campo campo--corto"><label for="d-max_obras">{{.T "admin.max_obras"}}</label>
+              <p class="campo__ayuda" id="d-max_obras-ayuda">{{.T "admin.cero_sin_limite"}}</p>
+              <input id="d-max_obras" name="max_obras" type="number" min="0" inputmode="numeric" aria-describedby="d-max_obras-ayuda" value="{{$v.MaxObras}}"></div>
+            <div class="campo campo--corto"><label for="d-max_videos">{{.T "admin.max_videos"}}</label>
+              <input id="d-max_videos" name="max_videos" type="number" min="0" max="3" inputmode="numeric" value="{{$v.MaxVideos}}"></div>
+            {{- end}}
+          </div>
+        </fieldset>
+        {{template "boton_admin" (dict "P" . "Texto" "admin.guardar")}}
+      </form>
+    </section>
+
+    {{- /* Bases en Markdown, sus versiones en PDF y la imagen. */}}
+    <section class="grupo" id="bases" aria-labelledby="t-bases">
+      <h2 class="titulo-seccion" id="t-bases">{{.T "admin.seccion_bases"}}</h2>
+      {{template "error_admin" (dict "P" . "En" "bases")}}
+      <form method="post" action="{{$v.Base}}/bases" class="admin__form">
+        <fieldset class="admin__campos"{{if not .Administra}} disabled{{end}}>
+          <legend class="oculto">{{.T "admin.seccion_bases"}}</legend>
+          <p class="campo__ayuda">{{.T "admin.bases_ayuda"}}</p>
+          <div class="campo"><label for="b-bases_es">{{.T "admin.bases_es"}}</label>
+            <textarea id="b-bases_es" name="bases_es" rows="14" class="admin__markdown">{{$v.BasesES}}</textarea></div>
+          <div class="campo"><label for="b-bases_en">{{.T "admin.bases_en"}}</label>
+            <textarea id="b-bases_en" name="bases_en" rows="14" class="admin__markdown" lang="en">{{$v.BasesEN}}</textarea></div>
+        </fieldset>
+        {{template "boton_admin" (dict "P" . "Texto" "admin.guardar")}}
+      </form>
+      <h3 class="admin__subtitulo" id="archivos">{{.T "admin.archivos"}}</h3>
+      {{template "error_admin" (dict "P" . "En" "archivos")}}
+      <div class="admin__columnas">
+        {{template "archivo_convocatoria" (dict "P" . "Clase" "bases_pdf_es" "Etiqueta" "admin.bases_pdf_es" "URL" $v.BasesPDFES "Acepta" "application/pdf")}}
+        {{template "archivo_convocatoria" (dict "P" . "Clase" "bases_pdf_en" "Etiqueta" "admin.bases_pdf_en" "URL" $v.BasesPDFEN "Acepta" "application/pdf")}}
+        {{template "archivo_convocatoria" (dict "P" . "Clase" "imagen" "Etiqueta" "admin.imagen" "URL" $v.Imagen "Acepta" "image/jpeg,image/png")}}
+      </div>
+    </section>
+
+    {{- /* Calendario, en hora de la Ciudad de México. */}}
+    <section class="grupo" id="calendario" aria-labelledby="t-calendario">
+      <h2 class="titulo-seccion" id="t-calendario">{{.T "admin.seccion_calendario"}}</h2>
+      <p class="campo__ayuda">{{.T "admin.calendario_ayuda"}}</p>
+      {{template "error_admin" (dict "P" . "En" "calendario")}}
+      <form method="post" action="{{$v.Base}}/calendario" class="admin__form">
+        <fieldset class="admin__campos"{{if not .Administra}} disabled{{end}}>
+          <legend class="oculto">{{.T "admin.seccion_calendario"}}</legend>
+          {{- range $v.Etapas}}
+          <fieldset class="admin__etapa">
+            <legend>{{$.T .Nombre}}</legend>
+            <div class="admin__fila">
+              <div class="campo"><label for="k-inicia_{{.Clave}}">{{$.T "admin.inicia"}}</label>
+                <input id="k-inicia_{{.Clave}}" name="inicia_{{.Clave}}" type="datetime-local" value="{{.Inicia}}"></div>
+              <div class="campo"><label for="k-termina_{{.Clave}}">{{$.T "admin.termina"}}</label>
+                <input id="k-termina_{{.Clave}}" name="termina_{{.Clave}}" type="datetime-local" value="{{.Termina}}"></div>
+            </div>
+          </fieldset>
+          {{- end}}
+        </fieldset>
+        {{template "boton_admin" (dict "P" . "Texto" "admin.guardar")}}
+      </form>
+    </section>
+
+    {{- /* Catálogo de dotaciones (sólo Compositores). */}}
+    {{- if $v.EsCompositores}}
+    <section class="grupo" id="dotaciones" aria-labelledby="t-dotaciones">
+      <h2 class="titulo-seccion" id="t-dotaciones">{{.T "admin.seccion_dotaciones"}}</h2>
+      <p class="campo__ayuda">{{.T "admin.dotaciones_ayuda"}}</p>
+      {{template "error_admin" (dict "P" . "En" "dotaciones")}}
+      {{- range $v.Dotaciones}}
+      <details class="admin__elemento" id="dotacion-{{.ID}}">
+        <summary><span class="admin__elemento-nombre">{{.NombreES}}</span>{{if not .Activa}} <span class="estado estado--cerrada">{{$.T "admin.retirada"}}</span>{{end}}</summary>
+        <form method="post" action="{{$v.Base}}/dotaciones/{{.ID}}" class="admin__form">
+          <fieldset class="admin__campos"{{if not $.Administra}} disabled{{end}}>
+            <legend class="oculto">{{.NombreES}}</legend>
+            {{template "campos_dotacion" (dict "P" $ "D" . "ID" (printf "dot%d" .ID))}}
+          </fieldset>
+          {{template "boton_admin" (dict "P" $ "Texto" "admin.guardar" "Menor" true)}}
+        </form>
+      </details>
+      {{- else}}
+      <p class="vacio">{{.T "admin.sin_dotaciones"}}</p>
+      {{- end}}
+      {{- if .Administra}}
+      <details class="admin__elemento admin__elemento--nuevo"{{if eq $v.ErrorEn "dotaciones"}} open{{end}}>
+        <summary>{{.T "admin.nueva_dotacion"}}</summary>
+        <form method="post" action="{{$v.Base}}/dotaciones" class="admin__form">
+          {{template "campos_dotacion" (dict "P" . "D" $v.NuevaDotacion "ID" "dotnueva")}}
+          {{template "boton_admin" (dict "P" . "Texto" "admin.agregar" "Menor" true)}}
+        </form>
+      </details>
+      {{- end}}
+    </section>
+    {{- end}}
+
+    {{- /* Requisitos documentales. */}}
+    <section class="grupo" id="requisitos" aria-labelledby="t-requisitos">
+      <h2 class="titulo-seccion" id="t-requisitos">{{.T "admin.seccion_requisitos"}}</h2>
+      <p class="campo__ayuda">{{.T "admin.requisitos_ayuda"}}</p>
+      {{template "error_admin" (dict "P" . "En" "requisitos")}}
+      {{- range $v.Requisitos}}
+      <details class="admin__elemento" id="requisito-{{.ID}}">
+        <summary><span class="admin__elemento-nombre">{{.EtiquetaES}}</span>
+          <span class="admin__elemento-detalle">{{$.T (printf "admin.ambito_%s" .Ambito)}}{{if $v.EsCompositores}} · {{.DotacionNombre}}{{end}} · {{if .Obligatorio}}{{$.T "admin.obligatorio"}}{{else}}{{$.T "form.opcional"}}{{end}}</span></summary>
+        <form method="post" action="{{$v.Base}}/requisitos/{{.ID}}" class="admin__form">
+          <fieldset class="admin__campos"{{if not $.Administra}} disabled{{end}}>
+            <legend class="oculto">{{.EtiquetaES}}</legend>
+            {{template "campos_requisito" (dict "P" $ "R" . "ID" (printf "req%d" .ID) "Compositores" $v.EsCompositores)}}
+          </fieldset>
+          {{- if $.Administra}}
+          <p class="admin__acciones">
+            <button class="boton boton--menor" type="submit">{{$.T "admin.guardar"}}</button>
+            <button class="boton boton--menor boton--peligro" type="submit" name="accion" value="borrar" formnovalidate>{{$.T "admin.borrar"}}</button>
+          </p>
+          {{- end}}
+        </form>
+      </details>
+      {{- else}}
+      <p class="vacio">{{.T "admin.sin_requisitos"}}</p>
+      {{- end}}
+      {{- if .Administra}}
+      <details class="admin__elemento admin__elemento--nuevo"{{if and (eq $v.ErrorEn "requisitos") (not $v.NuevoRequisito.ID)}} open{{end}}>
+        <summary>{{.T "admin.nuevo_requisito"}}</summary>
+        <form method="post" action="{{$v.Base}}/requisitos" class="admin__form">
+          {{template "campos_requisito" (dict "P" . "R" $v.NuevoRequisito "ID" "reqnuevo" "Compositores" $v.EsCompositores)}}
+          {{template "boton_admin" (dict "P" . "Texto" "admin.agregar" "Menor" true)}}
+        </form>
+      </details>
+      {{- end}}
+    </section>
+
+    {{- /* Criterios de evaluación. */}}
+    <section class="grupo" id="criterios" aria-labelledby="t-criterios">
+      <h2 class="titulo-seccion" id="t-criterios">{{.T "admin.seccion_criterios"}}</h2>
+      <p class="campo__ayuda">{{.T "admin.criterios_ayuda"}}</p>
+      {{template "error_admin" (dict "P" . "En" "criterios")}}
+      {{- range $v.Criterios}}
+      <details class="admin__elemento" id="criterio-{{.ID}}">
+        <summary><span class="admin__elemento-nombre">{{.EtiquetaES}}</span>
+          <span class="admin__elemento-detalle">{{$.T "admin.escala" .EscalaMin .EscalaMax}} · {{if .Obligatorio}}{{$.T "admin.obligatorio"}}{{else}}{{$.T "form.opcional"}}{{end}}</span></summary>
+        <form method="post" action="{{$v.Base}}/criterios/{{.ID}}" class="admin__form">
+          <fieldset class="admin__campos"{{if not $.Administra}} disabled{{end}}>
+            <legend class="oculto">{{.EtiquetaES}}</legend>
+            {{template "campos_criterio" (dict "P" $ "C" . "ID" (printf "cri%d" .ID))}}
+          </fieldset>
+          {{- if $.Administra}}
+          <p class="admin__acciones">
+            <button class="boton boton--menor" type="submit">{{$.T "admin.guardar"}}</button>
+            <button class="boton boton--menor boton--peligro" type="submit" name="accion" value="borrar" formnovalidate>{{$.T "admin.borrar"}}</button>
+          </p>
+          {{- end}}
+        </form>
+      </details>
+      {{- else}}
+      <p class="vacio">{{.T "admin.sin_criterios"}}</p>
+      {{- end}}
+      {{- if .Administra}}
+      <details class="admin__elemento admin__elemento--nuevo"{{if and (eq $v.ErrorEn "criterios") (not $v.NuevoCriterio.ID)}} open{{end}}>
+        <summary>{{.T "admin.nuevo_criterio"}}</summary>
+        <form method="post" action="{{$v.Base}}/criterios" class="admin__form">
+          {{template "campos_criterio" (dict "P" . "C" $v.NuevoCriterio "ID" "crinuevo")}}
+          {{template "boton_admin" (dict "P" . "Texto" "admin.agregar" "Menor" true)}}
+        </form>
+      </details>
+      {{- end}}
+    </section>
+
+    {{- /* Jurados y revisores. */}}
+    <section class="grupo" id="asignaciones" aria-labelledby="t-asignaciones">
+      <h2 class="titulo-seccion" id="t-asignaciones">{{.T "admin.seccion_asignaciones"}}</h2>
+      <p class="campo__ayuda">{{.T "admin.asignaciones_ayuda" $v.Jurados $v.CuotaJurados $v.Revisores}}</p>
+      {{template "error_admin" (dict "P" . "En" "asignaciones")}}
+      {{- if $v.Asignaciones}}
+      <div class="tabla-contenedor">
+      <table class="tabla tabla--compacta admin__tabla">
+        <thead><tr><th scope="col">{{.T "admin.persona"}}</th><th scope="col">{{.T "admin.perfil"}}</th><th scope="col">{{.T "admin.cuenta"}}</th>{{if .Administra}}<th scope="col"><span class="oculto">{{.T "admin.acciones"}}</span></th>{{end}}</tr></thead>
+        <tbody>
+          {{- range $v.Asignaciones}}
+          <tr>
+            <td>{{.Nombre}}<br><span class="nota admin__correo">{{.Email}}</span></td>
+            <td>{{$.T .Perfil}}</td>
+            <td>{{if .Activada}}{{$.T "admin.activada"}}{{else}}<span class="estado estado--proxima">{{$.T "admin.sin_activar"}}</span>{{end}}</td>
+            {{- if $.Administra}}
+            <td class="admin__celda-acciones">
+              {{- if not .Activada}}
+              <form method="post" action="/administracion/usuarios/{{.UsuarioID}}/activacion" class="en-linea">
+                <button class="boton boton--menor boton--secundario" type="submit">{{$.T "admin.reenviar_activacion"}}</button>
+              </form>
+              {{- end}}
+              <form method="post" action="{{$v.Base}}/asignaciones/{{.ID}}/retirar" class="en-linea">
+                <button class="boton boton--menor boton--peligro" type="submit">{{$.T "admin.retirar"}}</button>
+              </form>
+            </td>
+            {{- end}}
+          </tr>
+          {{- end}}
+        </tbody>
+      </table>
+      </div>
+      {{- else}}
+      <p class="vacio">{{.T "admin.sin_asignaciones"}}</p>
+      {{- end}}
+
+      {{- if .Administra}}
+      <div class="admin__columnas">
+        <div class="admin__caja">
+          <h3 class="admin__subtitulo">{{.T "admin.asignar_existente"}}</h3>
+          <form method="get" action="{{$v.Base}}#asignaciones" class="admin__busqueda" role="search">
+            <div class="campo"><label for="s-buscar">{{.T "admin.buscar_cuenta"}}</label>
+              <input id="s-buscar" name="buscar" type="search" value="{{$v.Buscar}}"></div>
+            <button class="boton boton--menor boton--secundario" type="submit">{{.T "admin.buscar"}}</button>
+          </form>
+          {{- if $v.Buscar}}
+          {{- if $v.Encontradas}}
+          <ul class="admin__encontradas">
+            {{- range $v.Encontradas}}
+            <li>
+              <span>{{.Nombre}} <span class="nota admin__correo">{{.Email}}</span></span>
+              <form method="post" action="{{$v.Base}}/asignaciones" class="en-linea">
+                <input type="hidden" name="usuario" value="{{.ID}}">
+                <button class="boton boton--menor" type="submit" name="perfil" value="jurado">{{$.T "admin.como_jurado"}}</button>
+                <button class="boton boton--menor boton--secundario" type="submit" name="perfil" value="revisor_documental">{{$.T "admin.como_revisor"}}</button>
+              </form>
+            </li>
+            {{- end}}
+          </ul>
+          {{- else}}
+          <p class="vacio">{{.T "admin.sin_resultados"}}</p>
+          {{- end}}
+          {{- end}}
+        </div>
+
+        <div class="admin__caja" id="cuenta">
+          <h3 class="admin__subtitulo">{{.T "admin.crear_y_asignar"}}</h3>
+          <p class="campo__ayuda">{{.T "admin.crear_y_asignar_ayuda"}}</p>
+          {{template "error_admin" (dict "P" . "En" "cuenta")}}
+          <form method="post" action="{{$v.Base}}/cuentas" class="admin__form">
+            {{template "campos_cuenta" (dict "P" . "V" $v.NuevaCuenta "ID" "nc")}}
+            <div class="campo"><label for="nc-perfil">{{.T "admin.perfil"}}</label>
+              <select id="nc-perfil" name="perfil">
+                <option value="jurado"{{if eq (index $v.NuevaCuenta "perfil") "jurado"}} selected{{end}}>{{.T "admin.perfil.jurado"}}</option>
+                <option value="revisor_documental"{{if eq (index $v.NuevaCuenta "perfil") "revisor_documental"}} selected{{end}}>{{.T "admin.perfil.revisor_documental"}}</option>
+              </select></div>
+            <p><button class="boton" type="submit">{{.T "admin.crear_y_asignar_boton"}}</button></p>
+          </form>
+        </div>
+      </div>
+      {{- end}}
+    </section>
+  </div>
+</div>
+{{end}}

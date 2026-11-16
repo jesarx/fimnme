@@ -20,6 +20,7 @@ package controllers
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -45,14 +46,24 @@ func encadenar(h http.Handler, capas ...middleware) http.Handler {
 }
 
 // cuerpoMaximo acota el tamaño de los formularios. Las subidas de archivos
-// tendrán su propio límite por requisito documental cuando se implementen.
+// tienen su propio límite, el de cada requisito documental: véase
+// cuerpoDeSubida.
 const cuerpoMaximo = 1 << 20 // 1 MiB
 
 // politicaContenido es la CSP estricta (RNF-10): todo recurso sale del propio
-// origen y no se permite código ni estilo en línea.
+// origen y no se permite código ni estilo en línea. frame-src y media-src
+// admiten el propio origen para el visor de documentos (RF-DOC-08): un PDF en
+// un marco y un audio con su reproductor, servidos por la aplicación.
 const politicaContenido = "default-src 'none'; script-src 'self'; style-src 'self'; " +
-	"img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; " +
-	"base-uri 'none'; frame-ancestors 'none'"
+	"img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self'; " +
+	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// politicaDeArchivo es la CSP de un documento del acervo servido en el
+// navegador. No admite ningún recurso ni código propio del archivo; sólo
+// deja que las páginas de la plataforma lo muestren en un marco
+// (frame-ancestors 'self'), y que el visor de PDF del navegador lo incruste
+// (object-src 'self').
+const politicaDeArchivo = "default-src 'none'; object-src 'self'; frame-ancestors 'self'"
 
 // respuesta envuelve http.ResponseWriter para conocer el estado que se envió.
 type respuesta struct {
@@ -151,12 +162,36 @@ func (a *App) protegerOrigen(siguiente http.Handler) http.Handler {
 	return proteccion.Handler(siguiente)
 }
 
-// limitarCuerpo impide que un cuerpo desmesurado agote la memoria.
+// claveCuerpoOriginal es la llave privada, en el contexto de la petición, del
+// cuerpo tal como llegó, antes de acotarlo.
+type claveCuerpoOriginal struct{}
+
+// limitarCuerpo impide que un cuerpo desmesurado agote la memoria: ninguna
+// petición puede leer más de cuerpoMaximo.
+//
+// La única excepción son las subidas de archivos, que miden hasta 100 MB y
+// tienen el límite de su requisito. Para ellas se guarda el cuerpo original
+// en el contexto, y sólo cuerpoDeSubida —con un límite explícito— lo
+// recupera. Envolver un límite con otro más amplio no lo amplía: el de 1 MiB
+// seguía mandando, y toda partitura de más de 1 MiB se rechazaba.
 func limitarCuerpo(siguiente http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), claveCuerpoOriginal{}, r.Body)
+		r = r.WithContext(ctx)
 		r.Body = http.MaxBytesReader(w, r.Body, cuerpoMaximo)
 		siguiente.ServeHTTP(w, r)
 	})
+}
+
+// cuerpoDeSubida devuelve el cuerpo original de la petición, acotado a
+// tamanoMax en lugar de a cuerpoMaximo. Sólo lo usa abrirSubida, que ya sabe
+// cuánto puede medir el archivo que espera.
+func cuerpoDeSubida(w http.ResponseWriter, r *http.Request, tamanoMax int64) io.ReadCloser {
+	original, ok := r.Context().Value(claveCuerpoOriginal{}).(io.ReadCloser)
+	if !ok {
+		original = r.Body // sin el middleware (no ocurre en el servidor)
+	}
+	return http.MaxBytesReader(w, original, tamanoMax)
 }
 
 // --- Idioma ---------------------------------------------------------------

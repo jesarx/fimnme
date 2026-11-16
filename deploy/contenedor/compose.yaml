@@ -1,0 +1,40 @@
+# FIMNME — orquestación con Docker Compose o podman-compose (ADR 0027).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+#
+#     make imagen
+#     docker compose -f deploy/contenedor/compose.yaml up -d
+#
+# El servicio escucha sólo en 127.0.0.1: delante va el proxy inverso con TLS
+# (Caddy o nginx), igual que en la instalación sin contenedores.
+
+services:
+  # Aplica las migraciones pendientes y termina. El servidor espera a que
+  # acabe bien: con el esquema a medias no arranca.
+  migrar:
+    image: localhost/fimnme:latest
+    command: ["fimnme-cli", "migrate"]
+    volumes:
+      - datos:/var/lib/fimnme
+    restart: "no"
+
+  web:
+    image: localhost/fimnme:latest
+    depends_on:
+      migrar:
+        condition: service_completed_successfully
+    env_file:
+      - ./fimnme-web.env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - datos:/var/lib/fimnme
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  datos:

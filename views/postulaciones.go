@@ -106,9 +106,13 @@ func convocatoriaDePostulacion(c models.Convocatoria) map[string]any {
 
 // PostulacionJSON describe una postulación con todo lo capturado, la
 // definición de su formulario y lo que le falta para poder enviarse.
+//
+// extendidos son los campos dinámicos (§5.14.1) que quien pregunta puede ver;
+// los que no, ya se quitaron de la postulación.
 func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria, editable bool,
-	bloqueadores []BloqueadorDeEnvio, etiqueta func(ruta string) string) any {
+	bloqueadores []BloqueadorDeEnvio, etiqueta func(ruta string) string, extendidos []models.CampoExtendido) map[string]any {
 	formulario := models.FormularioDe(cfg.Convocatoria.Tipo, p.Subcategoria)
+	dePostulacion, deObra := models.ExtendidosDePostulacion(extendidos, cfg.Convocatoria.Tipo, p.Subcategoria)
 
 	integrantes := make([]map[string]string, 0, len(p.Integrantes))
 	for _, i := range p.Integrantes {
@@ -125,7 +129,11 @@ func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria,
 	}
 	obras := make([]map[string]any, 0, len(p.Obras))
 	for _, o := range p.Obras {
-		obras = append(obras, map[string]any{"id": o.ID, "orden": o.Orden, "campos": valores(formulario.CamposObra, o.Campos)})
+		obra := map[string]any{"id": o.ID, "orden": o.Orden, "campos": valores(formulario.CamposObra, o.Campos)}
+		if extendidos := valoresExtendidos(deObra, o.Campos); len(extendidos) > 0 {
+			obra["extendidos"] = extendidos
+		}
+		obras = append(obras, obra)
 	}
 	// Dotaciones que el postulante puede elegir para una obra.
 	dotaciones := make([]map[string]any, 0, len(cfg.Dotaciones))
@@ -201,6 +209,10 @@ func PostulacionJSON(p models.Postulacion, cfg models.ConfiguracionConvocatoria,
 		"integrantes":  integrantes, "videos": videos, "obras": obras,
 		"requisitos": requisitos, "documentos": documentos, "acuses": acuses,
 		"dotaciones": dotaciones,
+		"extendidos": map[string]any{
+			"campos": extendidosJSON(dePostulacion), "campos_de_obra": extendidosJSON(deObra),
+			"valores": valoresExtendidos(dePostulacion, p.Campos),
+		},
 		"definicion": DefinicionJSON(formulario, etiqueta),
 		"secciones":  secciones, "bloqueadores": bloqueadores, "lista_para_enviar": len(bloqueadores) == 0,
 	}
@@ -274,4 +286,49 @@ func CatalogosJSON() any {
 		"generos": models.OpcionesGenero, "estrenos": models.OpcionesEstreno,
 		"subcategorias": []string{string(models.SubcategoriaSolista), string(models.SubcategoriaEnsamble)},
 	}
+}
+
+// extendidosJSON describe campos dinámicos para el cliente: su ruta, su
+// tipo, sus etiquetas y quién los captura. Con esto el formulario los pinta
+// sin que nadie toque el código (RF-CLI-22).
+func extendidosJSON(campos []models.CampoExtendido) []map[string]any {
+	lista := make([]map[string]any, 0, len(campos))
+	for _, c := range campos {
+		captura := "administracion"
+		if c.LoCapturaElPostulante() {
+			captura = "postulante"
+		}
+		lista = append(lista, map[string]any{
+			"ruta": c.Ruta(), "tabla": c.Tabla, "columna": c.Columna, "tipo": string(c.Tipo),
+			"etiqueta_es": c.EtiquetaES, "etiqueta_en": c.EtiquetaEN, "ayuda_es": c.AyudaES, "ayuda_en": c.AyudaEN,
+			"visible_en": append([]models.Perfil{}, c.VisibleEn...), "exportable": c.Exportable, "captura": captura,
+		})
+	}
+	return lista
+}
+
+// valoresExtendidos devuelve el valor de cada campo dinámico, por ruta, o
+// null si no se ha capturado.
+func valoresExtendidos(campos []models.CampoExtendido, valores map[string]string) map[string]any {
+	salida := make(map[string]any, len(campos))
+	for _, c := range campos {
+		salida[c.Ruta()] = textoONulo(valores[c.Ruta()])
+	}
+	return salida
+}
+
+// DiccionarioExtendidoJSON es el diccionario de campos dinámicos, con los
+// nodos que admiten extensión.
+func DiccionarioExtendidoJSON(campos []models.CampoExtendido) any {
+	return map[string]any{"campos": extendidosJSON(campos), "nodos": models.NodosExtensibles}
+}
+
+// ValoresExtendidosJSON son los campos dinámicos de una fila de un nodo, con
+// sus valores por nombre de columna.
+func ValoresExtendidosJSON(campos []models.CampoExtendido, valores map[string]string) any {
+	salida := make(map[string]any, len(campos))
+	for _, c := range campos {
+		salida[c.Columna] = textoONulo(valores[c.Columna])
+	}
+	return map[string]any{"campos": extendidosJSON(campos), "valores": salida}
 }

@@ -1,0 +1,41 @@
+{{- /*
+  Estadísticas de una edición (RF-DASH-03): distribuciones descriptivas de
+  las postulaciones enviadas, de toda la edición o de una convocatoria.
+  Recibe en .Datos una vistaEstadisticas.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "supervision.titulo"}}</p>
+    <h1 class="banda__titulo">{{.Datos.Edicion}}</h1>
+    <p class="banda__entrada">{{.T "supervision.estadisticas_entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="/supervision">← {{.T "supervision.titulo"}}</a></p>
+
+<form method="get" action="{{$v.Base}}" class="admin__busqueda">
+  <div class="campo"><label for="e-convocatoria">{{.T "supervision.alcance"}}</label>
+    <select id="e-convocatoria" name="convocatoria">{{range $v.Convocatorias}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+  <button class="boton boton--menor boton--secundario" type="submit">{{.T "supervision.ver"}}</button>
+</form>
+
+<dl class="fechas fechas--en-linea">
+  <div><dt>{{.T "supervision.postulaciones_enviadas"}}</dt><dd>{{$v.Postulaciones}}</dd></div>
+  <div><dt>{{.T "supervision.obras"}}</dt><dd>{{$v.Obras}}</dd></div>
+  {{- if $v.DuracionMedia}}<div><dt>{{.T "supervision.duracion_media"}}</dt><dd>{{.T "supervision.minutos" $v.DuracionMedia}}</dd></div>{{end}}
+</dl>
+
+{{- if $v.Series}}
+<div class="estadisticas">
+  {{- range $v.Series}}
+  <div class="tabla-contenedor">{{template "barras" (dict "P" $ "Titulo" .Titulo "Columna" "supervision.valor" "Barras" .Barras)}}</div>
+  {{- end}}
+</div>
+{{- else}}
+<p class="vacio">{{.T "supervision.sin_postulaciones"}}</p>
+{{- end}}
+{{end}}

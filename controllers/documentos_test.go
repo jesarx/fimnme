@@ -923,3 +923,32 @@ func (e *entornoPrueba) vistas() *views.Motor {
 	}
 	return motor
 }
+
+// Un documento grande se acepta hasta el límite de su requisito, aunque el
+// límite general de los formularios sea de 1 MiB. (Hasta el paso 11b, todo
+// archivo de más de 1 MiB se rechazaba: el límite general seguía mandando.)
+func TestSubidaDeArchivosGrandes(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, interpretes, _, _, _ := e.convocatoriasAbiertas()
+	ana := e.postulante("ana@ejemplo.mx")
+	p := ana.exige(http.StatusCreated, "POST", fmt.Sprintf("/api/v1/convocatorias/%d/postulaciones", interpretes), obj{"subcategoria": "solista"})
+	ruta := fmt.Sprintf("/api/v1/postulaciones/%d", id(p["id"]))
+	p = ana.exige(http.StatusCreated, "POST", ruta+"/obras", nil)
+	obraID := id(lista(p, "obras")[0]["id"])
+
+	// Una partitura de 25 MB (el máximo es 30 MB) entra entera.
+	partitura := append(pdfDePrueba("partitura"), bytes.Repeat([]byte("0"), 25<<20)...)
+	p = ana.documento(ruta, "partitura", obraID, "partitura.pdf", partitura)
+	if documentos := lista(p, "documentos"); len(documentos) != 1 || id(documentos[0]["tamano_bytes"]) != int64(len(partitura)) {
+		t.Errorf("partitura de 25 MB: %v", documentos)
+	}
+	// Una de 31 MB, no.
+	demasiado := append(pdfDePrueba("partitura"), bytes.Repeat([]byte("0"), 31<<20)...)
+	if problema := ana.rechazoDeSubida(ruta, [][2]string{{"clave", "partitura"}, {"obra_id", fmt.Sprint(obraID)}}, "p.pdf", demasiado); !strings.Contains(problema, "tamaño máximo") {
+		t.Errorf("partitura de 31 MB: %s", problema)
+	}
+	// Y un formulario normal sigue sin poder pasar de 1 MiB.
+	if estado, _ := ana.api("PATCH", ruta, obj{"campos": obj{"datos.semblanza": strings.Repeat("x", 2<<20)}}); estado != http.StatusRequestEntityTooLarge && estado != http.StatusBadRequest {
+		t.Errorf("un formulario de 2 MiB debió rechazarse: estado %d", estado)
+	}
+}

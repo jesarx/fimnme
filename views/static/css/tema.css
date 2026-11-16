@@ -1,0 +1,116 @@
+/*
+ * FIMNME — tema: la identidad visual de la edición, y nada más.
+ * Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+ *
+ * Aquí viven TODOS los colores y las tipografías de la plataforma. La hoja
+ * fimnme.css no contiene ningún color: sólo usa estas variables (una prueba
+ * lo vigila). Para vestir la plataforma con la imagen de otra edición se
+ * cambian tres cosas y ninguna más:
+ *
+ *   1. este archivo (colores, tipografía, radios);
+ *   2. el dibujo «logo_foro» de views/templates/parciales/logos.html;
+ *   3. views/static/img/favicon.svg.
+ *
+ * Hoy lleva la identidad del 48º Foro —verdes sobre fondo beige, cabecera y
+ * pie institucionales oscuros—, tomada de su sitio web. La del 49º la
+ * sustituirá cuando exista (ADR 0008 y ADR 0017).
+ *
+ * Al cambiar los colores hay que conservar el contraste WCAG 2.1 AA (4.5:1
+ * en texto normal): entre --tinta y --fondo, --tinta-suave y --fondo,
+ * --acento y --fondo, --sobre-acento y --acento, y entre cada par
+ * color/fondo de los avisos (--exito sobre --exito-fondo, etcétera).
+ */
+
+:root {
+  /* --- Superficies y texto --- */
+  --fondo: #f4f1ea; /* fondo de la página */
+  --superficie: #ffffff; /* tarjetas, paneles y controles */
+  --tinta: #172b20; /* texto */
+  --tinta-suave: #546b5c; /* texto secundario */
+  --borde: #b9cdbf;
+  --borde-fuerte: #7f9787; /* borde de los controles */
+  --neutro-fondo: #eae8df; /* franjas y elementos en reposo */
+
+  /* --- Acento: enlaces, botones, realces --- */
+  --acento: #2a7350;
+  --acento-fuerte: #172b20; /* al pasar el cursor */
+  --acento-fondo: #d2e8db; /* fondo tenue del acento */
+  --sobre-acento: #ffffff; /* texto sobre el acento */
+  --foco: #3d9b6e; /* contorno del foco del teclado */
+
+  /* --- Estados y avisos: color del texto y de su fondo --- */
+  --exito: #17603a;
+  --exito-fondo: #d2e8db;
+  --info: #1f4f7a;
+  --info-fondo: #e6eff7;
+  --espera: #75500a;
+  --espera-fondo: #f8eed6;
+  --error: #a3211b;
+  --error-fondo: #fbe9e7;
+
+  /* --- Cabecera y pie institucionales: oscuros siempre, también en modo
+         claro, como en el sitio del Foro --- */
+  --cabecera-fondo: #111311;
+  --cabecera-texto: rgba(255, 255, 255, 0.8);
+  --logo-foro: #e6ae78; /* color del logotipo de la edición */
+  --pie-fondo: #2b2b2b;
+  --pie2-fondo: #000000;
+  --pie-filete: #444444;
+  --pie-enlace: #b5b5b5;
+  --sobre-oscuro: #ffffff; /* texto pleno sobre la cabecera y el pie */
+  --sobre-oscuro-suave: rgba(255, 255, 255, 0.82);
+  --sobre-oscuro-tenue: rgba(255, 255, 255, 0.62);
+  --sobre-oscuro-realce: rgba(255, 255, 255, 0.12);
+  --sobre-oscuro-borde: rgba(255, 255, 255, 0.45);
+  --sobre-oscuro-filete: rgba(255, 255, 255, 0.25);
+
+  /* --- Banda de título de las páginas interiores, como las páginas
+         divisorias del programa del Foro --- */
+  --banda-fondo: #3f4f38;
+  --banda-luz: #4f6345; /* luz del degradado, arriba a la derecha */
+  --banda-texto: #eef1ec;
+  --banda-suave: #d4dfd6; /* antetítulo y texto secundario de la banda */
+
+  /* --- Tipografía: Noto Sans, la del programa del Foro, si el equipo la
+         tiene; si no, la del sistema. No se descarga ninguna fuente --- */
+  --sans: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: var(--sans); /* títulos */
+  --institucional: Montserrat, "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+
+  /* --- Forma --- */
+  --radio: 6px; /* tarjetas, paneles, controles */
+  --radio-boton: 999px; /* botones en píldora, como en el sitio del Foro */
+  --sombra: 0 1px 2px rgba(23, 43, 32, 0.06), 0 4px 14px rgba(23, 43, 32, 0.06);
+}
+
+/* Modo oscuro: la misma paleta, invertida. La cabecera, el pie y la banda
+   ya son oscuros y apenas cambian. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #101a14;
+    --superficie: #17241c;
+    --tinta: #e2e6df;
+    --tinta-suave: #a5b9a8;
+    --borde: #2c3f33;
+    --borde-fuerte: #6f8a78;
+    --neutro-fondo: #1f2e25;
+    --acento: #7cc9a0;
+    --acento-fuerte: #d2e8db;
+    --acento-fondo: #17301f;
+    --sobre-acento: #0c1a12;
+    --foco: #7cc9a0;
+    --exito: #8fd6aa;
+    --exito-fondo: #17301f;
+    --info: #9cc7ee;
+    --info-fondo: #16283a;
+    --espera: #e8c477;
+    --espera-fondo: #332709;
+    --error: #f5a199;
+    --error-fondo: #3a1613;
+    --cabecera-fondo: #080a08;
+    --pie-fondo: #1b1b1b;
+    --banda-fondo: #23301f;
+    --banda-luz: #34472d;
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.25);
+  }
+}

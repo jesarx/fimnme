@@ -1,0 +1,61 @@
+{{- /*
+  Tablero de una convocatoria (RF-DASH-01, 02 y 05): postulaciones por
+  estado, documentos por dictaminar, subsanaciones, ritmo de envíos y avance
+  de cada jurado —cuántas lleva de cuántas, sin ningún puntaje—. Recibe en
+  .Datos una vistaTablero.
+*/ -}}
+{{define "banda"}}{{template "banda_supervision" .}}{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+{{template "pestanas_supervision" .}}
+
+<section class="grupo" aria-labelledby="t-postulaciones">
+  <h2 class="titulo-seccion" id="t-postulaciones">{{.T "supervision.postulaciones_n" $v.Total}}</h2>
+  {{- if $v.PorEstado}}
+  <ul class="tablero" aria-label="{{.T "revision.por_estado"}}">
+    {{- range $v.PorEstado}}
+    <li>{{if .URL}}<a class="tablero__cifra" href="{{.URL}}">{{else}}<span class="tablero__cifra">{{end}}<b>{{.Cantidad}}</b> <span class="estado estado--{{.Clase}}">{{$.T .Etiqueta}}</span>{{if .URL}}</a>{{else}}</span>{{end}}</li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{.T "supervision.sin_postulaciones"}}</p>
+  {{- end}}
+  <dl class="fechas fechas--en-linea">
+    <div><dt>{{.T "supervision.documentos_pendientes"}}</dt><dd>{{.T "supervision.documentos_en" $v.DocumentosPendientes $v.ConPendientes.Cantidad}}</dd></div>
+    <div><dt>{{.T "supervision.subsanaciones_abiertas"}}</dt><dd>{{if $v.SubsanacionesAbiertas.Cantidad}}<a href="{{$v.SubsanacionesAbiertas.URL}}">{{$v.SubsanacionesAbiertas.Cantidad}}</a>{{else}}0{{end}}{{if $v.SubsanacionesPorVencer}} · {{.T "supervision.por_vencer" $v.SubsanacionesPorVencer $v.DiasPorVencer}}{{end}}</dd></div>
+    <div><dt>{{.T "supervision.subsanaciones_vencidas"}}</dt><dd>{{$v.SubsanacionesVencidas}}</dd></div>
+  </dl>
+</section>
+
+<section class="grupo" aria-labelledby="t-jurados">
+  <h2 class="titulo-seccion" id="t-jurados">{{.T "supervision.avance_jurados"}}</h2>
+  <p class="campo__ayuda">{{.T "supervision.avance_jurados_ayuda"}}</p>
+  {{- if $v.Jurados}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead><tr><th scope="col">{{.T "admin.perfil.jurado"}}</th><th scope="col">{{.T "supervision.enviadas"}}</th><th scope="col">{{.T "supervision.excusadas"}}</th><th scope="col">{{.T "supervision.pendientes"}}</th><th scope="col"><span class="oculto">{{.T "supervision.proporcion"}}</span></th></tr></thead>
+    <tbody>
+      {{- range $v.Jurados}}
+      <tr><th scope="row">{{.Nombre}}</th><td>{{.Enviadas}} / {{.Total}}</td><td>{{.Excusadas}}</td><td>{{.Pendientes}}</td>
+        <td class="barras__celda">{{if .Total}}<progress class="avance-jurado" max="{{.Total}}" value="{{suma .Enviadas .Excusadas}}" aria-hidden="true"></progress>{{end}}</td></tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "supervision.sin_jurados"}}</p>
+  {{- end}}
+</section>
+
+<section class="grupo" aria-labelledby="t-ritmo">
+  <h2 class="titulo-seccion" id="t-ritmo">{{.T "supervision.ritmo"}}</h2>
+  {{- if $v.EnviosPorDia}}
+  <div class="tabla-contenedor">
+  {{template "barras" (dict "P" . "Titulo" "supervision.ritmo_ayuda" "Columna" "supervision.dia" "Barras" $v.EnviosPorDia)}}
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "supervision.sin_envios"}}</p>
+  {{- end}}
+</section>
+{{end}}

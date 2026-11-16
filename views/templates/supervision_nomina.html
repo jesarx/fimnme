@@ -1,0 +1,75 @@
+{{- /*
+  Publicación de la nómina de seleccionados (RF-PUB-03 a 05). Muestra
+  exactamente lo que saldría al portal público —nombre, subcategoría,
+  semblanza y títulos de las obras; nada más— y las publicaciones
+  anteriores. Publicar o retirar exige confirmar y sólo procede con la
+  convocatoria cerrada. Recibe en .Datos una vistaNomina.
+*/ -}}
+{{define "banda"}}{{template "banda_supervision" .}}{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+{{template "pestanas_supervision" .}}
+{{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+
+<section class="grupo" aria-labelledby="t-vista">
+  <h2 class="titulo-seccion" id="t-vista">{{.T "supervision.vista_previa"}}</h2>
+  <p class="campo__ayuda">{{.T "supervision.vista_previa_ayuda"}}</p>
+  {{- if $v.Seleccionados}}
+  <ol class="nomina">
+    {{- range $v.Seleccionados}}
+    <li class="nomina__persona">
+      <p class="nomina__nombre">{{.Nombre}}{{if .Subcategoria}} <span class="nota">{{$.T (printf "subcategoria.%s" .Subcategoria)}}</span>{{end}}</p>
+      {{- if .Obras}}<ul class="nomina__obras">{{range .Obras}}<li>{{.Titulo}}</li>{{end}}</ul>{{end}}
+      {{- if .Semblanza}}<p class="nomina__semblanza">{{.Semblanza}}</p>{{end}}
+    </li>
+    {{- end}}
+  </ol>
+  {{- else}}
+  <p class="vacio">{{.T "supervision.sin_seleccionados"}}</p>
+  {{- end}}
+</section>
+
+<section class="grupo" aria-labelledby="t-publicar">
+  <h2 class="titulo-seccion" id="t-publicar">{{.T "supervision.publicar"}}</h2>
+  {{- if $v.PuedePublicar}}
+  <p class="campo__ayuda">{{.T "supervision.publicar_ayuda"}}</p>
+  <div class="admin__columnas">
+    <form method="post" action="{{$v.Base}}/nomina" class="admin__caja">
+      <input type="hidden" name="accion" value="publicar">
+      <div class="campo campo--casilla"><input id="n-confirmo" name="confirmo" type="checkbox" value="1" required>
+        <label for="n-confirmo">{{.T "supervision.confirmo_publicar" (len $v.Seleccionados)}}</label></div>
+      <p><button class="boton" type="submit">{{.T "supervision.publicar_boton"}}</button></p>
+    </form>
+    {{- if $v.Publicaciones}}
+    <form method="post" action="{{$v.Base}}/nomina" class="admin__caja">
+      <input type="hidden" name="accion" value="retirar">
+      <div class="campo campo--casilla"><input id="n-retirar" name="confirmo" type="checkbox" value="1" required>
+        <label for="n-retirar">{{.T "supervision.confirmo_retirar"}}</label></div>
+      <p><button class="boton boton--peligro" type="submit">{{.T "supervision.retirar_boton"}}</button></p>
+    </form>
+    {{- end}}
+  </div>
+  {{- else}}
+  <p class="aviso aviso--espera">{{.T "supervision.publicar_solo_cerrada"}}</p>
+  {{- end}}
+</section>
+
+<section class="grupo" aria-labelledby="t-historial">
+  <h2 class="titulo-seccion" id="t-historial">{{.T "supervision.publicaciones"}}</h2>
+  {{- if $v.Publicaciones}}
+  <div class="tabla-contenedor">
+  <table class="tabla tabla--compacta">
+    <thead><tr><th scope="col">{{.T "supervision.momento"}}</th><th scope="col">{{.T "supervision.autorizo"}}</th><th scope="col">{{.T "supervision.contenido"}}</th><th scope="col">SHA-256</th></tr></thead>
+    <tbody>
+      {{- range $v.Publicaciones}}
+      <tr><td><time datetime="{{$.ISO .Momento}}">{{$.FechaHora .Momento}}</time></td><td>{{.Autor}}</td><td>{{if .Retirada}}{{$.T "supervision.retirada"}}{{else}}{{$.T "supervision.seleccionados_n" .Seleccionados}}{{end}}</td><td><code class="nomina__suma">{{.SHA256}}</code></td></tr>
+      {{- end}}
+    </tbody>
+  </table>
+  </div>
+  {{- else}}
+  <p class="vacio">{{.T "supervision.sin_publicaciones"}}</p>
+  {{- end}}
+</section>
+{{end}}

@@ -1,0 +1,34 @@
+{{- /*
+  Plantillas de correo (§5.8): cada correo que envía el sistema, con su
+  versión vigente en español y en inglés. Recibe en .Datos una lista de
+  vistaPlantillaEnLista.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "admin.titulo"}}</p>
+    <h1 class="banda__titulo">{{.T "correo.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "correo.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+<p class="migas"><a href="/administracion">← {{.T "admin.titulo"}}</a></p>
+<div class="tabla-contenedor">
+<table class="tabla tabla--compacta">
+  <thead><tr><th scope="col">{{.T "correo.plantilla"}}</th><th scope="col">{{.T "cuenta.idioma_es"}}</th><th scope="col">{{.T "cuenta.idioma_en"}}</th></tr></thead>
+  <tbody>
+    {{- range .Datos}}
+    <tr>
+      <th scope="row">{{$.T .Nombre}}<br><span class="tabla__detalle">{{$.T .Proposito}}</span></th>
+      {{- range .PorIdioma}}
+      <td><a href="{{.URL}}">{{if .Falta}}{{$.T "correo.falta_idioma"}}{{else}}{{$.T "correo.version_n" .Version}}{{end}}</a>
+        {{- if not .Falta}}<br><span class="tabla__detalle">{{$.Fecha .CreadoAt}}</span>{{end}}</td>
+      {{- end}}
+    </tr>
+    {{- end}}
+  </tbody>
+</table>
+</div>
+{{end}}

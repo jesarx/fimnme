@@ -1,0 +1,18 @@
+# FIMNME — prueba de restauración del respaldo (la lanza fimnme-restauracion.timer).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+[Unit]
+Description=FIMNME: prueba de restauración del último respaldo
+
+[Service]
+Type=oneshot
+User=fimnme
+Group=fimnme
+EnvironmentFile=-/etc/fimnme/respaldo.env
+ExecStart=/opt/fimnme/bin/probar_restauracion.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/fimnme
+ProtectHome=read-only
+PrivateTmp=true

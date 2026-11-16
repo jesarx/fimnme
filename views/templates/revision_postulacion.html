@@ -1,0 +1,285 @@
+{{- /*
+  Vista de revisión de una postulación (RF-REV-02 a 09): la postulación en
+  sólo lectura, los documentos con su visor y su dictamen, las observaciones
+  internas, lo que cambió en el último reenvío, las subsanaciones con sus
+  solicitudes de desbloqueo, y el dictamen. Recibe en .Datos una
+  vistaRevision.
+
+  Los formularios sólo aparecen si la sesión puede revisar (.PuedeRevisar):
+  el observador ve lo mismo, sin poder actuar. Son formularios normales, con
+  su botón; el resultado vuelve a esta página junto al formulario.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Titulo}} · {{.Datos.Edicion}}</p>
+    <h1 class="banda__titulo">{{.Datos.Folio}}</h1>
+    <p class="banda__entrada">
+      <span class="estado estado--{{.Datos.Clase}}">{{.T .Datos.Estado}}</span>
+      {{- if .Datos.Subcategoria}} <span>{{.T (printf "subcategoria.%s" .Datos.Subcategoria)}}</span>{{end}}
+      <span>{{.Datos.Titular}}</span>
+    </p>
+  </div>
+</div>
+{{end}}
+
+{{- /* "error_de": el motivo de un rechazo, junto al formulario que lo produjo. */ -}}
+{{define "error_de"}}
+{{- if and .P.Datos.Error (eq .P.Datos.ErrorEn .En)}}
+<div class="aviso aviso--error" role="alert"><p>{{.P.Datos.Error}}</p></div>
+{{- end}}
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="{{$v.Bandeja}}">← {{.T "revision.volver_bandeja"}}</a></p>
+{{template "aviso" .}}
+
+<div class="revision">
+  <nav class="revision__indice" aria-label="{{.T "revision.indice"}}">
+    <ul>
+      <li><a href="#r-datos">{{.T "seccion.datos"}}</a></li>
+      {{- range $v.Secciones}}{{if ne .Seccion "datos"}}<li><a href="#r-{{.Seccion}}">{{.Titulo}}</a></li>{{end}}{{end}}
+      <li><a href="#documentos">{{.T "seccion.documentos"}}</a></li>
+      <li><a href="#observaciones">{{.T "revision.observaciones"}}</a></li>
+      <li><a href="#subsanaciones">{{.T "revision.subsanaciones"}}</a></li>
+      <li><a href="#dictamen">{{.T "revision.dictamen"}}</a></li>
+    </ul>
+  </nav>
+
+  <div class="revision__cuerpo">
+    {{- /* Datos de la postulación y de quien postula. */}}
+    <section class="grupo" id="toma" aria-labelledby="t-toma">
+      <h2 class="titulo-seccion" id="t-toma">{{.T "revision.postulacion"}}</h2>
+      <dl class="fechas fechas--en-linea">
+        <div><dt>{{.T "revision.titular"}}</dt><dd>{{$v.Titular}} · {{$v.CorreoTitular}}</dd></div>
+        <div><dt>{{.T "envio.enviada_el"}}</dt><dd><time datetime="{{.ISO $v.EnviadaAt}}">{{.FechaHora $v.EnviadaAt}}</time>{{if gt $v.Envios 1}} · {{.T "revision.envios_n" $v.Envios}}{{end}}</dd></div>
+        <div><dt>{{.T "revision.columna_toma"}}</dt><dd>{{if $v.TomaPropia}}{{.T "revision.toma_por_mi"}}{{else if $v.Toma}}{{$v.Toma}}{{else}}{{.T "revision.toma_libre"}}{{end}}</dd></div>
+      </dl>
+      {{- if $v.MotivoDescarte}}<p class="aviso aviso--error">{{.T "revision.motivo_descarte"}} {{$v.MotivoDescarte}}</p>{{end}}
+      {{template "error_de" (dict "P" . "En" "toma")}}
+      {{- if $v.PuedeRevisar}}
+      <form method="post" action="{{$v.Base}}/toma" class="en-linea">
+        {{- if $v.TomaPropia}}
+        <input type="hidden" name="accion" value="liberar">
+        <button class="boton boton--menor boton--secundario" type="submit">{{.T "revision.liberar"}}</button>
+        {{- else}}
+        <button class="boton boton--menor" type="submit">{{.T "revision.tomar"}}</button>
+        <span class="nota">{{.T "revision.toma_nota"}}</span>
+        {{- end}}
+      </form>
+      {{- end}}
+    </section>
+
+    {{- if $v.Cambios}}
+    <section class="grupo cambios" id="cambios" aria-labelledby="t-cambios">
+      <h2 class="titulo-seccion" id="t-cambios">{{.T "revision.cambios"}}</h2>
+      <table class="tabla tabla--compacta">
+        <thead><tr><th scope="col">{{.T "revision.cambio_elemento"}}</th><th scope="col">{{.T "revision.cambio_antes"}}</th><th scope="col">{{.T "revision.cambio_despues"}}</th></tr></thead>
+        <tbody>
+          {{- range $v.Cambios}}
+          <tr><th scope="row">{{.Etiqueta}}</th><td>{{.Antes}}</td><td>{{.Despues}}</td></tr>
+          {{- end}}
+        </tbody>
+      </table>
+    </section>
+    {{- end}}
+
+    {{- range $v.Secciones}}
+    <section class="grupo resumen__paso" id="r-{{.Seccion}}" aria-labelledby="t-r-{{.Seccion}}">
+      <h2 class="titulo-seccion" id="t-r-{{.Seccion}}">{{.Titulo}}</h2>
+      {{- range .Grupos}}{{range .Campos}}
+      {{template "pcampo" (dict "P" $ "C" .)}}
+      {{- end}}{{end}}
+      {{- if .Integrantes}}
+      <p class="campo__rotulo">{{$.T "campo.integrantes"}}</p>
+      <ol class="lista-fija">{{range .Integrantes}}<li>{{.Nombre}} <span class="lista-fija__detalle">{{.Instrumento}}</span></li>{{end}}</ol>
+      {{- end}}
+      {{- if .Videos}}
+      <p class="campo__rotulo">{{$.T "campo.videos"}}</p>
+      <ol class="lista-fija">{{range .Videos}}<li><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a> <span class="lista-fija__detalle">{{.Estado}}</span></li>{{end}}</ol>
+      {{- end}}
+      {{- range .Obras}}
+      <div class="resumen__obra" id="obra-{{.ID}}">
+        <p class="resumen__obra-titulo">{{$.T "postulacion.obra_n" .Numero}}{{if .Titulo}} · {{.Titulo}}{{end}}</p>
+        {{- range .Campos}}
+        {{template "pcampo" (dict "P" $ "C" .)}}
+        {{- end}}
+      </div>
+      {{- end}}
+    </section>
+    {{- end}}
+
+    {{- /* Documentos, con su visor y su dictamen (RF-REV-02 y 03). */}}
+    <section class="grupo" id="documentos" aria-labelledby="t-documentos">
+      <h2 class="titulo-seccion" id="t-documentos">{{.T "seccion.documentos"}}</h2>
+      {{- range $v.Documentos}}
+      <h3 class="documentos__grupo">{{.Titulo}}</h3>
+      {{- range .Requisitos}}
+      <div class="requisito">
+        <h4 class="requisito__titulo">{{.Etiqueta}}{{if not .Obligatorio}} <span class="campo__opcional">{{$.T "form.opcional"}}</span>{{end}}</h4>
+        {{- range .Documentos}}
+        <article class="documento-revision documento-revision--{{.Dictamen}}" id="{{.Ancla}}" aria-label="{{.Nombre}}">
+          <p class="documento-revision__cabeza"><span class="documento-revision__nombre">{{.Nombre}}</span>
+            <span class="entregado__detalle">{{.Tamano}} · {{$.FechaHora .Subido}}</span>
+            <span class="estado estado--{{if eq .Dictamen "valido"}}abierta{{else if eq .Dictamen "invalido"}}cerrada{{else}}proxima{{end}}">{{$.T (printf "revision.dictamen_%s" .Dictamen)}}</span></p>
+          {{- if .Motivo}}<p class="senalado"><span class="senalado__rotulo">{{$.T "revision.motivo"}}</span> {{.Motivo}}</p>{{end}}
+          {{template "visor" (dict "P" $ "D" .)}}
+          {{template "error_de" (dict "P" $ "En" .Ancla)}}
+          {{- if $v.PuedeRevisar}}
+          <form class="dictamen-documento" method="post" action="{{$v.Base}}/documentos/{{.ID}}/dictamen">
+            <fieldset class="opciones">
+              <legend>{{$.T "revision.dictaminar"}}</legend>
+              <label><input type="radio" name="dictamen" value="valido"{{if eq .Dictamen "valido"}} checked{{end}}> {{$.T "revision.dictamen_valido"}}</label>
+              <label><input type="radio" name="dictamen" value="invalido"{{if eq .Dictamen "invalido"}} checked{{end}}> {{$.T "revision.dictamen_invalido"}}</label>
+              <label><input type="radio" name="dictamen" value="pendiente"{{if eq .Dictamen "pendiente"}} checked{{end}}> {{$.T "revision.dictamen_pendiente"}}</label>
+            </fieldset>
+            <div class="campo">
+              <label for="m-{{.ID}}">{{$.T "revision.motivo_invalido"}} <span class="campo__opcional">{{$.T "revision.si_invalido"}}</span></label>
+              <input id="m-{{.ID}}" name="motivo" type="text" maxlength="2000" value="{{.Motivo}}">
+            </div>
+            <p><button class="boton boton--menor" type="submit">{{$.T "revision.guardar_dictamen"}}<span class="oculto"> {{.Nombre}}</span></button></p>
+          </form>
+          {{- end}}
+        </article>
+        {{- else}}
+        <p class="campo__valor"><span class="campo__vacio">{{$.T "documentos.sin_entregar"}}</span></p>
+        {{- end}}
+      </div>
+      {{- end}}
+      {{- end}}
+    </section>
+
+    {{- /* Observaciones internas (RF-REV-04): el postulante no las ve. */}}
+    <section class="grupo" id="observaciones" aria-labelledby="t-observaciones">
+      <h2 class="titulo-seccion" id="t-observaciones">{{.T "revision.observaciones"}}</h2>
+      <p class="nota">{{.T "revision.observaciones_nota"}}</p>
+      {{- if $v.Observaciones}}
+      <ul class="observaciones">
+        {{- range $v.Observaciones}}
+        <li><p class="observaciones__texto">{{.Texto}}</p>
+          <p class="entregado__detalle">{{.Revisor}} · {{$.FechaHora .Fecha}}{{if .Obra}} · {{.Obra}}{{end}}</p></li>
+        {{- end}}
+      </ul>
+      {{- end}}
+      {{template "error_de" (dict "P" . "En" "observaciones")}}
+      {{- if $v.PuedeRevisar}}
+      <form method="post" action="{{$v.Base}}/observaciones">
+        <div class="campo">
+          <label for="c-observacion">{{.T "revision.nueva_observacion"}}</label>
+          <textarea id="c-observacion" name="texto" rows="3" maxlength="2000"></textarea>
+        </div>
+        {{- if $v.Obras}}
+        <div class="campo">
+          <label for="c-obra-observacion">{{.T "revision.sobre"}}</label>
+          <select id="c-obra-observacion" name="obra">
+            <option value="">{{.T "revision.sobre_postulacion"}}</option>
+            {{- range $v.Obras}}<option value="{{.Valor}}">{{.Texto}}</option>{{end}}
+          </select>
+        </div>
+        {{- end}}
+        <p><button class="boton boton--menor boton--secundario" type="submit">{{.T "revision.agregar_observacion"}}</button></p>
+      </form>
+      {{- end}}
+    </section>
+
+    {{- /* Subsanaciones (RF-REV-05 a 09) y solicitudes de desbloqueo. */}}
+    <section class="grupo" id="subsanaciones" aria-labelledby="t-subsanaciones">
+      <h2 class="titulo-seccion" id="t-subsanaciones">{{.T "revision.subsanaciones"}}</h2>
+      {{template "error_de" (dict "P" . "En" "subsanaciones")}}
+      {{- range $v.Subsanaciones}}
+      <article class="subsanacion-revision">
+        <p><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span>
+          <span class="entregado__detalle">{{$.T "revision.solicitada_el"}} {{$.FechaHora .EnviadaAt}} · {{$.T "subsanacion.plazo"}} {{$.FechaHora .FechaLimite}}</span></p>
+        <ul class="problemas">
+          {{- range .Problemas}}<li><a href="{{.URL}}">{{.Etiqueta}}</a>{{if .Problema}}<span class="problemas__motivo">{{.Problema}}</span>{{end}}</li>{{end}}
+        </ul>
+        {{- if .Solicitudes}}
+        <h3 class="documentos__grupo">{{$.T "revision.solicitudes"}}</h3>
+        <ul class="solicitudes">
+          {{- range .Solicitudes}}
+          <li>
+            <span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span> <strong>{{.Etiqueta}}</strong>
+            <span class="solicitudes__texto">{{.Justificacion}}</span>
+            {{- if .Motivo}}<span class="solicitudes__respuesta">{{$.T "subsanacion.respuesta"}} {{.Motivo}}</span>{{end}}
+            {{- if and .Pendiente $v.PuedeRevisar}}
+            <form class="resolver" method="post" action="{{$v.Base}}/desbloqueos/{{.ID}}">
+              <div class="campo">
+                <label for="d-{{.ID}}">{{$.T "revision.respuesta_solicitud"}} <span class="campo__opcional">{{$.T "revision.obligatoria_si_niega"}}</span></label>
+                <input id="d-{{.ID}}" name="motivo" type="text" maxlength="2000">
+              </div>
+              <p class="en-linea">
+                <button class="boton boton--menor" type="submit" name="decision" value="conceder">{{$.T "revision.conceder"}}</button>
+                <button class="boton boton--menor boton--secundario" type="submit" name="decision" value="negar">{{$.T "revision.negar"}}</button>
+              </p>
+            </form>
+            {{- end}}
+          </li>
+          {{- end}}
+        </ul>
+        {{- end}}
+      </article>
+      {{- else}}
+      <p class="nota">{{.T "revision.sin_subsanaciones"}}</p>
+      {{- end}}
+
+      {{- if and $v.PuedeRevisar (not $v.Abierta)}}
+      <details class="nueva-subsanacion" id="subsanacion"{{if eq $v.ErrorEn "subsanacion"}} open{{end}}>
+        <summary>{{.T "revision.solicitar_subsanacion"}}</summary>
+        {{template "error_de" (dict "P" . "En" "subsanacion")}}
+        <form method="post" action="{{$v.Base}}/subsanacion">
+          {{- if $v.InvalidosAparte}}<p class="nota">{{.T "revision.invalidos_se_suman" $v.InvalidosAparte}}</p>{{end}}
+          <p class="nota">{{.T "revision.subsanacion_nota"}}</p>
+          <ol class="renglones">
+            {{- range $v.FilasDeProblema}}
+            <li class="renglon renglon--problema">
+              <div class="campo">
+                <label for="p-elemento-{{.}}">{{$.T "revision.elemento_n" .}}</label>
+                <select id="p-elemento-{{.}}" name="elemento">
+                  <option value="">{{$.T "form.elige"}}</option>
+                  {{- range $v.Elementos}}<option value="{{.Valor}}">{{.Texto}}</option>{{end}}
+                </select>
+              </div>
+              <div class="campo">
+                <label for="p-problema-{{.}}">{{$.T "revision.que_corregir"}}</label>
+                <input id="p-problema-{{.}}" name="problema" type="text" maxlength="2000">
+              </div>
+            </li>
+            {{- end}}
+          </ol>
+          <div class="campo">
+            <label for="c-fecha-limite">{{.T "revision.fecha_limite"}}</label>
+            <p class="campo__ayuda" id="a-fecha-limite">{{.T "revision.fecha_limite_ayuda"}}</p>
+            <input id="c-fecha-limite" name="fecha_limite" type="datetime-local" value="{{$v.FechaPropuesta}}" aria-describedby="a-fecha-limite">
+          </div>
+          <div class="campo">
+            <label for="c-nota">{{.T "revision.nota_correo"}} <span class="campo__opcional">{{.T "form.opcional"}}</span></label>
+            <textarea id="c-nota" name="nota" rows="3" maxlength="2000"></textarea>
+          </div>
+          <p><button class="boton" type="submit">{{.T "revision.enviar_subsanacion"}}</button></p>
+        </form>
+      </details>
+      {{- end}}
+    </section>
+
+    {{- /* Dictamen de la postulación (RF-REV-08): no se comunica al postulante. */}}
+    <section class="grupo" id="dictamen" aria-labelledby="t-dictamen">
+      <h2 class="titulo-seccion" id="t-dictamen">{{.T "revision.dictamen"}}</h2>
+      <p class="nota">{{.T "revision.dictamen_nota"}}</p>
+      {{template "error_de" (dict "P" . "En" "dictamen")}}
+      {{- if $v.PuedeRevisar}}
+      <form method="post" action="{{$v.Base}}/dictamen">
+        <div class="campo">
+          <label for="c-motivo-dictamen">{{.T "revision.motivo_descartar"}} <span class="campo__opcional">{{.T "revision.obligatorio_si_descarta"}}</span></label>
+          <textarea id="c-motivo-dictamen" name="motivo" rows="2" maxlength="2000"></textarea>
+        </div>
+        <p class="en-linea">
+          <button class="boton" type="submit" name="dictamen" value="validada">{{.T "revision.validar"}}</button>
+          <button class="boton boton--secundario" type="submit" name="dictamen" value="descartada">{{.T "revision.descartar"}}</button>
+        </p>
+      </form>
+      {{- end}}
+    </section>
+  </div>
+</div>
+{{end}}

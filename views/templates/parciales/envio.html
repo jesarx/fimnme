@@ -1,0 +1,165 @@
+{{- /*
+  Parciales del paso de revisión y envío (RF-POST-09 a 11, 13 y 14), que es
+  también la pantalla de una postulación ya enviada: su estado y sus acuses.
+*/ -}}
+
+{{- /* "subsanacion_detalle": lo señalado, las solicitudes de desbloqueo y la de una nueva. */ -}}
+{{define "subsanacion_detalle"}}
+{{- $e := .Datos.Envio}}
+{{- with .Datos.Subsanacion}}
+<section id="subsanacion" class="grupo subsanacion" aria-labelledby="t-subsanacion">
+  <h3 class="titulo-seccion" id="t-subsanacion">{{$.T "subsanacion.lo_senalado"}}</h3>
+  <ul class="problemas">
+    {{- range .Problemas}}
+    <li><a href="{{.URL}}">{{.Etiqueta}}</a>{{if .Problema}}<span class="problemas__motivo">{{.Problema}}</span>{{end}}</li>
+    {{- end}}
+  </ul>
+  {{- if .Mensaje}}
+  {{- /* El correo repite la lista; aquí se ofrece completo, plegado, por la nota del revisor. */}}
+  <details class="subsanacion__mensaje">
+    <summary>{{$.T "subsanacion.mensaje_completo"}}</summary>
+    <div class="prosa">{{.Mensaje}}</div>
+  </details>
+  {{- end}}
+
+  <h4>{{$.T "subsanacion.otro_error"}}</h4>
+  <p class="nota">{{$.T "subsanacion.otro_error_nota"}}</p>
+  {{- if .Solicitudes}}
+  <ul class="solicitudes">
+    {{- range .Solicitudes}}
+    <li>
+      <span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span> <strong>{{.Etiqueta}}</strong>
+      <span class="solicitudes__texto">{{.Justificacion}}</span>
+      {{- if .Motivo}}<span class="solicitudes__respuesta">{{$.T "subsanacion.respuesta"}} {{.Motivo}}</span>{{end}}
+    </li>
+    {{- end}}
+  </ul>
+  {{- end}}
+  {{- if $e.Elementos}}
+  <form class="desbloqueo" method="post" action="{{$.Datos.Base}}/desbloqueos" novalidate>
+    <div class="campo">
+      <label for="c-elemento">{{$.T "subsanacion.elemento"}}</label>
+      <select id="c-elemento" name="elemento" aria-describedby="e-desbloqueo">
+        <option value="">{{$.T "form.elige"}}</option>
+        {{- range $e.Elementos}}
+        <option value="{{.Valor}}">{{.Texto}}</option>
+        {{- end}}
+      </select>
+    </div>
+    <div class="campo">
+      <label for="c-justificacion">{{$.T "subsanacion.justificacion"}}</label>
+      <p class="campo__ayuda" id="a-justificacion">{{$.T "subsanacion.justificacion_ayuda"}}</p>
+      <textarea id="c-justificacion" name="justificacion" rows="3" maxlength="1000" aria-describedby="a-justificacion e-desbloqueo">{{$e.Justificacion}}</textarea>
+      <p class="campo__error" id="e-desbloqueo">{{$e.ErrorDesbloqueo}}</p>
+    </div>
+    <p><button class="boton boton--menor boton--secundario" type="submit">{{$.T "subsanacion.pedir"}}</button></p>
+  </form>
+  {{- end}}
+</section>
+{{- end}}
+{{end}}
+
+{{- /* "resumen": la postulación completa, en sólo lectura, paso por paso. */ -}}
+{{define "resumen"}}
+<section class="resumen" aria-labelledby="t-resumen">
+  <h3 class="titulo-seccion" id="t-resumen">{{.T "envio.tu_postulacion"}}</h3>
+  {{- range .Datos.Envio.Resumen}}
+  <section class="resumen__paso" aria-labelledby="r-{{.Seccion}}">
+    <div class="resumen__cabeza">
+      <h4 id="r-{{.Seccion}}">{{.Titulo}}</h4>
+      {{- if .Faltan}}<span class="estado estado--proxima">{{if eq .Faltan 1}}{{$.T "postulacion.paso_falta_uno"}}{{else}}{{$.T "postulacion.paso_faltan" .Faltan}}{{end}}</span>
+      {{- else}}<span class="estado estado--abierta">{{$.T "postulacion.paso_completo"}}</span>{{end}}
+      <a href="{{.URL}}">{{if $.Datos.Editable}}{{$.T "envio.editar"}}{{else}}{{$.T "envio.ver"}}{{end}}<span class="oculto"> {{.Titulo}}</span></a>
+    </div>
+    {{- range .Grupos}}{{range .Campos}}
+    {{template "pcampo" (dict "P" $ "C" .)}}
+    {{- end}}{{end}}
+    {{- if .Integrantes}}
+    <p class="campo__rotulo">{{$.T "campo.integrantes"}}</p>
+    <ol class="lista-fija">{{range .Integrantes}}<li>{{.Nombre}} <span class="lista-fija__detalle">{{.Instrumento}}</span></li>{{end}}</ol>
+    {{- end}}
+    {{- if .Videos}}
+    <p class="campo__rotulo">{{$.T "campo.videos"}}</p>
+    <ol class="lista-fija">{{range .Videos}}<li><a href="{{.URL}}" rel="noopener noreferrer">{{.URL}}</a> <span class="lista-fija__detalle">{{.Estado}}</span></li>{{end}}</ol>
+    {{- end}}
+    {{- range .Obras}}
+    <div class="resumen__obra">
+      <p class="resumen__obra-titulo">{{$.T "postulacion.obra_n" .Numero}}{{if .Titulo}} · {{.Titulo}}{{end}}</p>
+      {{- range .Campos}}
+      {{template "pcampo" (dict "P" $ "C" .)}}
+      {{- end}}
+    </div>
+    {{- end}}
+    {{- range .Documentos}}
+    <p class="campo__rotulo">{{.Titulo}}</p>
+    <ul class="lista-fija">
+      {{- range .Requisitos}}
+      <li>{{.Etiqueta}}:
+        {{- range .Documentos}} <a href="{{.URL}}" rel="noopener">{{.Nombre}}</a>{{else}} <span class="campo__vacio">{{$.T "documentos.sin_entregar"}}</span>{{end}}</li>
+      {{- end}}
+    </ul>
+    {{- end}}
+  </section>
+  {{- end}}
+</section>
+{{end}}
+
+{{- /* "envio": el paso entero. */ -}}
+{{define "envio"}}
+{{- $e := .Datos.Envio}}
+{{- if .Datos.Folio}}
+<section class="grupo estado-postulacion" aria-labelledby="t-estado">
+  <h3 class="titulo-seccion" id="t-estado">{{.T "envio.estado"}}</h3>
+  <dl class="fechas">
+    <div><dt>{{.T "panel.folio"}}</dt><dd class="estado-postulacion__folio">{{.Datos.Folio}}</dd></div>
+    {{- if not $e.EnviadaAt.IsZero}}
+    <div><dt>{{.T "envio.enviada_el"}}</dt><dd><time datetime="{{.ISO $e.EnviadaAt}}">{{.FechaHora $e.EnviadaAt}}</time></dd></div>
+    {{- end}}
+  </dl>
+  {{- if $e.TextoDeEstado}}
+  <p>{{.T $e.TextoDeEstado}}</p>
+  {{- end}}
+  {{- if $e.Acuses}}
+  <p class="campo__rotulo">{{.T "envio.acuses"}}</p>
+  <ul class="lista-fija">
+    {{- range $e.Acuses}}
+    <li><a href="{{.URL}}">{{$.T "envio.acuse_n" .Version}}</a> <span class="lista-fija__detalle">{{$.FechaHora .Fecha}}</span></li>
+    {{- end}}
+  </ul>
+  {{- end}}
+</section>
+{{- end}}
+
+{{template "subsanacion_detalle" .}}
+
+{{- if $e.PuedeEnviar}}
+<section class="grupo envio" aria-labelledby="t-envio">
+  <h3 class="titulo-seccion" id="t-envio">{{if $e.Reenvio}}{{.T "envio.reenviar_titulo"}}{{else}}{{.T "envio.enviar_titulo"}}{{end}}</h3>
+  {{- if $e.Lista}}
+  <p>{{if $e.Reenvio}}{{.T "envio.lista_reenvio"}}{{else}}{{.T "envio.lista"}}{{end}}</p>
+  {{- else}}
+  <p>{{.T "envio.falta"}}</p>
+  <ul class="faltantes__lista">
+    {{- range $e.Faltantes}}
+    <li><a href="{{.Ancla}}">{{.Mensaje}}</a></li>
+    {{- end}}
+  </ul>
+  {{- end}}
+  <form method="post" action="{{.Datos.Base}}/envio" novalidate>
+    <div class="campo campo--casilla">
+      <input id="c-confirmo" name="confirmo" type="checkbox" value="1"{{if $e.ErrorConfirmo}} aria-invalid="true" aria-describedby="e-confirmo"{{end}}>
+      <label for="c-confirmo">{{if $e.Reenvio}}{{.T "envio.confirmo_reenvio"}}{{else}}{{.T "envio.confirmo"}}{{end}}</label>
+      {{- if $e.ErrorConfirmo}}<p class="campo__error" id="e-confirmo">{{$e.ErrorConfirmo}}</p>{{end}}
+    </div>
+    <div class="campo campo--casilla">
+      <input id="c-acepto_bases" name="acepto_bases" type="checkbox" value="1"{{if $e.ErrorBases}} aria-invalid="true" aria-describedby="e-acepto_bases"{{end}}>
+      <label for="c-acepto_bases">{{.T "envio.acepto_bases"}}</label>
+      {{- if $e.ErrorBases}}<p class="campo__error" id="e-acepto_bases">{{$e.ErrorBases}}</p>{{end}}
+    </div>
+    <p><button class="boton" type="submit"{{if not $e.Lista}} disabled{{end}}>{{if $e.Reenvio}}{{.T "envio.reenviar"}}{{else}}{{.T "envio.enviar"}}{{end}}</button></p>
+  </form>
+</section>
+{{- end}}
+
+{{template "resumen" .}}
+{{end}}

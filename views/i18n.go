@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"strings"
 	"time"
 
 	// Incrusta la base de zonas horarias en el binario: el ejecutable estático
@@ -106,6 +107,29 @@ func (t *Traducciones) Fecha(idioma string, momento time.Time) string {
 	return t.T(idioma, "fecha.formato", local.Day(), mes, local.Year())
 }
 
+// FechaCivil formatea una fecha sin hora («1990-05-17»), como la de
+// nacimiento o la de un concierto, en el idioma pedido. No se convierte de
+// zona horaria: un día del calendario es el mismo en todas. Si el texto no es
+// una fecha, se devuelve tal cual.
+func (t *Traducciones) FechaCivil(idioma, texto string) string {
+	dia, err := time.Parse(time.DateOnly, texto)
+	if err != nil {
+		return texto
+	}
+	mes := t.T(idioma, fmt.Sprintf("fecha.mes.%d", int(dia.Month())))
+	return t.T(idioma, "fecha.formato", dia.Day(), mes, dia.Year())
+}
+
+// Hora formatea sólo la hora, con la zona horaria explícita.
+func (t *Traducciones) Hora(idioma string, momento time.Time) string {
+	local := momento.In(zonaMexico)
+	hora := local.Format("15:04")
+	if t.T(idioma, "fecha.reloj") == "12" {
+		hora = local.Format("3:04 PM")
+	}
+	return t.T(idioma, "fecha.formato_solo_hora", hora, t.T(idioma, "fecha.zona"))
+}
+
 // FechaHora formatea día y hora. La zona horaria va SIEMPRE explícita, porque
 // hay postulantes en otros husos (RF-I18N-06).
 func (t *Traducciones) FechaHora(idioma string, momento time.Time) string {
@@ -115,4 +139,24 @@ func (t *Traducciones) FechaHora(idioma string, momento time.Time) string {
 		hora = local.Format("3:04 PM")
 	}
 	return t.T(idioma, "fecha.formato_hora", t.Fecha(idioma, momento), hora, t.T(idioma, "fecha.zona"))
+}
+
+// sinDiacriticos quita los acentos y demás signos de las letras que aparecen
+// en los nombres de la interfaz, para ordenarlos.
+var sinDiacriticos = strings.NewReplacer(
+	"á", "a", "à", "a", "â", "a", "ä", "a", "ã", "a", "å", "a",
+	"é", "e", "è", "e", "ê", "e", "ë", "e",
+	"í", "i", "ì", "i", "î", "i", "ï", "i",
+	"ó", "o", "ò", "o", "ô", "o", "ö", "o", "õ", "o",
+	"ú", "u", "ù", "u", "û", "u", "ü", "u",
+	"ñ", "n", "ç", "c", "’", "", "'", "",
+)
+
+// ClaveDeOrden devuelve un texto por el que ordenar alfabéticamente una lista
+// que se muestra a una persona: sin mayúsculas ni acentos, para que «Ángola»
+// no quede después de «Zimbabue». No es una ordenación lingüística completa
+// —no hace falta una biblioteca para una lista de países—, pero deja cada
+// nombre donde quien lee espera encontrarlo.
+func ClaveDeOrden(texto string) string {
+	return sinDiacriticos.Replace(strings.ToLower(texto))
 }

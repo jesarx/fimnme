@@ -53,6 +53,7 @@ type Persistencia interface {
 	RegistrarIngresoFallido(ctx context.Context, actor Actor, usuarioID int64, bloqueado bool) error
 	FallosDeIngreso(ctx context.Context, usuarioID int64) (int, time.Time, error)
 	SesionPorID(ctx context.Context, idResumen string) (*Sesion, error)
+	SesionDeUsuario(ctx context.Context, usuarioID int64) (*Sesion, error)
 	RenovarSesion(ctx context.Context, idResumen string, expira time.Time) error
 	CerrarSesion(ctx context.Context, actor Actor, idResumen string) error
 	PurgarSesionesVencidas(ctx context.Context) (int64, error)
@@ -66,6 +67,8 @@ type Persistencia interface {
 
 	// Correo saliente.
 	PlantillaCorreo(ctx context.Context, clave, idioma string) (PlantillaCorreo, error)
+	VersionesDePlantilla(ctx context.Context, clave, idioma string) ([]VersionDePlantilla, error)
+	GuardarVersionDePlantilla(ctx context.Context, actor Actor, p PlantillaCorreo) (int, error)
 	CorreosPendientes(ctx context.Context, limite int) ([]CorreoSaliente, error)
 	MarcarCorreoEnviado(ctx context.Context, correo CorreoSaliente, messageID string) error
 	MarcarCorreoFallido(ctx context.Context, correo CorreoSaliente, motivo string, proximo time.Time, reintentar bool) error
@@ -121,6 +124,79 @@ type Persistencia interface {
 	RegistrarDescarga(ctx context.Context, actor Actor, postulacionID, documentoID int64, archivo Archivo) error
 	EnviarPostulacion(ctx context.Context, actor Actor, usuarioID, postulacionID int64,
 		confirmacion ConfirmacionEnvio, componer func(SnapshotEnvio) (AcuseCompuesto, error)) error
+
+	// Revisión documental y subsanación.
+	RevisionDe(ctx context.Context, postulacionID int64) (Revision, error)
+	BandejaDeRevision(ctx context.Context, convocatoriaID, revisorID int64, filtro FiltroBandeja) ([]PostulacionEnBandeja, error)
+	TomarPostulacion(ctx context.Context, actor Actor, postulacionID int64, tomar bool) error
+	DictaminarDocumento(ctx context.Context, actor Actor, documentoID int64, dictamen, motivo string) (int64, error)
+	ObservarPostulacion(ctx context.Context, actor Actor, postulacionID, obraID int64, texto string) error
+	SolicitarSubsanacion(ctx context.Context, actor Actor, postulacionID int64, n NuevaSubsanacion,
+		componer func(Postulacion, ConfiguracionConvocatoria, Usuario, NuevaSubsanacion) (CorreoSaliente, error)) error
+	SolicitarDesbloqueo(ctx context.Context, actor Actor, usuarioID, postulacionID int64, s SolicitudDesbloqueo) error
+	ResolverDesbloqueo(ctx context.Context, actor Actor, postulacionID, solicitudID int64, concedida bool, motivo string) error
+	DictaminarPostulacion(ctx context.Context, actor Actor, postulacionID int64, dictamen EstadoDePostulacion, motivo string) error
+	DiferenciasDelUltimoEnvio(ctx context.Context, postulacionID int64) ([]CambioDeEnvio, error)
+
+	// Evaluación por jurado. El aislamiento entre jurados es estructural:
+	// ParaJurado sólo da acceso a las evaluaciones de ese jurado; lo que
+	// cruza jurados vive en Supervision, para administrador y observador.
+	ParaJurado(juradoID int64) JuradoRepo
+	Supervision() SupervisionRepo
+	RegistrarDictamenFinal(ctx context.Context, actor Actor, postulacionID int64, dictamen string) error
+
+	// Archivo histórico, búsqueda y descargas masivas.
+	ListarPostulaciones(ctx context.Context, alcance AlcanceDeConsulta, f FiltroDeListado) ([]RenglonDeListado, int, error)
+	PostulacionPorFolio(ctx context.Context, folio string) (int64, error)
+	VistasGuardadas(ctx context.Context, usuarioID int64) ([]VistaGuardada, error)
+	GuardarVista(ctx context.Context, usuarioID int64, nombre, ruta string) (int64, error)
+	BorrarVista(ctx context.Context, usuarioID, vistaID int64) error
+	DocumentosParaZIP(ctx context.Context, parametros ParametrosDeExportacion) ([]DocumentoEnZIP, error)
+	EncolarExportacion(ctx context.Context, actor Actor, tipo string, parametros ParametrosDeExportacion) (int64, error)
+	ExportacionPorID(ctx context.Context, id int64) (TareaDeExportacion, error)
+	ExportacionesDe(ctx context.Context, usuarioID int64, limite int) ([]TareaDeExportacion, error)
+	TomarExportacion(ctx context.Context) (TareaDeExportacion, bool, error)
+	ReencolarExportacionesInterrumpidas(ctx context.Context) (int, error)
+	TerminarExportacion(ctx context.Context, id int64, archivos int, bytes int64, mensajeDeError string, aviso *CorreoSaliente) error
+	RegistrarDescargaDeExportacion(ctx context.Context, actor Actor, tarea TareaDeExportacion) error
+
+	// Expediente, reportes y tableros.
+	RegistrarExpediente(ctx context.Context, actor Actor, postulacionID int64) error
+	RegistrarReporte(ctx context.Context, actor Actor, convocatoriaID int64, campos []string, renglones int) error
+	PlantillasDeReporte(ctx context.Context) ([]PlantillaDeReporte, error)
+	PlantillaDeReportePorID(ctx context.Context, id int64) (PlantillaDeReporte, error)
+	GuardarPlantillaDeReporte(ctx context.Context, actor Actor, p PlantillaDeReporte) (int64, error)
+	BorrarPlantillaDeReporte(ctx context.Context, actor Actor, id, soloDe int64) error
+	TableroDeConvocatoria(ctx context.Context, convocatoriaID int64) (TableroDeConvocatoria, error)
+	EstadisticasDeEdicion(ctx context.Context, edicionID, convocatoriaID int64) (EstadisticasDeEdicion, error)
+
+	// Continuidad operativa, portal público y anonimización.
+	AdministradoresActivos(ctx context.Context) ([]Usuario, error)
+	EncolarAviso(ctx context.Context, correo CorreoSaliente) error
+	SeleccionadosDe(ctx context.Context, convocatoriaID int64) ([]InteropSeleccionado, error)
+	PublicarNomina(ctx context.Context, actor Actor, convocatoriaID int64, blob Blob, seleccionados int, confirmo bool) error
+	PublicacionesDe(ctx context.Context, convocatoriaID int64) ([]PublicacionInterop, []Archivo, error)
+	PortalPublico(ctx context.Context, almacen BlobStore, numeroDeEdicion int) (InteropPortal, error)
+	AnonimizarPostulacion(ctx context.Context, actor Actor, postulacionID int64, solicitud SolicitudDeAnonimizacion) (ResultadoDeAnonimizacion, error)
+
+	// Extensión dinámica de nodos. Añadir y quitar campos es DDL y sólo lo
+	// hace fimnme-cli, sobre *Repositorio: el servidor no altera el esquema.
+	CamposExtendidos(ctx context.Context) ([]CampoExtendido, error)
+	ValoresExtendidos(ctx context.Context, tabla string, id int64) ([]CampoExtendido, map[string]string, error)
+	GuardarExtendidos(ctx context.Context, actor Actor, tabla string, id int64, valores map[string]string) (ResultadoGuardado, error)
+
+	// Importación asistida en dos fases.
+	CuentasParaConciliar(ctx context.Context) ([]Usuario, error)
+	CrearImportacion(ctx context.Context, actor Actor, tipo string, convocatoriaID int64, blob Blob, mime, nombreOriginal string,
+		filasTotal int, conflictos []ConflictoDeImportacion) (int64, error)
+	ImportacionPorID(ctx context.Context, id int64) (Importacion, error)
+	ImportacionesRecientes(ctx context.Context, limite int) ([]Importacion, error)
+	ArchivoPorID(ctx context.Context, id int64) (Archivo, error)
+	ResolverConflicto(ctx context.Context, actor Actor, importacionID, conflictoID int64, resolucion string, entidadID int64) error
+	ResolverSinCandidatos(ctx context.Context, actor Actor, importacionID int64, resolucion string) (int, error)
+	CancelarImportacion(ctx context.Context, actor Actor, importacionID int64) error
+	ConfirmarImportacion(ctx context.Context, actor Actor, importacionID int64, filas []FilaDeImportacion,
+		activaciones map[int]ActivacionDeCuenta) (EfectoDeImportacion, error)
 
 	// Comprobación en red de las ligas de video.
 	EnlacesPorVerificar(ctx context.Context, limite int, revalidarAntesDe time.Time) ([]EnlacePorVerificar, error)

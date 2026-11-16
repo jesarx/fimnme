@@ -1,0 +1,20 @@
+# FIMNME — respaldo de la base y del acervo (lo lanza fimnme-respaldo.timer).
+# Software libre bajo la licencia GNU GPL v3.0; véase el archivo LICENSE.
+[Unit]
+Description=FIMNME: respaldo firmado de la base y del acervo
+After=fimnme-web.service
+
+[Service]
+Type=oneshot
+User=fimnme
+Group=fimnme
+EnvironmentFile=-/etc/fimnme/respaldo.env
+ExecStart=/opt/fimnme/bin/respaldo_automatizado.sh
+# Un respaldo no debe competir con quien postula.
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fimnme /var/backups/fimnme
+ProtectHome=read-only
+PrivateTmp=true

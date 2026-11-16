@@ -1,0 +1,69 @@
+{{- /*
+  Portada de la administración (§5.2): las ediciones con sus convocatorias y
+  el alta de una edición. Recibe en .Datos una vistaPortadaAdmin.
+
+  El observador la ve igual, sin formularios (.Administra).
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "sitio.plataforma"}}</p>
+    <h1 class="banda__titulo">{{.T "admin.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "admin.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{template "aviso" .}}
+<nav class="admin__atajos" aria-label="{{.T "admin.herramientas"}}">
+  <a href="/administracion/usuarios">{{.T "admin.cuentas"}}</a>
+  {{- if .Administra}} · <a href="/administracion/correos">{{.T "correo.titulo"}}</a>
+  · <a href="/administracion/importaciones">{{.T "importacion.titulo"}}</a>
+  · <a href="/administracion/arco">{{.T "arco.titulo"}}</a>{{end}}
+  · <a href="/administracion/bitacora">{{.T "bitacora.titulo"}}</a>
+</nav>
+
+{{- if .Datos.Ediciones}}
+{{- range .Datos.Ediciones}}
+<section class="grupo" aria-labelledby="e-{{.ID}}">
+  <h2 class="titulo-seccion" id="e-{{.ID}}"><a href="{{.URL}}">{{.NombreES}}</a> <span class="nota">{{.Anio}}</span></h2>
+  {{- if .Convocatorias}}
+  <ul class="tarjetas">
+    {{- range .Convocatorias}}
+    <li class="tarjeta">
+      <p class="tarjeta__meta"><span>{{$.T .Tipo}}</span><span class="estado estado--{{.Clase}}">{{$.T .Estado}}</span></p>
+      <h3 class="tarjeta__titulo-chico"><a class="tarjeta__enlace" href="{{.URL}}">{{.Titulo}}</a></h3>
+      <p class="tarjeta__accion" aria-hidden="true">{{$.T "admin.configurar"}} →</p>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{$.T "admin.sin_convocatorias"}} <a href="{{.URL}}">{{$.T "admin.crear_convocatoria"}}</a></p>
+  {{- end}}
+</section>
+{{- end}}
+{{- else}}
+<p class="vacio">{{.T "admin.sin_ediciones"}}</p>
+{{- end}}
+
+{{- if .Administra}}
+<section class="grupo" id="nueva" aria-labelledby="t-nueva">
+  <h2 class="titulo-seccion" id="t-nueva">{{.T "admin.nueva_edicion"}}</h2>
+  {{- with .Formulario.Valor "error"}}<div class="aviso aviso--error" role="alert"><p>{{.}}</p></div>{{end}}
+  <form method="post" action="/administracion/ediciones" class="admin__form">
+    <div class="admin__fila">
+      <div class="campo"><label for="n-numero">{{.T "admin.edicion_numero"}}</label>
+        <input id="n-numero" name="numero" type="number" min="1" inputmode="numeric" required value="{{.Formulario.Valor "numero"}}"></div>
+      <div class="campo"><label for="n-anio">{{.T "admin.edicion_anio"}}</label>
+        <input id="n-anio" name="anio" type="number" min="2000" inputmode="numeric" required value="{{.Formulario.Valor "anio"}}"></div>
+    </div>
+    <div class="campo"><label for="n-nombre_es">{{.T "admin.nombre_es"}}</label>
+      <input id="n-nombre_es" name="nombre_es" type="text" required value="{{.Formulario.Valor "nombre_es"}}"></div>
+    <div class="campo"><label for="n-nombre_en" lang="en">{{.T "admin.nombre_en"}}</label>
+      <input id="n-nombre_en" name="nombre_en" type="text" required lang="en" value="{{.Formulario.Valor "nombre_en"}}"></div>
+    <p><button class="boton" type="submit">{{.T "admin.crear_edicion"}}</button></p>
+  </form>
+</section>
+{{- end}}
+{{end}}

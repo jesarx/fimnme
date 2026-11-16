@@ -20,7 +20,9 @@ package controllers
 
 import (
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jesarx/fimnme/models"
@@ -111,49 +113,11 @@ func (a *App) apiAuditoria(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	consulta := r.URL.Query()
-	filtro := models.FiltroAuditoria{
-		Accion:  consulta.Get("accion"),
-		Entidad: consulta.Get("entidad"),
-		Pagina:  1,
-		Tamano:  tamanoPaginaPorOmision,
-	}
-	invalido := func(parametro string) {
-		a.errorAPI(w, r, http.StatusBadRequest, "parametro_invalido", parametro)
-	}
-	var ok bool
-	if filtro.EntidadID, ok = enteroDeFiltro(consulta.Get("entidad_id")); !ok {
-		invalido("entidad_id")
+	filtro, invalido := filtroDeAuditoria(consulta)
+	if invalido != "" {
+		a.errorAPI(w, r, http.StatusBadRequest, "parametro_invalido", invalido)
 		return
 	}
-	if filtro.ActorID, ok = enteroDeFiltro(consulta.Get("actor_id")); !ok {
-		invalido("actor_id")
-		return
-	}
-	if filtro.Desde, ok = fechaDeFiltro(consulta.Get("desde"), false); !ok {
-		invalido("desde")
-		return
-	}
-	if filtro.Hasta, ok = fechaDeFiltro(consulta.Get("hasta"), true); !ok {
-		invalido("hasta")
-		return
-	}
-	if texto := consulta.Get("pagina"); texto != "" {
-		n, ok := enteroDeFiltro(texto)
-		if !ok || n < 1 {
-			invalido("pagina")
-			return
-		}
-		filtro.Pagina = int(n)
-	}
-	if texto := consulta.Get("tamano"); texto != "" {
-		n, ok := enteroDeFiltro(texto)
-		if !ok || n < 1 || n > tamanoPaginaMaximo {
-			invalido("tamano")
-			return
-		}
-		filtro.Tamano = int(n)
-	}
-
 	formato := consulta.Get("formato")
 	switch formato {
 	case "", "json":
@@ -161,7 +125,7 @@ func (a *App) apiAuditoria(w http.ResponseWriter, r *http.Request) {
 		// La exportación respeta el filtro e ignora la paginación.
 		filtro.Pagina, filtro.Tamano = 1, filasMaximasCSV
 	default:
-		invalido("formato")
+		a.errorAPI(w, r, http.StatusBadRequest, "parametro_invalido", "formato")
 		return
 	}
 
@@ -179,4 +143,43 @@ func (a *App) apiAuditoria(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.responderJSON(w, views.AuditoriaJSON(asientos, total, filtro.Pagina, filtro.Tamano))
+}
+
+// filtroDeAuditoria lee los filtros de la bitácora de unos parámetros. Si
+// alguno no vale, devuelve su nombre. Lo comparten la API y la pantalla.
+func filtroDeAuditoria(consulta url.Values) (models.FiltroAuditoria, string) {
+	filtro := models.FiltroAuditoria{
+		Accion:  strings.TrimSpace(consulta.Get("accion")),
+		Entidad: strings.TrimSpace(consulta.Get("entidad")),
+		Pagina:  1,
+		Tamano:  tamanoPaginaPorOmision,
+	}
+	var ok bool
+	if filtro.EntidadID, ok = enteroDeFiltro(consulta.Get("entidad_id")); !ok {
+		return filtro, "entidad_id"
+	}
+	if filtro.ActorID, ok = enteroDeFiltro(consulta.Get("actor_id")); !ok {
+		return filtro, "actor_id"
+	}
+	if filtro.Desde, ok = fechaDeFiltro(consulta.Get("desde"), false); !ok {
+		return filtro, "desde"
+	}
+	if filtro.Hasta, ok = fechaDeFiltro(consulta.Get("hasta"), true); !ok {
+		return filtro, "hasta"
+	}
+	if texto := consulta.Get("pagina"); texto != "" {
+		n, ok := enteroDeFiltro(texto)
+		if !ok || n < 1 {
+			return filtro, "pagina"
+		}
+		filtro.Pagina = int(n)
+	}
+	if texto := consulta.Get("tamano"); texto != "" {
+		n, ok := enteroDeFiltro(texto)
+		if !ok || n < 1 || n > tamanoPaginaMaximo {
+			return filtro, "tamano"
+		}
+		filtro.Tamano = int(n)
+	}
+	return filtro, ""
 }

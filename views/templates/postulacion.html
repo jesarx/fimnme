@@ -1,0 +1,99 @@
+{{- /*
+  Un paso del formulario de postulación (RF-POST-03 a 06): datos generales,
+  propuesta de concierto u obras. Requiere sesión; la postulación es de quien
+  la mira. Recibe en .Datos una vistaPostulacion.
+
+  Con htmx cada formulario se guarda solo mientras se escribe. Sin
+  JavaScript se envía con su botón: «Guardar y continuar» envía el formulario
+  de campos del paso (atributo form) aunque esté al final de la página.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Titulo}} · {{.Datos.Edicion}}</p>
+    <h1 class="banda__titulo">{{.T "postulacion.titulo"}}{{if .Datos.Folio}} <span class="banda__folio">{{.Datos.Folio}}</span>{{end}}</h1>
+    <p class="banda__entrada">
+      <span class="estado estado--{{.Datos.EstadoClase}}">{{.T .Datos.Estado}}</span>
+      {{- if .Datos.Subcategoria}} <span>{{.T (printf "subcategoria.%s" .Datos.Subcategoria)}}</span>{{end}}
+      {{- if and .Datos.Total .Datos.TieneCierre}} <span>{{.T "postulacion.cierra"}} <time datetime="{{.ISO .Datos.Cierre}}">{{.FechaHora .Datos.Cierre}}</time></span>{{end}}
+    </p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+<p class="migas"><a href="/postulaciones">← {{.T "nav.postulaciones"}}</a></p>
+{{template "avance" .}}
+{{template "aviso" .}}
+{{template "subsanacion_aviso" .}}
+{{- if not .Datos.Editable}}
+<div class="aviso aviso--info"><p>{{.T .Datos.Motivo}}</p></div>
+{{- end}}
+
+<div class="paso">
+  <div class="paso__cabeza">
+    <h2>{{range .Datos.Pasos}}{{if .Actual}}<span class="paso__numero">{{$.T "postulacion.paso_n" .Numero (len $.Datos.Pasos)}}</span> {{.Etiqueta}}{{end}}{{end}}</h2>
+    {{- if and .Datos.Editable (ne .Datos.Paso "envio")}}
+    {{template "guardado" .}}
+    {{- end}}
+  </div>
+
+  {{- if eq .Datos.Paso "envio"}}
+  {{template "envio" .}}
+  {{- else if eq .Datos.Paso "documentos"}}
+  {{template "documentos" .}}
+  {{- else if eq .Datos.Paso "obras"}}
+  {{template "obras_resumen" .}}
+  {{template "obras" .}}
+  {{- else}}
+
+  {{- if .Datos.OtraSubcategoria}}{{if eq .Datos.Paso "datos"}}
+  {{- /* Cambiar de solista a ensamble, o al revés, borra los datos generales. */}}
+  <details class="cambio">
+    <summary>{{.T "postulacion.cambiar_subcategoria" (.T (printf "subcategoria.%s" .Datos.OtraSubcategoria))}}</summary>
+    <form method="post" action="{{.Datos.Base}}/subcategoria">
+      <input type="hidden" name="subcategoria" value="{{.Datos.OtraSubcategoria}}">
+      <p>{{.T "postulacion.cambio_advertencia"}}</p>
+      <div class="campo campo--casilla">
+        <input id="c-confirmar" name="confirmar" type="checkbox" value="1">
+        <label for="c-confirmar">{{.T "postulacion.cambio_confirmo"}}</label>
+      </div>
+      <p><button class="boton boton--menor boton--secundario" type="submit">{{.T "postulacion.cambio_boton" (.T (printf "subcategoria.%s" .Datos.OtraSubcategoria))}}</button></p>
+    </form>
+  </details>
+  {{- end}}{{end}}
+
+  <form id="f-campos" method="post" action="{{.Datos.Base}}/campos" novalidate
+    {{- if .Datos.Editable}} data-autoguardado hx-post="{{.Datos.Base}}/campos" hx-trigger="input changed delay:1200ms, change" hx-swap="none" hx-sync="closest .paso:queue all"{{end}}>
+    <input type="hidden" name="seccion" value="{{.Datos.Paso}}">
+    {{- range .Datos.Grupos}}
+    {{template "pgrupo" (dict "P" $ "G" .)}}
+    {{- end}}
+  </form>
+  {{- if .Datos.TieneIntegrantes}}
+  {{template "integrantes" .}}
+  {{- end}}
+  {{- if .Datos.TieneVideos}}
+  {{template "videos" .}}
+  {{- end}}
+  {{- end}}
+
+  {{- if and .Datos.Editable (ne .Datos.Paso "envio")}}
+  {{template "faltantes" .}}
+  {{- end}}
+
+  <nav class="paso__acciones" aria-label="{{.T "postulacion.navegacion"}}">
+    {{- if .Datos.Anterior}}
+    <a class="boton boton--secundario" href="{{.Datos.Anterior}}"><span aria-hidden="true">←</span> {{.T "postulacion.anterior"}}</a>
+    {{- end}}
+    {{- if and .Datos.Editable (or (eq .Datos.Paso "datos") (eq .Datos.Paso "concierto"))}}
+    <button class="boton" type="submit" form="f-campos" name="ir" value="siguiente">
+      {{- if .Datos.Siguiente}}{{.T "postulacion.guardar_y_continuar"}} <span aria-hidden="true">→</span>{{else}}{{.T "postulacion.guardar_y_salir"}}{{end}}</button>
+    {{- else if .Datos.Siguiente}}
+    <a class="boton" href="{{.Datos.Base}}/{{.Datos.Siguiente}}">{{.T "postulacion.siguiente"}} <span aria-hidden="true">→</span></a>
+    {{- else}}
+    <a class="boton boton--secundario" href="/postulaciones">{{.T "postulacion.volver_al_panel"}}</a>
+    {{- end}}
+  </nav>
+</div>
+{{end}}

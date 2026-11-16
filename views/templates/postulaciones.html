@@ -1,0 +1,89 @@
+{{- /*
+  «Mis postulaciones» (RF-POST-01 y 12): el historial de la cuenta, de todas
+  las ediciones, y las convocatorias en las que puede postular hoy. Requiere
+  sesión. Recibe en .Datos una vistaPanel.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.T "sitio.plataforma"}}</p>
+    <h1 class="banda__titulo">{{.T "panel.titulo"}}</h1>
+    <p class="banda__entrada">{{.T "panel.entrada"}}</p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{template "aviso" .}}
+{{- with .Datos}}
+<section class="bloque" aria-labelledby="t-mias">
+  <h2 id="t-mias" class="titulo-seccion">{{$.T "panel.mias"}}</h2>
+  {{- if .Postulaciones}}
+  <ul class="tarjetas">
+    {{- range .Postulaciones}}
+    <li class="tarjeta">
+      <p class="tarjeta__meta">
+        <span>{{.Edicion}}</span>
+        <span class="estado estado--{{.EstadoClase}}">{{$.T .Estado}}</span>
+      </p>
+      <h3><a class="tarjeta__enlace" href="{{.URL}}">{{.Titulo}}</a></h3>
+      <dl class="fechas">
+        {{- if .Subcategoria}}
+        <div><dt>{{$.T "panel.postulo_como"}}</dt><dd>{{$.T (printf "subcategoria.%s" .Subcategoria)}}</dd></div>
+        {{- end}}
+        {{- if .Folio}}
+        <div><dt>{{$.T "panel.folio"}}</dt><dd>{{.Folio}}</dd></div>
+        {{- end}}
+        <div><dt>{{$.T "panel.actualizada"}}</dt><dd><time datetime="{{$.ISO .Actualizada}}">{{$.FechaHora .Actualizada}}</time></dd></div>
+      </dl>
+      {{- if .Vencida}}
+      <p class="nota">{{$.T "panel.borrador_vencido"}}</p>
+      {{- end}}
+      <p class="tarjeta__accion" aria-hidden="true">{{$.T .Accion}} →</p>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{$.T "panel.sin_postulaciones"}}</p>
+  {{- end}}
+</section>
+
+<section class="bloque" aria-labelledby="t-abiertas">
+  <h2 id="t-abiertas" class="titulo-seccion">{{$.T "panel.abiertas"}}</h2>
+  {{- if not .PuedePostular}}
+  <p class="vacio">{{$.T "panel.no_postula"}}</p>
+  {{- else if .Abiertas}}
+  <ul class="tarjetas">
+    {{- range .Abiertas}}
+    <li class="tarjeta tarjeta--formulario">
+      <p class="tarjeta__meta">
+        <span>{{.Edicion}}</span>
+        <span class="estado estado--{{.EstadoClase}}">{{$.T .Estado}}</span>
+      </p>
+      <h3>{{.Titulo}}</h3>
+      {{- if .TieneFechas}}
+      <dl class="fechas">
+        <div><dt>{{$.T "inicio.cierra"}}</dt><dd><time datetime="{{$.ISO .Cierre}}">{{$.FechaHora .Cierre}}</time></dd></div>
+      </dl>
+      {{- end}}
+      <p><a href="{{.URL}}">{{$.T "panel.leer_bases"}}</a></p>
+      <form method="post" action="/postulaciones">
+        <input type="hidden" name="convocatoria" value="{{.ID}}">
+        {{- if .EsInterpretes}}
+        <fieldset class="opciones">
+          <legend>{{$.T "panel.postulo_como"}}</legend>
+          <label><input type="radio" name="subcategoria" value="solista" required> {{$.T "subcategoria.solista"}}</label>
+          <label><input type="radio" name="subcategoria" value="ensamble"> {{$.T "subcategoria.ensamble"}}</label>
+        </fieldset>
+        {{- end}}
+        <p class="acciones"><button class="boton" type="submit">{{$.T "panel.iniciar"}}</button></p>
+      </form>
+    </li>
+    {{- end}}
+  </ul>
+  {{- else}}
+  <p class="vacio">{{$.T "panel.sin_abiertas"}}</p>
+  {{- end}}
+</section>
+{{- end}}
+{{end}}

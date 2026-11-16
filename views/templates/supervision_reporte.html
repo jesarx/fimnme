@@ -1,0 +1,106 @@
+{{- /*
+  Generador de reportes CSV (§5.7, RF-REP-01 a 08): campos del catálogo de la
+  convocatoria, granularidad, filtros, orden, separador e idioma; plantillas
+  guardadas para usarlas éste y los años siguientes. Recibe en .Datos una
+  vistaReporte.
+
+  El formulario se manda por GET a reporte.csv: el navegador descarga el
+  archivo. «Guardar como plantilla» manda el mismo formulario por POST. Si
+  algo no procede, vuelve esta página con el motivo y lo elegido.
+*/ -}}
+{{define "banda"}}{{template "banda_supervision" .}}{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+{{template "pestanas_supervision" .}}
+
+{{- if $v.Plantillas}}
+<section class="grupo" id="plantillas" aria-labelledby="t-plantillas">
+  <h2 class="titulo-seccion" id="t-plantillas">{{.T "supervision.plantillas"}}</h2>
+  <ul class="admin__encontradas">
+    {{- range $v.Plantillas}}
+    <li>
+      <span>{{.Nombre}}</span>
+      <span class="admin__acciones">
+        <a class="boton boton--menor" href="{{.Descargar}}">{{$.T "supervision.descargar"}}</a>
+        <a class="boton boton--menor boton--secundario" href="{{.Cargar}}">{{$.T "supervision.cargar"}}</a>
+        {{- if .PuedeBorra}}
+        <form method="post" action="{{$v.Base}}/reporte/plantillas/{{.ID}}/borrar" class="en-linea">
+          <button class="boton boton--menor boton--peligro" type="submit">{{$.T "admin.borrar"}}</button>
+        </form>
+        {{- end}}
+      </span>
+    </li>
+    {{- end}}
+  </ul>
+</section>
+{{- end}}
+
+<section class="grupo" id="generador" aria-labelledby="t-generador">
+  <h2 class="titulo-seccion" id="t-generador">{{.T "supervision.nuevo_reporte"}}</h2>
+  {{- if $v.Errores}}
+  <div class="aviso aviso--error" role="alert">
+    <p class="aviso__titulo">{{.T "supervision.reporte_no_procede"}}</p>
+    <ul>{{range $v.Errores}}<li>{{.}}</li>{{end}}</ul>
+  </div>
+  {{- end}}
+  <form method="get" action="{{$v.Accion}}" class="admin__form">
+    {{- range $v.Grupos}}
+    <fieldset class="admin__opciones reporte__campos">
+      <legend>{{$.T .Nivel}}</legend>
+      {{- range .Campos}}
+      <label class="admin__opcion"><input type="checkbox" name="campos" value="{{.Valor}}"{{if .Elegida}} checked{{end}}> {{.Texto}}</label>
+      {{- end}}
+    </fieldset>
+    {{- end}}
+
+    <div class="admin__fila">
+      <div class="campo"><label for="r-granularidad">{{.T "supervision.granularidad"}}</label>
+        <select id="r-granularidad" name="granularidad">{{range $v.Granularidad}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+      <div class="campo"><label for="r-orden">{{.T "supervision.orden"}}</label>
+        <select id="r-orden" name="orden">{{range $v.Orden}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+      <div class="campo"><label for="r-separador">{{.T "supervision.separador"}}</label>
+        <select id="r-separador" name="separador">{{range $v.Separador}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+      <div class="campo"><label for="r-idioma">{{.T "supervision.idioma_reporte"}}</label>
+        <select id="r-idioma" name="idioma">{{range $v.Idioma}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+    </div>
+
+    <fieldset class="admin__etapa">
+      <legend>{{.T "supervision.filtros"}}</legend>
+      <div class="admin__fila">
+        <div class="campo"><label for="r-estado">{{.T "revision.filtro_estado"}}</label>
+          <select id="r-estado" name="estado">{{range $v.Estados}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+        {{- if $v.Subcategoria}}
+        <div class="campo"><label for="r-subcategoria">{{.T "reporte.campo.subcategoria"}}</label>
+          <select id="r-subcategoria" name="subcategoria">{{range $v.Subcategoria}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+        {{- end}}
+        {{- if $v.Dotaciones}}
+        <div class="campo"><label for="r-dotacion">{{.T "admin.dotacion"}}</label>
+          <select id="r-dotacion" name="dotacion">{{range $v.Dotaciones}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+        {{- end}}
+        {{- if $v.Dictamenes}}
+        <div class="campo"><label for="r-dictamen">{{.T "reporte.campo.dictamen"}}</label>
+          <select id="r-dictamen" name="dictamen">{{range $v.Dictamenes}}<option value="{{.Valor}}"{{if .Elegida}} selected{{end}}>{{.Texto}}</option>{{end}}</select></div>
+        {{- end}}
+      </div>
+      {{- if $v.ConPuntaje}}
+      <div class="admin__fila">
+        <div class="campo campo--corto"><label for="r-puntaje_min">{{.T "supervision.puntaje_min"}}</label>
+          <input id="r-puntaje_min" name="puntaje_min" type="number" min="0" step="any" inputmode="decimal" value="{{$v.PuntajeMin}}"></div>
+        <div class="campo campo--corto"><label for="r-puntaje_max">{{.T "supervision.puntaje_max"}}</label>
+          <input id="r-puntaje_max" name="puntaje_max" type="number" min="0" step="any" inputmode="decimal" value="{{$v.PuntajeMax}}"></div>
+      </div>
+      {{- end}}
+    </fieldset>
+
+    <p class="admin__acciones"><button class="boton" type="submit">{{.T "supervision.descargar_csv"}}</button></p>
+
+    <div class="admin__caja reporte__guardar">
+      <div class="campo"><label for="r-nombre">{{.T "supervision.nombre_plantilla"}}</label>
+        <p class="campo__ayuda" id="r-nombre-ayuda">{{.T "supervision.nombre_plantilla_ayuda"}}</p>
+        <input id="r-nombre" name="nombre" type="text" aria-describedby="r-nombre-ayuda" value="{{$v.Nombre}}"></div>
+      <p><button class="boton boton--secundario" type="submit" formmethod="post" formaction="{{$v.Base}}/reporte/plantillas">{{.T "supervision.guardar_plantilla"}}</button></p>
+    </div>
+  </form>
+</section>
+{{end}}

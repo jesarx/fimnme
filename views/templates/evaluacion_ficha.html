@@ -1,0 +1,168 @@
+{{- /*
+  Ficha de evaluación de una unidad (RF-EVA-01 a 05 y 12): la postulación en
+  sólo lectura, con sus documentos en el visor, y SU calificación. Nada de
+  otros jurados ni de la revisión documental. Recibe en .Datos una
+  vistaFicha.
+
+  En Compositores la unidad es cada obra: la ficha muestra la postulación y
+  sólo la obra que se califica.
+*/ -}}
+{{define "banda"}}
+<div class="banda">
+  <div class="ancho">
+    <p class="banda__ante">{{.Datos.Titulo}} · {{.Datos.Edicion}}</p>
+    <h1 class="banda__titulo">{{.Datos.Folio}}{{if .Datos.Obra}} <span class="banda__folio">{{.Datos.Obra}}</span>{{end}}</h1>
+    <p class="banda__entrada"><span>{{.Datos.Nombre}}</span> <span>{{.T "evaluacion.posicion" .Datos.Posicion .Datos.Total}}</span></p>
+  </div>
+</div>
+{{end}}
+
+{{define "contenido"}}
+{{- $v := .Datos}}
+<p class="migas"><a href="{{$v.Lista}}">← {{.T "evaluacion.lista"}}</a></p>
+{{template "aviso" .}}
+{{- if not $v.Abierta}}
+<div class="aviso aviso--info"><p>{{.T "evaluacion.cerrada"}}</p></div>
+{{- end}}
+
+<div class="revision">
+  <nav class="revision__indice" aria-label="{{.T "revision.indice"}}">
+    <ul>
+      {{- range $v.Secciones}}<li><a href="#r-{{.Seccion}}">{{.Titulo}}</a></li>{{end}}
+      <li><a href="#documentos">{{.T "seccion.documentos"}}</a></li>
+      <li><a href="#calificacion">{{.T "evaluacion.calificacion"}}</a></li>
+    </ul>
+  </nav>
+
+  <div class="revision__cuerpo">
+    {{- range $v.Secciones}}
+    <section class="grupo resumen__paso" id="r-{{.Seccion}}" aria-labelledby="t-r-{{.Seccion}}">
+      <h2 class="titulo-seccion" id="t-r-{{.Seccion}}">{{.Titulo}}</h2>
+      {{- range .Grupos}}{{range .Campos}}
+      {{template "pcampo" (dict "P" $ "C" .)}}
+      {{- end}}{{end}}
+      {{- if .Integrantes}}
+      <p class="campo__rotulo">{{$.T "campo.integrantes"}}</p>
+      <ol class="lista-fija">{{range .Integrantes}}<li>{{.Nombre}} <span class="lista-fija__detalle">{{.Instrumento}}</span></li>{{end}}</ol>
+      {{- end}}
+      {{- if .Videos}}
+      <p class="campo__rotulo">{{$.T "campo.videos"}}</p>
+      <ol class="lista-fija">{{range .Videos}}<li><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a></li>{{end}}</ol>
+      {{- end}}
+      {{- range .Obras}}
+      <div class="resumen__obra">
+        <p class="resumen__obra-titulo">{{$.T "postulacion.obra_n" .Numero}}{{if .Titulo}} · {{.Titulo}}{{end}}</p>
+        {{- range .Campos}}
+        {{template "pcampo" (dict "P" $ "C" .)}}
+        {{- end}}
+      </div>
+      {{- end}}
+    </section>
+    {{- end}}
+
+    <section class="grupo" id="documentos" aria-labelledby="t-documentos">
+      <h2 class="titulo-seccion" id="t-documentos">{{.T "seccion.documentos"}}</h2>
+      {{- range $v.Documentos}}
+      <h3 class="documentos__grupo">{{.Titulo}}</h3>
+      {{- range .Requisitos}}
+      <div class="requisito">
+        <h4 class="requisito__titulo">{{.Etiqueta}}</h4>
+        {{- range .Documentos}}
+        <div class="documento-revision documento-revision--valido">
+          <p class="documento-revision__cabeza"><span class="documento-revision__nombre">{{.Nombre}}</span> <span class="entregado__detalle">{{.Tamano}}</span></p>
+          {{template "visor" (dict "P" $ "D" .)}}
+        </div>
+        {{- else}}
+        <p class="campo__valor"><span class="campo__vacio">{{$.T "documentos.sin_entregar"}}</span></p>
+        {{- end}}
+      </div>
+      {{- end}}
+      {{- end}}
+    </section>
+
+    {{- /* La calificación propia. */}}
+    <section class="grupo calificacion" id="calificacion" aria-labelledby="t-calificacion">
+      <h2 class="titulo-seccion" id="t-calificacion">{{.T "evaluacion.calificacion"}}</h2>
+      {{- if $v.Excusado}}
+      <p>{{.T "evaluacion.excusado"}}</p>
+      <p class="senalado"><span class="senalado__rotulo">{{.T "revision.motivo"}}</span> {{$v.MotivoExcusa}}</p>
+      {{- else}}
+      {{- if $v.Enviada}}
+      <p class="estado-envio"><span class="estado estado--abierta">{{.T "evaluacion.unidad_enviada"}}</span> <span class="entregado__detalle">{{.FechaHora $v.EnviadaAt}}</span></p>
+      {{- if $v.Abierta}}<p class="nota">{{.T "evaluacion.enviada_nota"}}</p>{{end}}
+      {{- else if not $v.Guardada.IsZero}}
+      <p class="estado-envio"><span class="estado estado--proceso">{{.T "evaluacion.unidad_borrador"}}</span> <span class="entregado__detalle">{{.T "postulacion.ultimo_guardado"}} {{.FechaHora $v.Guardada}}</span></p>
+      {{- end}}
+      {{- if $v.Error}}<div class="aviso aviso--error" role="alert"><p>{{$v.Error}}</p></div>{{end}}
+      <form method="post" action="{{template "ruta_evaluacion" $v}}/evaluacion" novalidate>
+        {{- if $v.EsObra}}<input type="hidden" name="obra" value="{{$v.ObraID}}">{{end}}
+        {{- range $v.Criterios}}
+        <fieldset class="criterio{{if .Error}} criterio--error{{end}}" aria-describedby="{{if .Descripcion}}cd-{{.Clave}} {{end}}ce-{{.Clave}}">
+          <legend>{{.Etiqueta}}{{if not .Obligatorio}} <span class="campo__opcional">{{$.T "form.opcional"}}</span>{{end}}</legend>
+          {{- if .Descripcion}}<p class="campo__ayuda" id="cd-{{.Clave}}">{{.Descripcion}}</p>{{end}}
+          <div class="escala">
+            {{- $c := .}}
+            {{- range .Valores}}
+            <label class="escala__valor"><input type="radio" name="puntaje_{{$c.Clave}}" value="{{.}}"{{if eq . $c.Elegido}} checked{{end}}{{if not $v.Abierta}} disabled{{end}}><span>{{.}}</span></label>
+            {{- end}}
+          </div>
+          <p class="campo__error" id="ce-{{.Clave}}">{{.Error}}</p>
+        </fieldset>
+        {{- end}}
+        <div class="campo">
+          <label for="c-observaciones">{{.T "evaluacion.observaciones"}} <span class="campo__opcional">{{.T "form.opcional"}}</span></label>
+          <p class="campo__ayuda" id="a-observaciones">{{.T "evaluacion.observaciones_ayuda"}}</p>
+          <textarea id="c-observaciones" name="observaciones" rows="4" maxlength="2000" aria-describedby="a-observaciones"{{if not $v.Abierta}} disabled{{end}}>{{$v.Observaciones}}</textarea>
+        </div>
+        {{- if $v.Abierta}}
+        <p class="en-linea">
+          {{- if $v.Enviada}}
+          <button class="boton" type="submit" name="accion" value="enviar">{{.T "evaluacion.guardar_cambios"}}</button>
+          {{- else}}
+          <button class="boton boton--secundario" type="submit" name="accion" value="borrador">{{.T "evaluacion.guardar_borrador"}}</button>
+          <button class="boton" type="submit" name="accion" value="enviar">{{.T "evaluacion.enviar"}}</button>
+          {{- end}}
+        </p>
+        {{- end}}
+      </form>
+      {{- end}}
+    </section>
+
+    {{- /* Excusa por conflicto de interés (RF-EVA-12). */}}
+    {{- if $v.Abierta}}
+    <section class="grupo" id="excusa" aria-labelledby="t-excusa">
+      <h2 class="titulo-seccion" id="t-excusa">{{.T "evaluacion.excusa"}}</h2>
+      {{- if $v.ErrorExcusa}}<div class="aviso aviso--error" role="alert"><p>{{$v.ErrorExcusa}}</p></div>{{end}}
+      {{- if $v.Excusado}}
+      <form method="post" action="{{template "ruta_evaluacion" $v}}/excusa/retirar">
+        {{- if $v.EsObra}}<input type="hidden" name="obra" value="{{$v.ObraID}}">{{end}}
+        <p><button class="boton boton--menor boton--secundario" type="submit">{{.T "evaluacion.retirar_excusa"}}</button></p>
+      </form>
+      {{- else}}
+      <details{{if $v.ErrorExcusa}} open{{end}}>
+        <summary>{{.T "evaluacion.excusarme"}}</summary>
+        <p class="nota">{{.T "evaluacion.excusa_nota"}}</p>
+        <form method="post" action="{{template "ruta_evaluacion" $v}}/excusa">
+          {{- if $v.EsObra}}<input type="hidden" name="obra" value="{{$v.ObraID}}">{{end}}
+          <div class="campo">
+            <label for="c-motivo-excusa">{{.T "revision.motivo_invalido"}}</label>
+            <textarea id="c-motivo-excusa" name="motivo" rows="2" maxlength="2000"></textarea>
+          </div>
+          <p><button class="boton boton--menor boton--secundario" type="submit">{{.T "evaluacion.confirmar_excusa"}}</button></p>
+        </form>
+      </details>
+      {{- end}}
+    </section>
+    {{- end}}
+
+    <nav class="paso__acciones" aria-label="{{.T "evaluacion.navegacion"}}">
+      {{- if $v.Anterior}}<a class="boton boton--secundario" href="{{$v.Anterior}}">← {{.T "postulacion.anterior"}}</a>{{end}}
+      {{- if $v.SiguientePendiente}}<a class="boton" href="{{$v.SiguientePendiente}}">{{.T "evaluacion.siguiente_pendiente"}} →</a>
+      {{- else if $v.Siguiente}}<a class="boton boton--secundario" href="{{$v.Siguiente}}">{{.T "postulacion.siguiente"}} →</a>{{end}}
+    </nav>
+  </div>
+</div>
+{{end}}
+
+{{- /* "ruta_evaluacion": la ruta de las acciones sobre la postulación de la unidad. */ -}}
+{{define "ruta_evaluacion"}}/evaluacion/postulaciones/{{.PostulacionID}}{{end}}

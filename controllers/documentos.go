@@ -81,6 +81,11 @@ func (a *App) ampliarPlazos(w http.ResponseWriter) {
 	}
 }
 
+// errSubidaInvalida indica una petición de subida mal formada o cortada: no
+// es multipart, no trae el archivo, o la conexión se interrumpió. No es una
+// regla del dominio sino un problema de la petición misma.
+var errSubidaInvalida = errors.New("la subida no es válida o llegó incompleta")
+
 // abrirSubida lee una petición multipart hasta llegar al archivo (el campo
 // «archivo») y se detiene ahí, sin leerlo: quien llama decide, con los campos
 // ya conocidos, cuánto puede medir y dónde se guarda. Por eso los campos de
@@ -88,28 +93,27 @@ func (a *App) ampliarPlazos(w http.ResponseWriter) {
 // formulario.
 //
 // El contenido se procesa al vuelo: nunca se carga entero en memoria ni se
-// escribe en un temporal fuera del almacén.
-func (a *App) abrirSubida(w http.ResponseWriter, r *http.Request, tamanoMax int64) (*subida, bool) {
+// escribe en un temporal fuera del almacén. Si la petición está mal formada
+// devuelve errSubidaInvalida; no responde nada: lo hace quien llama, en JSON
+// o en HTML.
+func (a *App) abrirSubida(w http.ResponseWriter, r *http.Request, tamanoMax int64) (*subida, error) {
 	a.ampliarPlazos(w)
-	r.Body = http.MaxBytesReader(w, r.Body, tamanoMax+holguraDeSubida)
+	r.Body = cuerpoDeSubida(w, r, tamanoMax+holguraDeSubida)
 	lector, err := r.MultipartReader()
 	if err != nil {
-		a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-		return nil, false
+		return nil, errSubidaInvalida
 	}
 	s := &subida{campos: make(map[string]string), lectorMP: lector}
 	for {
 		parte, err := lector.NextPart()
 		if err != nil {
 			// Se acabó la petición sin archivo, o llegó cortada.
-			a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-			return nil, false
+			return nil, errSubidaInvalida
 		}
 		if parte.FormName() != "archivo" {
 			valor, err := io.ReadAll(io.LimitReader(parte, tamanoMaxCampoDeSubida+1))
 			if err != nil || len(valor) > tamanoMaxCampoDeSubida || parte.FileName() != "" {
-				a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-				return nil, false
+				return nil, errSubidaInvalida
 			}
 			s.campos[parte.FormName()] = strings.TrimSpace(string(valor))
 			continue
@@ -120,12 +124,21 @@ func (a *App) abrirSubida(w http.ResponseWriter, r *http.Request, tamanoMax int6
 		// el formato antes de escribir nada en disco.
 		cabecera, err := s.cuerpo.Peek(models.TamanoCabeceraMIME)
 		if err != nil && !errors.Is(err, io.EOF) {
-			a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-			return nil, false
+			return nil, errSubidaInvalida
 		}
 		s.mime, s.vacio = models.DetectarMIME(cabecera), len(cabecera) == 0
-		return s, true
+		return s, nil
 	}
+}
+
+// falloDeSubida responde, en la API, al error de una subida: 400 si la
+// petición estaba mal formada; si no, como cualquier error del repositorio.
+func (a *App) falloDeSubida(w http.ResponseWriter, r *http.Request, err error) bool {
+	if errors.Is(err, errSubidaInvalida) {
+		a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
+		return true
+	}
+	return a.falloDatos(w, r, err)
 }
 
 // nombreDeArchivo limpia el nombre con que llegó un archivo: sin caracteres
@@ -149,30 +162,27 @@ func nombreDeArchivo(nombre string) string {
 // guardarSubida escribe el archivo de una subida en el almacén. Antes valida
 // lo que ya se sabe —formato y extensión— con la función validar, que recibe
 // un tamaño provisional: así un archivo de formato equivocado se rechaza sin
-// tocar el disco. Devuelve false si ya respondió con un error.
-func (a *App) guardarSubida(w http.ResponseWriter, r *http.Request, s *subida, tamanoMax int64,
-	validar func(tamano int64) []models.ErrorCampo) (models.Blob, bool) {
+// tocar el disco. Lo que se rechaza vuelve como *models.ErrorValidacion; una
+// subida cortada, como errSubidaInvalida.
+func (a *App) guardarSubida(r *http.Request, s *subida, tamanoMax int64, validar func(tamano int64) []models.ErrorCampo) (models.Blob, error) {
 	tamanoProvisional := int64(1)
 	if s.vacio {
 		tamanoProvisional = 0
 	}
 	if errores := validar(tamanoProvisional); len(errores) > 0 {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
-		return models.Blob{}, false
+		return models.Blob{}, &models.ErrorValidacion{Errores: errores}
 	}
 	blob, err := a.almacen.Guardar(s.cuerpo, tamanoMax)
 	var demasiado *http.MaxBytesError
 	switch {
 	case errors.Is(err, models.ErrArchivoDemasiadoGrande), errors.As(err, &demasiado):
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "archivo", Clave: "error.archivo_grande"}}})
-		return models.Blob{}, false
+		return models.Blob{}, &models.ErrorValidacion{Errores: []models.ErrorCampo{{Campo: "archivo", Clave: "error.archivo_grande"}}}
 	case err != nil:
 		// Lo habitual: quien subía cortó la conexión. No queda nada en el almacén.
 		a.log.Warn("subida interrumpida", "ruta", r.URL.Path, "error", err)
-		a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-		return models.Blob{}, false
+		return models.Blob{}, errSubidaInvalida
 	}
-	return blob, true
+	return blob, nil
 }
 
 // POST /api/v1/postulaciones/{id}/documentos   — sube un documento
@@ -185,16 +195,33 @@ func (a *App) apiSubirDocumento(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s, ok := a.abrirSubida(w, r, models.TamanoMaxArchivo)
-	if !ok {
+	if _, err := a.subirDocumento(w, r, postulacionID); a.falloDeSubida(w, r, err) {
 		return
+	}
+	a.responderPostulacion(w, r, http.StatusCreated, postulacionID)
+}
+
+// subidaDeDocumento identifica, de una subida, el requisito que se quiso
+// cumplir: lo necesita la página para mostrar el error junto a ese requisito.
+type subidaDeDocumento struct {
+	clave  string
+	obraID int64
+}
+
+// subirDocumento recibe un documento de una postulación de quien hace la
+// petición y lo registra. La usan la API y la página de documentos; no
+// responde nada. Devuelve qué requisito se quiso cumplir, si se llegó a saber.
+func (a *App) subirDocumento(w http.ResponseWriter, r *http.Request, postulacionID int64) (subidaDeDocumento, error) {
+	s, err := a.abrirSubida(w, r, models.TamanoMaxArchivo)
+	if err != nil {
+		return subidaDeDocumento{}, err
 	}
 	obraID, errObra := enteroOpcional(s.campos["obra_id"])
 	reemplaza, errReemplaza := enteroOpcional(s.campos["reemplaza"])
 	if errObra != nil || errReemplaza != nil {
-		a.errorAPI(w, r, http.StatusBadRequest, "subida_invalida")
-		return
+		return subidaDeDocumento{}, errSubidaInvalida
 	}
+	cual := subidaDeDocumento{clave: s.campos["clave"], obraID: obraID}
 
 	// Antes de recibir el archivo se comprueba todo lo que puede saberse sin
 	// él: que la postulación sea de la cuenta y siga editable, y qué requisito
@@ -204,35 +231,36 @@ func (a *App) apiSubirDocumento(w http.ResponseWriter, r *http.Request) {
 	if err == nil && p.UsuarioID != sesion.Usuario.ID {
 		err = models.ErrNoEncontrado
 	}
-	if a.falloDatos(w, r, err) {
-		return
+	if err != nil {
+		return cual, err
 	}
 	cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), p.ConvocatoriaID)
-	if a.falloDatos(w, r, err) {
-		return
+	if err != nil {
+		return cual, err
 	}
-	requisito, errores := models.RequisitoParaDocumento(p, cfg, s.campos["clave"], obraID)
+	requisito, errores := models.RequisitoParaDocumento(p, cfg, cual.clave, obraID)
 	if len(errores) == 0 {
-		errores = models.ValidarEdicionDePostulacion(p, cfg.Convocatoria, a.ahora())
+		var permiso models.PermisoDeEdicion
+		permiso, errores = models.PermisoDeEdicionDe(p, cfg.Convocatoria, a.ahora())
+		if len(errores) == 0 && !permiso.Documento(cual.clave, obraID) {
+			// En una subsanación sólo se suben los documentos señalados.
+			errores = []models.ErrorCampo{{Campo: "archivo", Clave: "error.elemento_bloqueado"}}
+		}
 	}
 	if len(errores) > 0 {
-		a.falloDatos(w, r, &models.ErrorValidacion{Errores: errores})
-		return
+		return cual, &models.ErrorValidacion{Errores: errores}
 	}
 
-	blob, ok := a.guardarSubida(w, r, s, requisito.TamanoMaxBytes, func(tamano int64) []models.ErrorCampo {
+	blob, err := a.guardarSubida(r, s, requisito.TamanoMaxBytes, func(tamano int64) []models.ErrorCampo {
 		return models.ValidarArchivo(requisito, s.nombre, s.mime, tamano)
 	})
-	if !ok {
-		return
+	if err != nil {
+		return cual, err
 	}
 	_, err = a.datos.RegistrarDocumento(r.Context(), a.actorDe(r), sesion.Usuario.ID, postulacionID, models.NuevoDocumento{
-		Clave: s.campos["clave"], ObraID: obraID, ReemplazaA: reemplaza, Blob: blob, MIME: s.mime, NombreOriginal: s.nombre,
+		Clave: cual.clave, ObraID: obraID, ReemplazaA: reemplaza, Blob: blob, MIME: s.mime, NombreOriginal: s.nombre,
 	})
-	if a.falloDatos(w, r, err) {
-		return
-	}
-	a.responderPostulacion(w, r, http.StatusCreated, postulacionID)
+	return cual, err
 }
 
 // enteroOpcional convierte un campo opcional a entero; vacío es 0.
@@ -285,6 +313,10 @@ func (a *App) servirArchivo(w http.ResponseWriter, r *http.Request, archivo mode
 	cabeceras.Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposicion, nombre))
 	// Material inédito: ni el navegador ni un intermediario deben guardarlo.
 	cabeceras.Set("Cache-Control", "private, no-store")
+	// El visor de documentos lo muestra en un marco de la propia plataforma;
+	// ningún otro sitio puede enmarcarlo.
+	cabeceras.Set("Content-Security-Policy", politicaDeArchivo)
+	cabeceras.Set("X-Frame-Options", "SAMEORIGIN")
 	http.ServeContent(w, r, "", time.Time{}, contenido)
 }
 
@@ -386,25 +418,67 @@ func (a *App) apiEnviarPostulacion(w http.ResponseWriter, r *http.Request) {
 	if !ok || !a.leerJSON(w, r, &entrada) {
 		return
 	}
+	err := a.enviarPostulacion(r, id, models.ConfirmacionEnvio{Confirmo: entrada.Confirmo, AceptoBases: entrada.AceptoBases})
+	var incompleta *models.ErrorDeEnvio
+	if errors.As(err, &incompleta) {
+		cuerpo := views.ErrorDeEnvioJSON(a.vistas.T(idiomaDe(r), "api.incompleta"), a.bloqueadoresDeEnvio(r, incompleta.Bloqueadores))
+		if err := views.JSON(w, http.StatusUnprocessableEntity, cuerpo); err != nil {
+			a.log.Error("no se pudo escribir la respuesta JSON", "error", err)
+		}
+		return
+	}
+	if a.falloDatos(w, r, err) {
+		return
+	}
+	a.responderPostulacion(w, r, http.StatusOK, id)
+}
+
+// enviarPostulacion envía (o reenvía, tras una subsanación) una postulación
+// de quien hace la petición. La usan la API y la página de revisión y envío;
+// no responde nada. Si le falta algo devuelve *models.ErrorDeEnvio con la
+// lista de bloqueadores.
+func (a *App) enviarPostulacion(r *http.Request, id int64, confirmacion models.ConfirmacionEnvio) error {
 	sesion := sesionDe(r)
 	p, err := a.datos.PostulacionPorID(r.Context(), id)
 	if err == nil && p.UsuarioID != sesion.Usuario.ID {
 		err = models.ErrNoEncontrado
 	}
-	if a.falloDatos(w, r, err) {
-		return
+	if err != nil {
+		return err
 	}
-
 	// Las ligas de video se comprueban en red justo antes de enviar (RN-08).
 	// Va fuera de la transacción: una consulta a Internet no debe retener la
 	// única conexión de escritura de la base.
-	if p.Estado == models.PostulacionBorrador {
+	reenvio := p.Estado == models.PostulacionEnSubsanacion
+	if p.Estado == models.PostulacionBorrador || reenvio {
 		a.verificarEnlacesDe(r.Context(), id)
 	}
 
-	plantilla, err := a.datos.PlantillaCorreo(r.Context(), models.PlantillaAcuse, sesion.Usuario.Idioma)
-	if a.falloDatos(w, r, err) {
-		return
+	// El reenvío de una subsanación lleva su propio texto de acuse y avisa a
+	// los revisores de que la postulación volvió a la bandeja (RF-REV-07).
+	clavePlantilla := models.PlantillaAcuse
+	var revisores []models.Usuario
+	avisos := make(map[string]models.PlantillaCorreo) // por idioma
+	if reenvio {
+		clavePlantilla = models.PlantillaAcuseSubsanacion
+		cfg, err := a.datos.ConfiguracionDeConvocatoria(r.Context(), p.ConvocatoriaID)
+		if err != nil {
+			return err
+		}
+		for _, asignacion := range cfg.Asignaciones {
+			if asignacion.Activo && asignacion.Perfil == models.PerfilRevisorDocumental {
+				revisores = append(revisores, asignacion.Usuario)
+			}
+		}
+		for _, idioma := range []string{models.IdiomaES, models.IdiomaEN} {
+			if avisos[idioma], err = a.datos.PlantillaCorreo(r.Context(), models.PlantillaAvisoSubsanada, idioma); err != nil {
+				return err
+			}
+		}
+	}
+	plantilla, err := a.datos.PlantillaCorreo(r.Context(), clavePlantilla, sesion.Usuario.Idioma)
+	if err != nil {
+		return err
 	}
 	// componer es la parte de la Vista en el envío: recibe el snapshot ya
 	// congelado, compone el PDF, lo deja en el almacén y arma el correo.
@@ -430,22 +504,27 @@ func (a *App) apiEnviarPostulacion(w http.ResponseWriter, r *http.Request) {
 			"nombre": s.Titular.Nombre, "folio": s.Folio, "convocatoria": titulo, "edicion": edicion,
 			"liga": a.urlBase + "/postulaciones/" + s.Folio,
 		})
-		return models.AcuseCompuesto{Blob: blob, Correo: correo}, nil
-	}
-	err = a.datos.EnviarPostulacion(r.Context(), a.actorDe(r), sesion.Usuario.ID, id,
-		models.ConfirmacionEnvio{Confirmo: entrada.Confirmo, AceptoBases: entrada.AceptoBases}, componer)
-	var incompleta *models.ErrorDeEnvio
-	if errors.As(err, &incompleta) {
-		cuerpo := views.ErrorDeEnvioJSON(a.vistas.T(idiomaDe(r), "api.incompleta"), a.bloqueadoresDeEnvio(r, incompleta.Bloqueadores))
-		if err := views.JSON(w, http.StatusUnprocessableEntity, cuerpo); err != nil {
-			a.log.Error("no se pudo escribir la respuesta JSON", "error", err)
+		compuesto := models.AcuseCompuesto{Blob: blob, Correo: correo}
+		for _, revisor := range revisores {
+			idioma := revisor.Idioma
+			if idioma != models.IdiomaEN {
+				idioma = models.IdiomaES
+			}
+			tituloParaRevisor, edicionParaRevisor := s.Convocatoria.TituloES, s.Edicion.NombreES
+			if idioma == models.IdiomaEN && s.Convocatoria.TituloEN != "" {
+				tituloParaRevisor = s.Convocatoria.TituloEN
+			}
+			if idioma == models.IdiomaEN && s.Edicion.NombreEN != "" {
+				edicionParaRevisor = s.Edicion.NombreEN
+			}
+			compuesto.Avisos = append(compuesto.Avisos, views.RenderCorreo(avisos[idioma], revisor.Email, map[string]string{
+				"nombre": revisor.Nombre, "folio": s.Folio, "convocatoria": tituloParaRevisor, "edicion": edicionParaRevisor,
+				"liga": a.urlBase + "/postulaciones/" + s.Folio,
+			}))
 		}
-		return
+		return compuesto, nil
 	}
-	if a.falloDatos(w, r, err) {
-		return
-	}
-	a.responderPostulacion(w, r, http.StatusOK, id)
+	return a.datos.EnviarPostulacion(r.Context(), a.actorDe(r), sesion.Usuario.ID, id, confirmacion, componer)
 }
 
 // --- Archivos públicos de una convocatoria (RF-CONV-02) -----------------------
@@ -464,14 +543,14 @@ func (a *App) apiSubirArchivoDeConvocatoria(w http.ResponseWriter, r *http.Reque
 	if clase == models.ArchivoImagen {
 		tamanoMax = models.TamanoMaxImagen
 	}
-	s, ok := a.abrirSubida(w, r, tamanoMax)
-	if !ok {
+	s, err := a.abrirSubida(w, r, tamanoMax)
+	if a.falloDeSubida(w, r, err) {
 		return
 	}
-	blob, ok := a.guardarSubida(w, r, s, tamanoMax, func(tamano int64) []models.ErrorCampo {
+	blob, err := a.guardarSubida(r, s, tamanoMax, func(tamano int64) []models.ErrorCampo {
 		return models.ValidarArchivoDeConvocatoria(clase, s.nombre, s.mime, tamano)
 	})
-	if !ok {
+	if a.falloDeSubida(w, r, err) {
 		return
 	}
 	if a.falloDatos(w, r, a.datos.FijarArchivoDeConvocatoria(r.Context(), a.actorDe(r), id, clase, blob, s.mime, s.nombre)) {
