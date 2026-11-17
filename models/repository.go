@@ -6727,11 +6727,13 @@ func (r *Repositorio) AnonimizarPostulacion(ctx context.Context, actor Actor, po
 				sql  string
 				args []any
 			}{
-				{`UPDATE usuario SET email = ?, nombre = ?, apellidos = '', password_hash = ?, totp_secret = NULL, activo = 0,
+				{`UPDATE usuario SET email = ?, nombre = ?, apellidos = '', password_hash = ?, activo = 0,
+				  totp_secreto = NULL, totp_activado_at = NULL, totp_ultimo_paso = 0,
 				  anonimizado_at = ?, actualizado_at = ? WHERE id = ?`,
 					[]any{fmt.Sprintf("anonimizado-%d@anonimizado.invalid", p.UsuarioID), TextoAnonimizado, PasswordSinDefinir, ahora, ahora, p.UsuarioID}},
 				{"DELETE FROM sesion WHERE usuario_id = ?", []any{p.UsuarioID}},
 				{"DELETE FROM token WHERE usuario_id = ?", []any{p.UsuarioID}},
+				{"DELETE FROM codigo_recuperacion WHERE usuario_id = ?", []any{p.UsuarioID}},
 				{"DELETE FROM vista_guardada WHERE usuario_id = ?", []any{p.UsuarioID}},
 				{`UPDATE email_outbox SET destinatario = 'anonimizado@anonimizado.invalid', asunto = ?, cuerpo_html = '', cuerpo_texto = '',
 				  adjuntos = '[]', estado = CASE WHEN estado = 'pendiente' THEN 'error' ELSE estado END, ultimo_error = NULL

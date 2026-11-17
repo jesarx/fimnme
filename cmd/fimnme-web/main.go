@@ -17,7 +17,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // fimnme-web es el servidor HTTP de la plataforma: sirve el frontal integrado
-// sobre la base SQLite y, más adelante, la API REST y los trabajadores internos.
+// y la API REST sobre la base SQLite, y ejecuta los trabajadores internos
+// (correo saliente, avance de etapas, ligas de video, recordatorios,
+// descargas masivas y alerta de disco).
 //
 // Es un servicio PÚBLICO: escucha por omisión en 127.0.0.1:8080 y debe quedar
 // SIEMPRE detrás de un proxy inverso con TLS (Caddy o nginx). Nunca se expone

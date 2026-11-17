@@ -38,6 +38,9 @@ Además:
   trabajadores dependen de ella, nunca de `*models.Repositorio`.
 - **Toda operación de la API va en la tabla `rutasAPI` y en `views/api/openapi.json`.**
   Una prueba falla si no coinciden.
+- **Toda tabla, columna y operación de la API va también en
+  `docs/DICCIONARIO_DATOS_Y_ACL.md`** (con quién puede ejecutar cada operación). Dos
+  pruebas fallan si falta algo.
 - Aviso de licencia GNU completo en cada archivo Go. **Una migración ya aplicada no se
   edita**, ni siquiera su encabezado.
 - Al cambiar órdenes u opciones de los binarios se actualizan `docs/man/*.1`.

@@ -337,8 +337,24 @@ func TestAnonimizacion(t *testing.T) {
 	}
 
 	// Con la convocatoria cerrada puede anonimizarse a Luis, con su cuenta:
-	// deja de poder ingresar.
+	// deja de poder ingresar. Si tuviera verificación en dos pasos (no la pide
+	// un postulante, pero la base la admite), su clave y sus códigos se van
+	// también.
 	x.admin.estado(x.interpretes, "cerrada", "")
+	luis, _, err := e.repo.UsuarioPorEmail(context.Background(), "luis@ejemplo.mx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, resumenes, _ := models.NuevosCodigosDeRecuperacion()
+	if _, err := e.repo.PrepararSegundoFactor(context.Background(), luis.ID, "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.repo.AbrirSesionPendiente(context.Background(), models.Actor{UsuarioID: luis.ID}, luis.ID, "pendiente-de-luis", e.reloj.Ahora().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.repo.ActivarSegundoFactor(context.Background(), models.Actor{UsuarioID: luis.ID}, "pendiente-de-luis", luis.ID, 1, resumenes); err != nil {
+		t.Fatal(err)
+	}
 	conCuenta := x.admin.exige(http.StatusOK, "POST", x.rutaLuis+"/anonimizacion",
 		obj{"folio": folioLuis, "fundamento": "Solicitud ARCO 2026/015", "confirmo": true, "con_cuenta": true})
 	if conCuenta["cuenta_anonimizada"] != true {
@@ -348,6 +364,9 @@ func TestAnonimizacion(t *testing.T) {
 	esperar(t, e.cliente().post("/cuenta/ingresar", url.Values{"email": {"luis@ejemplo.mx"}, "password": {passwordPrueba}}), http.StatusUnauthorized)
 	if cuentas := fmt.Sprint(x.admin.exige(http.StatusOK, "GET", "/api/v1/usuarios?q=luis", nil)); strings.Contains(cuentas, "luis@ejemplo.mx") {
 		t.Errorf("la cuenta anonimizada conserva su correo: %s", cuentas)
+	}
+	if factor, err := e.repo.SegundoFactorDe(context.Background(), luis.ID); err != nil || factor.Secreto != "" || factor.Activo() || factor.CodigosRestantes != 0 {
+		t.Errorf("la cuenta anonimizada conserva su segundo factor: %+v (%v)", factor, err)
 	}
 	// La evaluación de Luis sigue en la matriz: el resultado no se pierde.
 	if filas := lista(x.admin.exige(http.StatusOK, "GET", fmt.Sprintf("/api/v1/convocatorias/%d/resultados", x.interpretes), nil), "filas"); len(filas) != 1 ||

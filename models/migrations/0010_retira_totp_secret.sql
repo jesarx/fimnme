@@ -1,0 +1,28 @@
+-- Este archivo es parte de FIMNME, la plataforma de postulaciones del Foro
+-- Internacional de Musica Nueva Manuel Enriquez (CNMO / INBAL).
+--
+-- FIMNME es software libre: usted puede redistribuirlo y/o modificarlo bajo
+-- los terminos de la Licencia Publica General de GNU, tal como la publica la
+-- Free Software Foundation, en la version 3 de la Licencia.
+--
+-- FIMNME se distribuye con la esperanza de que sea util, pero SIN GARANTIA
+-- ALGUNA; ni siquiera la garantia implicita de COMERCIABILIDAD o de APTITUD
+-- PARA UN PROPOSITO PARTICULAR. Consulte la Licencia Publica General de GNU
+-- para mas detalles.
+--
+-- Debio recibir una copia de la Licencia Publica General de GNU junto con
+-- este programa, en el archivo LICENSE. Si no, consulte
+-- <https://www.gnu.org/licenses/>.
+--
+-- SPDX-License-Identifier: GPL-3.0-only
+--
+--
+-- MIGRACION 0010: retira usuario.totp_secret.
+--
+-- El esquema inicial (0001) previo una columna totp_secret que nunca se uso.
+-- La verificacion en dos pasos (0009) guarda su clave en totp_secreto, junto
+-- con totp_activado_at y totp_ultimo_paso. Se retira la columna sin uso para
+-- que el diccionario de datos no describa dos claves y nadie llene la
+-- equivocada. Estaba vacia en toda instalacion: no se pierde nada.
+
+ALTER TABLE usuario DROP COLUMN totp_secret;

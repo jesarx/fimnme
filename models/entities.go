@@ -17,8 +17,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Package models contiene el Modelo de la arquitectura MVC: entidades de
-// dominio (este archivo), reglas de negocio (rules.go) y, más adelante, la
-// persistencia (repository.go).
+// dominio (este archivo), reglas de negocio (rules.go), persistencia
+// (repository.go, detrás de la interfaz Persistencia) y extensión dinámica de
+// campos (schema_extender.go).
 package models
 
 import (

@@ -1222,15 +1222,16 @@ func ValidarNuevaPostulacion(c Convocatoria, sub Subcategoria, esJuradoORevisor 
 
 // ValidarEdicionDePostulacion decide si el postulante puede modificar su
 // postulación (RN-02, RN-04): sólo mientras es borrador y la convocatoria está
-// en plazo. La edición acotada de una subsanación llegará con la revisión
-// documental.
+// en plazo. La edición acotada de una subsanación la decide
+// PermisoDeEdicionDe, que esta función resume.
 func ValidarEdicionDePostulacion(p Postulacion, c Convocatoria, ahora time.Time) []ErrorCampo {
 	_, errores := PermisoDeEdicionDe(p, c, ahora)
 	return errores
 }
 
 // PuedeVerPostulacion: una postulación la ven su titular, el administrador y
-// el observador. El acceso de revisores y jurados llegará con sus módulos.
+// el observador; el revisor de su convocatoria, desde que se envía; y el
+// jurado de su convocatoria, desde que pasa a evaluación.
 func PuedeVerPostulacion(s *Sesion, p Postulacion) bool {
 	if s == nil {
 		return false

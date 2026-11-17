@@ -101,6 +101,25 @@ Con el paso 10c **el backend está completo**.
   deciden al llegar al módulo correspondiente. En particular, el **2FA (TOTP) para
   administrador y observador** (RF-AUT-09, prioridad S) no se hizo en el paso 3.
 
+## Cierre del desarrollo — versión 1.0.0-beta.1
+
+El desarrollo por pasos terminó el 17 de noviembre de 2026 con la versión
+**1.0.0-beta.1** ([notas de versión](NOTAS_DE_VERSION.md)). Al cerrarla:
+
+- **Limpieza del código.** Se corrigieron los comentarios que anunciaban como futuro lo
+  que ya existe. Se retiró la columna sin uso `usuario.totp_secret` (migración 0010).
+  La anonimización ARCO borra ahora también el segundo factor de la cuenta. Las
+  órdenes de `fimnme-cli` funcionan en una instalación recién creada.
+- **Documentos pendientes de la especificación (§14):**
+  - 02, arquitectura de despliegue;
+  - 02b, `DICCIONARIO_DATOS_Y_ACL.md`, vigilado por pruebas;
+  - 03, API e interfaz, con los ejemplos que antes estaban en el README;
+  - 06, formato de intercambio y portal público.
+
+A partir de aquí el trabajo es de **pruebas y cambios acotados**. Cada lista de
+cambios se atiende en una beta siguiente, con sus notas de versión, y el plan ya no
+crece por pasos.
+
 ## Después del paso 14 — ajustes pedidos al probar en el VPS
 
 **Decisiones:** [ADR 0032](adr/0032-segundo-factor-tema-fechas-y-ajustes.md).

@@ -284,8 +284,8 @@ func esHTTPS(r *http.Request) bool {
 	return esLocal(r) && r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
-// ipCliente devuelve la IP del visitante para el log y, más adelante, para la
-// bitácora y el límite de tasa. Tras el proxy se toma el ÚLTIMO valor de
+// ipCliente devuelve la IP del visitante para el log, la bitácora y el límite
+// de intentos por IP. Tras el proxy se toma el ÚLTIMO valor de
 // X-Forwarded-For, que es el que añadió nuestro proxy; los anteriores los
 // controla el cliente y podrían estar falsificados.
 func ipCliente(r *http.Request) string {

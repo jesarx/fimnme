@@ -262,6 +262,29 @@ func TestRestablecerSegundoFactor(t *testing.T) {
 	}
 }
 
+// En una instalación recién creada (init, sin que el servidor haya
+// arrancado) aún no hay directorio de archivos: las órdenes que lo usan lo
+// crean en vez de fallar.
+func TestOrdenesSobreUnaInstalacionNueva(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "datos")
+	for _, orden := range []func(context.Context, *models.Repositorio) error{migrar, sembrarDemo} {
+		if err := conRepositorio(dir, orden); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(directorioDeBlobs(dir)); !os.IsNotExist(err) {
+		t.Fatalf("la prueba supone que aún no existe el acervo: %v", err)
+	}
+	salida := filepath.Join(t.TempDir(), "convocatoria.json")
+	capturar(t)
+	if err := conRepositorio(dir, exportarJSON(dir, []string{"--salida", salida})); err != nil {
+		t.Fatalf("export-json en una instalación nueva: %v", err)
+	}
+	if info, err := os.Stat(directorioDeBlobs(dir)); err != nil || !info.IsDir() || info.Mode().Perm() != 0o750 {
+		t.Errorf("el acervo debió crearse con permisos 0750: %v %v", info, err)
+	}
+}
+
 // datosConArchivos prepara un directorio de datos migrado, con la edición de
 // demostración y dos archivos registrados en el acervo. Devuelve el
 // directorio y las claves de los archivos.

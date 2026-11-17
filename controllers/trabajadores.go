@@ -30,8 +30,11 @@ import (
 )
 
 // Trabajadores internos de fimnme-web: tareas en segundo plano que no
-// responden a una petición. Por ahora, el envío del correo saliente y la
-// limpieza de sesiones vencidas.
+// responden a una petición. En este archivo: el envío del correo saliente
+// (con la limpieza de sesiones vencidas), el avance de etapa por calendario
+// y los recordatorios de borradores. Aparte: la comprobación de ligas de
+// video (enlaces.go), las descargas masivas y expedientes (archivo.go) y la
+// alerta de espacio en disco (disco.go).
 
 // Ritmo del trabajador.
 const (
@@ -152,7 +155,7 @@ func (t *TrabajadorCorreo) fallo(ctx context.Context, correo models.CorreoSalien
 //
 // Los enlaces de un solo uso son secretos, así que el cuerpo sólo se escribe
 // si MostrarCuerpo es true, que el servidor activa únicamente en el entorno
-// de desarrollo. El transporte real (SMTP propio) llega en el paso 14.
+// de desarrollo. Los transportes reales están en correo_transporte.go.
 type MailerRegistro struct {
 	Log           *slog.Logger
 	MostrarCuerpo bool
