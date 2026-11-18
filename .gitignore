@@ -1,5 +1,8 @@
-# Binarios compilados (se generan con `make build`)
+# Binarios compilados (se generan con `make build`). También los que deja un
+# `go build ./cmd/…` sin -o en la raíz.
 /bin/
+/fimnme-cli
+/fimnme-web
 
 # Datos locales: base SQLite y acervo de archivos. Nunca se versionan.
 /data/

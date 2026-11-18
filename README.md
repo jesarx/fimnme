@@ -8,129 +8,103 @@ Es un servicio **público y bilingüe** (español / inglés), escrito en **Go si
 y distribuido como **binario estático** con el frontal incrustado. Se rige por las
 políticas de desarrollo de la CNMO: léalas antes de tocar el código.
 
+**Versión 1.0.0-beta.1** (17 de noviembre de 2026): el desarrollo del plan está completo
+y el sistema entra en pruebas con usuarios. Qué trae y qué falta para la entrega:
+[notas de versión](docs/NOTAS_DE_VERSION.md).
+
+## Documentación
+
 | Documento | Contenido |
 |---|---|
 | [`docs/PERFIL_DOMINIO_FIMNME.md`](docs/PERFIL_DOMINIO_FIMNME.md) | Perfil de dominio y políticas institucionales. **Lectura obligatoria.** |
-| [`docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md`](docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md) | Requerimientos y modelo de datos. |
-| [`docs/PLAN_DE_DESARROLLO.md`](docs/PLAN_DE_DESARROLLO.md) | Plan por pasos y estado de avance. |
-| [`docs/adr/`](docs/adr/) | Registros de decisiones de arquitectura (ADR). |
+| [`FIMNME-01`](docs/FIMNME-01-definicion-de-requerimientos-y-modelo-de-datos.md) | Requerimientos y modelo de datos. |
+| [`FIMNME-02`](docs/FIMNME-02-arquitectura-de-despliegue.md) | Arquitectura de despliegue: topología, servicios, red, secretos, correo, respaldos y espejo. |
+| [`DICCIONARIO_DATOS_Y_ACL.md`](docs/DICCIONARIO_DATOS_Y_ACL.md) | Diccionario de datos y matriz de permisos por perfil y operación (02b). |
+| [`FIMNME-03`](docs/FIMNME-03-especificacion-de-api-e-interfaz.md) | API e interfaz: convenciones, errores, mapa de pantallas, filtros en la URL, ZIP y ejemplos con `curl`. |
+| [`FIMNME-04`](docs/FIMNME-04-manual-de-adopcion.md) | **Manual de Adopción**: instalación, configuración, operación anual y entrega-recepción. |
+| [`FIMNME-05`](docs/FIMNME-05-manual-de-validacion.md) | **Manual de Validación**: casos de prueba, resultados, condiciones y acta de firma. |
+| [`FIMNME-06`](docs/FIMNME-06-formato-de-intercambio-y-portal-publico.md) | Formato del JSON sanitizado y procedimiento de publicación en el portal (Hugo). |
+| [`docs/NOTAS_DE_VERSION.md`](docs/NOTAS_DE_VERSION.md) | Qué contiene cada versión. |
+| [`docs/PLAN_DE_DESARROLLO.md`](docs/PLAN_DE_DESARROLLO.md) | Plan por pasos, qué se entregó en cada uno y puntos por confirmar con la CNMO. |
+| [`docs/adr/`](docs/adr/) | Registros de decisiones de arquitectura (ADR 0001 a 0032). |
 | [`docs/man/`](docs/man/) | Páginas de manual: `fimnme-web(1)` y `fimnme-cli(1)`. |
 | `/api/v1/openapi.json` | Descripción de la API (OpenAPI 3.1), servida por el propio sistema. |
 
-## Estado actual
+## Qué hace
 
-**Plan completo (14 de 14).** El backend, todas las pantallas y la puesta en operación
-están hechos: despliegue con systemd o en contenedor, respaldos con prueba de
-restauración, correo propio con DKIM, migración verificada a MariaDB y prueba de carga.
-Para recibir, operar y aceptar el sistema:
+**Para quien postula** (`/postulaciones`)
+- Registro con verificación de correo; «Mi cuenta»; historial de todas las ediciones.
+- Formulario por pasos con **guardado automático**, que dice en todo momento qué falta.
+  Funciona en móvil, en inglés y sin JavaScript.
+- Documentos con barra de progreso, según la dotación de cada obra.
+- **Envío irreversible** con folio y **acuse en PDF**, también por correo.
+- **Subsanación** con desbloqueo selectivo: se corrige sólo lo señalado, y se puede pedir
+  que se desbloquee algo más.
 
-- [**Manual de Adopción**](docs/FIMNME-04-manual-de-adopcion.md): instalación,
-  configuración, operación anual y entrega-recepción.
-- [**Manual de Validación**](docs/FIMNME-05-manual-de-validacion.md): casos de prueba,
-  resultados de la verificación previa, lo que condiciona la firma y el acta.
+**Revisión documental** (`/revision`)
+- Bandeja con filtros.
+- **Visor** de PDF, audio e imagen.
+- Dictamen de cada documento y campo, observaciones, subsanación, desbloqueos y dictamen
+  de la postulación.
 
-Hoy el sistema tiene:
+**Evaluación** (`/evaluacion`)
+- Lista de trabajo con avance y ficha con el visor.
+- Dos criterios en escala 1–5, en borrador o enviados; excusa por conflicto de interés.
+- **Un jurado nunca ve lo de otro**: la restricción es estructural y la vigila una prueba
+  que barre todas las rutas.
 
-- **«Mis postulaciones»** (`/postulaciones`): el historial de la cuenta y las
-  convocatorias abiertas, para iniciar una postulación.
-- **Formulario por pasos** con **guardado automático** («Guardado a las 14:32»): datos
-  generales, propuesta de concierto, obras y **documentos** (subida con barra de
-  progreso), con lo que le falta a cada paso. Funciona en móvil, en inglés y sin
-  JavaScript.
-- **Revisión y envío** con la postulación completa; después, su **estado** y sus
-  **acuses**. Durante una **subsanación**, lo que puede corregirse aparece resaltado con
-  su motivo, y se puede pedir que se desbloquee algo más.
-- **Revisión documental** (`/revision`): bandeja con filtros y vista de revisión con
-  **visor de documentos** (PDF, audio, imagen), dictámenes, observaciones, subsanación,
-  desbloqueos y dictamen.
-- **Evaluación** (`/evaluacion`): la lista de trabajo de cada jurado con su avance y la
-  ficha de evaluación con el visor, la escala por criterio, el envío y la excusa. Un
-  jurado nunca ve lo de otro.
-- **Administración** (`/administracion`): ediciones; la ficha de configuración de cada
-  convocatoria (estado con lo que falta para avanzar, bases en Markdown, PDF e imagen,
-  calendario en hora de la Ciudad de México, dotaciones, requisitos documentales,
-  criterios, jurados y revisores) y las cuentas internas. El observador lo ve todo sin
-  poder cambiar nada.
-- **Plantillas de correo editables** (`/administracion/correos`), en español e inglés,
-  con versiones, vista previa idéntica al correo, correo de prueba y validación de sus
-  variables; también por la API.
-- **Operación desde el navegador**: bitácora con filtros, importación asistida en dos
-  fases con resolución de cada renglón, y anonimización ARCO con doble confirmación.
-- **Archivo** (`/archivo`): buscador de todas las ediciones con filtros en la URL, vistas
-  guardadas, CSV, descarga masiva en ZIP, expediente de una convocatoria y «Mis
-  descargas». El enlace permanente por folio sirve también al personal.
-- **Supervisión** (`/supervision`): tablero de cada convocatoria con el avance de los
-  jurados sin puntajes; matriz de resultados con el resultado del proceso; generador de
-  reportes CSV con plantillas; estadísticas de la edición; y publicación de la nómina al
-  portal con vista previa.
-- **Verificación en dos pasos** para administrador y observador: aplicación
-  autenticadora con alta por QR, códigos de recuperación y restablecimiento desde el
-  servidor.
-- **Tema claro u oscuro a elección** (botón en la cabecera), o el del sistema
-  operativo.
-- **Fechas con la convención mexicana** en todos los formularios: dd/mm/aaaa y hora
-  de 24 horas, sea cual sea el idioma del navegador.
-- **Identidad visual en un solo archivo** (`views/static/css/tema.css`), hoy con la
-  imagen del 48º Foro; véase «Cambiar la imagen de la edición».
-- **Modo interactivo** (`fimnme-cli --tui`): administra desde la terminal ediciones,
-  convocatorias, calendario, dotaciones, requisitos, criterios y jurados y revisores, con
-  las mismas reglas que el panel.
-- **Reportes programables**: `fimnme-cli export-csv` genera un reporte desde una plantilla
-  guardada, sin pasar por el navegador.
-- **Campos extendidos**: `fimnme-cli schema` añade campos a ciertas tablas sin recompilar;
-  aparecen solos en el formulario, los reportes y el expediente. Las tablas del proceso
-  (evaluaciones, acuses, bitácora) no se dejan tocar.
-- **Importación asistida** de catálogos de dotaciones y de cuentas de jurado y revisor,
-  desde `.csv` o `.xlsx`: nada entra sin que una persona resuelva cada conflicto, y entra
-  todo o nada.
-- **Continuidad operativa** desde `fimnme-cli`: verificación del acervo de archivos contra
-  la base, **instantáneas firmadas** (HMAC-SHA256) para el servidor espejo y alerta de
-  espacio en disco.
-- **Exportación al portal público**: un JSON que sólo puede llevar lo que la lista blanca
-  permite. La nómina de seleccionados sale únicamente cuando el administrador la publica,
-  después del cierre.
-- **Anonimización ARCO**: la única operación destructiva, con confirmación doble.
-- **Expediente en PDF**, de una postulación o de toda una convocatoria (con índice y
-  marcadores), con la fotografía. **Su contenido se recorta según quién lo pide**: un
-  jurado nunca recibe la evaluación de otro.
-- **Reportes CSV** a la medida: se eligen campos, granularidad, filtros y orden, y la
-  definición se guarda como plantilla para los años siguientes. **Reporte de resultados**
-  con los empates a la vista.
-- **Tablero** de cada convocatoria y **estadísticas** de cada edición, con cifras que
-  llevan al listado que las produce.
-- **Archivo histórico por API**: un solo listado para todas las ediciones, con **búsqueda
-  de texto completo** (sin acentos, por inicio de palabra y por fragmento), filtros
-  combinables en la URL, orden, paginación, **CSV** del resultado, vistas guardadas y
-  **enlace permanente por folio**. Lo que cada perfil ve no caduca.
-- **Descarga masiva en ZIP**, armada en segundo plano: por los mismos filtros, eligiendo
-  qué tipos de documento, con carpetas por folio y `manifiesto.csv`. Queda registrada.
-- **Evaluación por API** (para el jurado): lista de trabajo con su avance, calificación
-  por criterios en borrador o enviada, y congelación al cierre. **Un jurado nunca ve lo de
-  otro**: el aislamiento es estructural y lo vigila una prueba que barre todos los
-  endpoints. La **matriz de resultados**, con la suma de los tres, es sólo de supervisión.
-- **Postulación completa por API** (para el postulante): captura con autoguardado, subida
-  de documentos, **envío irreversible con folio** y **acuse de recibo en PDF**, que también
-  se encola por correo. En todo momento la API dice qué le falta a la postulación.
-- **Revisión documental por API** (para el revisor): bandeja, dictamen de cada documento,
-  observaciones, **subsanación con desbloqueo selectivo** —el postulante corrige sólo lo
-  señalado—, reenvío con acuse nuevo y dictamen final.
-- **Acervo de archivos** en disco, direccionado por SHA-256, con versiones (nada se
-  sobrescribe) y descargas registradas.
-- **Comprobación de las ligas de video** en red y **recordatorios** a quien tiene un
-  borrador sin enviar.
-- **Bases en PDF e imagen de cabecera** de cada convocatoria, públicas.
-- **Identidad visual** del 48º Foro, con su pie institucional, mientras se diseña la del 49º.
-- **Configuración por API** (para el administrador): ediciones, convocatorias con sus
-  bases bilingües y límites, calendario, dotaciones, requisitos documentales, criterios
-  de evaluación, cuentas internas y asignación de jurados y revisores.
-- **Ciclo de etapas:** cambio forzado por el administrador y avance automático por
-  calendario, ambos sujetos a las mismas reglas (un revisor al menos para pasar a
-  revisión documental; exactamente tres jurados para pasar a evaluación).
-- **Cuentas:** registro, verificación de correo, ingreso, recuperación, activación y
-  «Mi cuenta», con Argon2id, sesiones, bloqueo por intentos y control de acceso.
-- **Bitácora de auditoría** consultable por la API, y bandeja de correo saliente.
-- **Base de datos SQLite** con el esquema completo y migraciones versionadas.
-- **Páginas públicas:** portada, convocatorias, aviso de privacidad.
+**Administración** (`/administracion`)
+- Ediciones, y la ficha de cada convocatoria:
+  - bases bilingües en Markdown, PDF e imagen;
+  - calendario y límites;
+  - dotaciones, requisitos documentales y criterios;
+  - jurados y revisores.
+- Cuentas internas.
+- **Plantillas de correo** editables con versiones y vista previa.
+- Bitácora de auditoría.
+- **Importación asistida** en dos fases, que no infiere nada sin una persona.
+- **Anonimización ARCO**, la única operación destructiva.
+- Avance de etapa automático por calendario, con las cuotas del proceso (un revisor
+  como mínimo; tres jurados exactos).
+
+**Supervisión** (`/supervision`)
+- Tablero de cada convocatoria (avance de los jurados sin puntajes).
+- **Matriz de resultados** con empates.
+- Reportes CSV a la medida, con plantillas guardadas.
+- Estadísticas de la edición.
+- Publicación de la nómina al portal, sólo por acción explícita tras el cierre.
+
+**Archivo** (`/archivo`)
+- Todas las ediciones en un solo buscador, tolerante a acentos y erratas, con filtros
+  en la URL.
+- Vistas guardadas y CSV.
+- **Descarga masiva en ZIP** con `manifiesto.csv`.
+- **Expedientes en PDF** recortados según quién los pide.
+- Enlace permanente por folio.
+- Toda descarga queda registrada.
+
+**Transversal**
+- **Bilingüe**, con el idioma de la cuenta o del navegador.
+- **Tema claro u oscuro** a elección.
+- **Fechas dd/mm/aaaa y hora de 24 h** en todos los formularios.
+- **Accesible** (WCAG 2.1 AA, auditado).
+- **Verificación en dos pasos** para administrador y observador.
+- Argon2id, bloqueo por intentos, CSP estricta, protección CSRF y límites por IP.
+- Acervo de archivos fuera de la base, direccionado por SHA-256, con versiones.
+- Comprobación de ligas de video y recordatorios a borradores.
+
+**Operación** (`fimnme-cli`)
+- Migraciones y modo interactivo (`--tui`).
+- Reportes programables.
+- Campos extendidos sin recompilar.
+- Importación.
+- Instantáneas firmadas para el espejo y verificación del acervo.
+- Exportación al portal.
+- Migración verificada a MariaDB.
+- Enlaces de activación y restablecimiento del segundo factor.
+- Respaldos y prueba de restauración automáticos con systemd.
+- Correo propio con DKIM.
+- Contenedores (Podman/Quadlet).
 
 > **El correo tiene tres transportes** (`--correo`): `registro` (sólo el log, por
 > omisión), `archivo` (cada mensaje completo como `.eml`, para un VPS que no puede
@@ -260,436 +234,21 @@ ficha de configuración de cada convocatoria; desde ahí se crean las demás cue
 internas, se asignan jurados y revisores, y se publica la convocatoria. Lo mismo puede
 hacerse por la API o con `fimnme-cli --tui`.
 
-### Probar la API
-
-La API usa la misma cookie de sesión que las páginas. Con `curl`:
-
-```bash
-curl -c cookies.txt -H 'Sec-Fetch-Site: same-origin' -d 'email=admin@ejemplo.mx&password=LA-CONTRASEÑA' http://127.0.0.1:8080/cuenta/ingresar
-```
-
-```bash
-curl -b cookies.txt http://127.0.0.1:8080/api/v1/sesion
-```
-
-```bash
-curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/auditoria?accion=sesion.ingreso&tamano=5'
-```
-
-| Ruta | Quién | Qué devuelve |
-|---|---|---|
-| `GET /api/v1/sesion` | Cualquier cuenta | La cuenta en sesión, sus perfiles globales y sus asignaciones por convocatoria |
-| `GET /api/v1/auditoria` | `admin_sistema`, `coordinacion_nacional` | La bitácora, paginada. Filtros: `accion`, `entidad`, `entidad_id`, `actor_id`, `desde`, `hasta` (día `AAAA-MM-DD` en hora de México, o instante ISO-8601), `pagina`, `tamano`. Con `formato=csv` descarga el resultado completo |
-
-### API de configuración
-
-Lee `admin_sistema` y `coordinacion_nacional`; **escribe sólo `admin_sistema`**. Los
-cuerpos son JSON y las fechas van en ISO-8601 con desfase (`2027-01-29T23:59:00-06:00`);
-se guardan en UTC. Toda respuesta de una convocatoria trae su configuración completa y,
-en `siguiente`, **qué le falta para pasar a la etapa que sigue**.
-
-| Método y ruta | Qué hace |
-|---|---|
-| `GET /api/v1/ediciones` | Lista las ediciones con el resumen de sus convocatorias |
-| `POST /api/v1/ediciones` | Crea una edición: `numero`, `anio`, `nombre_es`, `nombre_en` |
-| `GET` · `PUT /api/v1/ediciones/{id}` | Consulta o edita una edición |
-| `POST /api/v1/ediciones/{id}/convocatorias` | Crea una convocatoria en borrador: `tipo` (`interpretes` o `compositores`), `titulo_es`, `titulo_en`, `bases_md_es`, `bases_md_en`, `max_obras`, `duracion_max_programa_min`, `max_videos`, `etapas`. Nace con los requisitos y criterios iniciales de su tipo |
-| `GET` · `PUT /api/v1/convocatorias/{id}` | Consulta la configuración completa, o edita textos y límites |
-| `PUT /api/v1/convocatorias/{id}/etapas` | Sustituye el calendario: `etapas` con `clave` (`postulacion`, `revision_documental`, `evaluacion`), `inicia_at` y `termina_at` |
-| `POST /api/v1/convocatorias/{id}/estado` | Cambia de etapa: `estado` y, para retroceder, `motivo`. Sólo al estado inmediato anterior o siguiente |
-| `POST /api/v1/convocatorias/{id}/duplicar` | Copia la configuración a otra edición: `edicion_id` |
-| `POST /api/v1/convocatorias/{id}/dotaciones` · `PUT /api/v1/dotaciones/{id}` | Crea o edita una dotación (sólo Compositores). Para retirarla: `"activa": false` |
-| `POST /api/v1/convocatorias/{id}/requisitos` · `PUT` · `DELETE /api/v1/requisitos/{id}` | Requisitos documentales: `dotacion_id` (0 = regla general), `clave`, `etiqueta_es`, `ambito` (`postulacion` u `obra`), `obligatorio`, `mimes_permitidos`, `tamano_max_bytes`, `max_archivos`. Borrar, sólo en borrador |
-| `POST /api/v1/convocatorias/{id}/criterios` · `PUT` · `DELETE /api/v1/criterios/{id}` | Criterios de evaluación: `clave`, `etiqueta_es`, `escala_min`, `escala_max`, `obligatorio` |
-| `POST /api/v1/convocatorias/{id}/asignaciones` · `DELETE /api/v1/asignaciones/{id}` | Asigna (`usuario_id`, `perfil`: `jurado` o `revisor_documental`) o retira |
-| `GET /api/v1/usuarios?q=` | Busca cuentas por correo, nombre o apellidos |
-| `POST /api/v1/usuarios` | Crea una cuenta interna: `email`, `nombre`, `apellidos`, `idioma`, `perfil_global` (vacío para un jurado o revisor; `coordinacion_nacional` o `admin_sistema`). Se le envía su enlace de activación |
-| `POST /api/v1/usuarios/{id}/activacion` | Reenvía el enlace de activación |
-
-Ejemplo: crear una edición, su convocatoria de Intérpretes, fijarle el calendario y
-publicarla (con la sesión de administrador en `cookies.txt`, como arriba):
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"numero":49,"anio":2027,"nombre_es":"Edición 49 · 2027"}' http://127.0.0.1:8080/api/v1/ediciones
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"tipo":"interpretes","titulo_es":"Convocatoria de Intérpretes","bases_md_es":"# Bases\n\nTexto de las bases."}' http://127.0.0.1:8080/api/v1/ediciones/1/convocatorias
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"etapas":[{"clave":"postulacion","inicia_at":"2026-12-01T00:00:00-06:00","termina_at":"2027-01-29T23:59:00-06:00"},{"clave":"revision_documental","inicia_at":"2027-02-01T00:00:00-06:00","termina_at":"2027-02-26T23:59:00-06:00"},{"clave":"evaluacion","inicia_at":"2027-03-01T00:00:00-06:00","termina_at":"2027-03-31T23:59:00-06:00"}]}' http://127.0.0.1:8080/api/v1/convocatorias/1/etapas
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"estado":"publicada"}' http://127.0.0.1:8080/api/v1/convocatorias/1/estado
-```
-
-A partir de ahí la convocatoria **avanza sola** al llegar cada fecha, siempre que cumpla
-las reglas; si no, se queda donde está y el log lo avisa. Las reglas de cada transición
-están en el [ADR 0005](docs/adr/0005-configuracion-de-convocatorias.md).
-
-### API de postulaciones
-
-Para cualquier cuenta con sesión, sobre **sus propias** postulaciones; lo ajeno responde
-`404`. `admin_sistema` y `coordinacion_nacional` pueden consultar cualquiera, sin
-editarla. Sólo se captura con la convocatoria en etapa de postulación y dentro de su
-plazo.
-
-| Método y ruta | Qué hace |
-|---|---|
-| `GET /api/v1/catalogos` | Público. Países (códigos ISO 3166-1), entidades federativas, opciones de género y de estreno |
-| `GET /api/v1/postulaciones` | Las postulaciones de la cuenta, de todas las ediciones |
-| `POST /api/v1/convocatorias/{id}/postulaciones` | Abre un borrador. En Intérpretes: `subcategoria` (`solista` o `ensamble`). Una por convocatoria y cuenta |
-| `GET /api/v1/postulaciones/{id}` | La postulación completa: `campos`, `integrantes`, `videos`, `obras`, la `definicion` de su formulario, las `secciones` con sus pendientes y los `bloqueadores` del envío |
-| `PATCH /api/v1/postulaciones/{id}` | Autoguardado: `{"campos": {"datos.telefono": "…", "concierto.entidad": "CDMX"}}`. Guarda lo válido y devuelve en `errores` lo rechazado; `null` vacía un campo |
-| `PUT /api/v1/postulaciones/{id}/subcategoria` | De solista a ensamble o al revés: `subcategoria` y `"confirmar": true`. **Borra los datos generales** |
-| `PUT /api/v1/postulaciones/{id}/integrantes` | Sustituye la lista: `integrantes` con `nombre` e `instrumento` (sólo ensambles) |
-| `PUT /api/v1/postulaciones/{id}/videos` | Sustituye las ligas: `urls` (sólo Intérpretes; `https`, sin repetir) |
-| `POST /api/v1/postulaciones/{id}/obras` | Añade una obra vacía |
-| `PUT /api/v1/postulaciones/{id}/obras/orden` | Fija el orden del programa: `ids` |
-| `PATCH` · `DELETE /api/v1/obras/{id}` | Autoguardado de una obra (`{"campos": {"obra.titulo": "…"}}`), o la quita |
-
-Los nombres de los campos (`datos.*`, `concierto.*`, `obra.*`) no hay que memorizarlos:
-cada postulación trae en `definicion` la lista de los suyos, con tipo, obligatoriedad,
-límites y etiqueta en el idioma de la cuenta.
-
-Ejemplo, con la sesión de un postulante en `cookies.txt` y la convocatoria 1 de la
-demostración (Intérpretes, abierta):
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"subcategoria":"solista"}' http://127.0.0.1:8080/api/v1/convocatorias/1/postulaciones
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PATCH -d '{"campos":{"datos.nombre_completo":"Ana López","datos.pais_residencia":"MX","datos.entidad_residencia":"JAL","concierto.entidad":"OAX"}}' http://127.0.0.1:8080/api/v1/postulaciones/1
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"urls":["https://vimeo.com/123456"]}' http://127.0.0.1:8080/api/v1/postulaciones/1/videos
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST http://127.0.0.1:8080/api/v1/postulaciones/1/obras
-```
-
-```bash
-curl -b cookies.txt http://127.0.0.1:8080/api/v1/postulaciones/1
-```
-
-La última respuesta lista en `bloqueadores` todo lo que falta, y en `requisitos` los
-documentos que se piden: a la postulación y a cada obra, según su dotación. Las decisiones
-de este módulo están en el [ADR 0007](docs/adr/0007-captura-de-postulaciones.md).
-
-### API de documentos, envío y acuse
-
-| Método y ruta | Qué hace |
-|---|---|
-| `POST /api/v1/postulaciones/{id}/documentos` | Sube un documento. Formulario `multipart/form-data` con `clave` (el requisito: `fotografia`, `partitura`, `autorizacion`, `particellas`, `audio`…), `obra_id` si es de una obra y, **al final**, `archivo`. Si ya había uno, lo reemplaza y conserva el anterior como versión |
-| `DELETE /api/v1/documentos/{id}` | Retira un documento del borrador (no lo borra) |
-| `GET /api/v1/documentos/{id}/archivo` | Descarga un documento. Con `?descargar=1` se ofrece como descarga en vez de mostrarse. Queda registrada |
-| `POST /api/v1/postulaciones/{id}/envio` | **Envía la postulación; es irreversible.** Cuerpo: `{"confirmo": true, "acepto_bases": true}`. Si falta algo responde `422` con código `incompleta` y la lista |
-| `GET /api/v1/postulaciones/{id}/acuses/{version}` | Descarga el acuse en PDF |
-| `PUT` · `DELETE /api/v1/convocatorias/{id}/archivos/{clase}` | Sólo `admin_sistema`. Carga o retira `bases_pdf_es`, `bases_pdf_en` o `imagen` (formulario con `archivo`) |
-
-El formato de cada archivo se reconoce **por su contenido**, no por la extensión. Se
-admiten PDF, JPEG, PNG, WAV, FLAC y MP3, según lo que pida cada requisito.
-
-Las bases y la imagen se publican, sin sesión, en `/convocatorias/{edicion}/{tipo}/bases.pdf`
-(con `?idioma=es` o `?idioma=en`) y `/convocatorias/{edicion}/{tipo}/imagen`.
-
-Ejemplo: subir la fotografía y la partitura de la obra 1, enviar y bajar el acuse.
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F clave=fotografia -F archivo=@retrato.jpg http://127.0.0.1:8080/api/v1/postulaciones/1/documentos
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F clave=partitura -F obra_id=1 -F archivo=@partitura.pdf http://127.0.0.1:8080/api/v1/postulaciones/1/documentos
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"confirmo":true,"acepto_bases":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/envio
-```
-
-```bash
-curl -b cookies.txt -o acuse.pdf http://127.0.0.1:8080/api/v1/postulaciones/1/acuses/1
-```
-
-Para enviar, el correo de la cuenta debe estar confirmado: en desarrollo, el enlace de
-verificación está en el log (véase «Correos en desarrollo»). Decisiones de este módulo:
-[ADR 0009](docs/adr/0009-documentos-envio-y-acuse.md).
-
-### API de revisión documental
-
-Para los revisores asignados a la convocatoria y el administrador; el observador sólo
-consulta. Se revisa con la convocatoria en etapa de revisión documental.
-
-| Método y ruta | Qué hace |
-|---|---|
-| `GET /api/v1/convocatorias/{id}/revision` | Bandeja: todas las postulaciones enviadas y el tablero de avance. Filtros: `estado`, `subcategoria`, `toma` (`libre`, `mia`, `otra`) y `q` (folio o nombre) |
-| `GET /api/v1/postulaciones/{id}` | La misma consulta de siempre; a quien revisa le añade `revision`: dictámenes, observaciones, subsanaciones y los `cambios` del último reenvío |
-| `POST` · `DELETE /api/v1/postulaciones/{id}/toma` | «La reviso yo», o la libera. Informa a los demás; no bloquea |
-| `PUT /api/v1/documentos/{id}/dictamen` | `dictamen`: `valido`, `invalido` (con `motivo`) o `pendiente` |
-| `POST /api/v1/postulaciones/{id}/observaciones` | Nota interna: `texto` y, si es de una obra, `obra_id` |
-| `POST /api/v1/postulaciones/{id}/subsanaciones` | Solicita una subsanación: `problemas` (cada uno con `clase`, `campo`, `obra_id` y `problema`), `fecha_limite` y `nota`. Los documentos inválidos se añaden solos |
-| `PUT /api/v1/postulaciones/{id}/desbloqueos/{solicitud}` | Concede o niega una solicitud de desbloqueo: `concedida` y `motivo` |
-| `POST /api/v1/postulaciones/{id}/dictamen` | `dictamen`: `validada` o `descartada` (con `motivo`) |
-
-Durante una subsanación el postulante usa las mismas rutas de captura, pero sólo puede
-modificar los elementos que lista `subsanacion.problemas`; lo demás responde con un error
-por elemento. Además:
-
-| Método y ruta | Qué hace |
-|---|---|
-| `POST /api/v1/postulaciones/{id}/desbloqueos` | Pide corregir algo no señalado: `clase`, `campo`, `obra_id` y `justificacion` |
-| `POST /api/v1/postulaciones/{id}/envio` | Reenvía la postulación corregida: mismo folio, acuse nuevo |
-
-Ejemplo, con la sesión de un revisor: marcar inválida la partitura (documento 2), pedir
-que se corrija además el teléfono, y dar plazo hasta el 15 de enero.
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"dictamen":"invalido","motivo":"Faltan las páginas 3 y 4."}' http://127.0.0.1:8080/api/v1/documentos/2/dictamen
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"fecha_limite":"2027-01-15T23:59:00-06:00","problemas":[{"clase":"campo","campo":"datos.telefono","problema":"Falta la clave lada."}]}' http://127.0.0.1:8080/api/v1/postulaciones/1/subsanaciones
-```
-
-Decisiones de este módulo: [ADR 0010](docs/adr/0010-revision-documental-y-subsanacion.md).
-
-### API de evaluación
-
-| Método y ruta | Quién | Qué hace |
-|---|---|---|
-| `GET /api/v1/convocatorias/{id}/evaluacion` | Jurado de la convocatoria | Su lista de trabajo: unidades por evaluar, estado de **su** evaluación y avance |
-| `GET /api/v1/postulaciones/{id}/evaluacion` | Jurado | Su evaluación de una unidad. En Compositores, `?obra_id=` |
-| `PUT /api/v1/postulaciones/{id}/evaluacion` | Jurado | Guarda su evaluación: `puntajes` (por clave de criterio), `observaciones`, `obra_id` y `enviar` |
-| `PUT` · `DELETE /api/v1/postulaciones/{id}/excusa` | Jurado | Se excusa por conflicto de interés (`motivo` y, en Compositores, `obra_id`; sin él, toda la postulación), o retira la excusa |
-| `GET /api/v1/convocatorias/{id}/resultados` | `admin_sistema`, `coordinacion_nacional` | Matriz: puntaje por jurado y criterio, excusas, suma, promedio, **puntaje comparable** y lugar. Queda en la bitácora |
-| `PUT /api/v1/postulaciones/{id}/dictamen-final` | `admin_sistema` | `dictamen`: `seleccionada`, `no_seleccionada`, `lista_espera` o vacío |
-
-En Intérpretes se califica la postulación completa; en Compositores, cada obra. El jurado
-ve la postulación entera con `GET /api/v1/postulaciones/{id}` y descarga sus documentos.
-El administrador no puede evaluar.
-
-La matriz ordena por el **puntaje comparable** (`puntaje`): el promedio por jurado,
-llevado a tres. Así, si un jurado se excusa, la postulación no queda debajo por tener una
-calificación menos. Con tres jurados es igual a la suma.
-
-La convocatoria pasa a evaluación aunque queden postulaciones en revisión: se terminan de
-revisar después y, al validarse, se suman a la lista del jurado.
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -X PUT -d '{"puntajes":{"realizacion":4,"artistico":5},"observaciones":"Propuesta sólida.","enviar":true}' http://127.0.0.1:8080/api/v1/postulaciones/1/evaluacion
-```
-
-Decisiones de este módulo, y cómo se garantiza el aislamiento entre jurados:
-[ADR 0011](docs/adr/0011-evaluacion-por-jurado.md).
-
-### API del archivo, búsqueda y descargas masivas
-
-| Método y ruta | Quién | Qué hace |
-|---|---|---|
-| `GET /api/v1/archivo` | Supervisión; revisores y jurados (sólo lo suyo) | Listado de postulaciones de todas las ediciones. Con `formato=csv`, el resultado completo |
-| `GET /api/v1/folios/{folio}` | Quien pueda ver la postulación | La postulación de un folio: el enlace permanente |
-| `GET` · `POST /api/v1/vistas` | Cualquier cuenta | Vistas guardadas: `nombre` y `ruta` (del propio sitio) |
-| `DELETE /api/v1/vistas/{id}` | La cuenta que la guardó | Borra una vista |
-| `POST /api/v1/exportaciones` | Supervisión y revisores; el postulante, sólo su postulación | Pide un ZIP de documentos. Responde `202`: se arma en segundo plano |
-| `GET /api/v1/exportaciones/{id}` | Quien la pidió | Estado: `encolado`, `procesando`, `listo` o `error` |
-| `GET /api/v1/exportaciones/{id}/archivo` | Quien la pidió | Baja el ZIP. Vale 7 días; cada descarga queda registrada |
-
-Parámetros del listado, todos opcionales y combinables:
-
-| Parámetro | Filtra por |
-|---|---|
-| `q` | Texto: folio, nombres, nombre artístico, ensamble, integrantes, títulos de obra, compositores y correos |
-| `edicion`, `convocatoria`, `tipo`, `subcategoria`, `estado` | Número de edición, id de convocatoria, `interpretes` / `compositores`, `solista` / `ensamble`, estado |
-| `dotacion`, `estreno` | Alguna de sus obras tiene esa dotación (id) o ese tipo de estreno |
-| `entidad_residencia`, `entidad_concierto`, `nacionalidad`, `pais`, `genero` | Datos generales y propuesta de concierto |
-| `enviada_desde`, `enviada_hasta` | Fecha de envío (`AAAA-MM-DD`, hora de México, o instante ISO-8601) |
-| `con_subsanaciones`, `documentos_pendientes`, `ligas_con_problema` | `si` o `no` |
-| `dictamen` | Resultado del proceso. Sólo surte efecto para la supervisión |
-| `ids` | Selección a mano: `ids=3,8,21` |
-| `orden` | `folio`, `nombre`, `enviada`, `estado`, `obras` o `duracion`; con `-` delante, descendente |
-| `pagina`, `tamano` | Página (desde 1) y tamaño (50 por omisión, 200 como máximo) |
-
-La descarga masiva toma **esos mismos parámetros**, más `tipos` (claves de documento
-separadas por coma) y `postulacion` (una sola, por id). El ZIP trae los documentos vigentes
-de lo que el listado mostraría:
-
-```
-FIM49-COM-0007_Maria_Nunez/fotografia.jpg
-FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/partitura.pdf
-FIM49-COM-0007_Maria_Nunez/obra-01_Rapsodia/particellas.pdf
-manifiesto.csv
-```
-
-```bash
-curl -b cookies.txt 'http://127.0.0.1:8080/api/v1/archivo?q=nunez&tipo=compositores&orden=-enviada'
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -X POST 'http://127.0.0.1:8080/api/v1/exportaciones?convocatoria=2&tipos=partitura,particellas'
-```
-
-```bash
-curl -b cookies.txt -o documentos.zip http://127.0.0.1:8080/api/v1/exportaciones/1/archivo
-```
-
-Decisiones de este módulo: [ADR 0012](docs/adr/0012-archivo-busqueda-y-descargas-masivas.md).
-
-### API de expediente, reportes y tableros
-
-| Método y ruta | Quién | Qué hace |
-|---|---|---|
-| `GET /api/v1/postulaciones/{id}/expediente` | Quien pueda ver la postulación | Expediente en PDF. `idioma=es|en`, `fotografia=no`, `hoja=si` |
-| `POST /api/v1/expedientes` | Supervisión, revisores y jurados (sólo lo suyo) | Expediente de una convocatoria en un solo PDF. `convocatoria` obligatorio; admite los filtros del archivo. Responde `202`; se consulta y se baja en `/api/v1/exportaciones/{id}` |
-| `GET /api/v1/convocatorias/{id}/reporte/campos` | `admin_sistema`, `coordinacion_nacional` | Catálogo de campos para armar un reporte |
-| `GET /api/v1/convocatorias/{id}/reporte` | `admin_sistema`, `coordinacion_nacional` | Reporte CSV |
-| `GET` · `POST /api/v1/reportes/plantillas` | `admin_sistema`, `coordinacion_nacional` | Plantillas de reporte: `nombre`, `tipo` y `consulta` |
-| `DELETE /api/v1/reportes/plantillas/{id}` | El administrador, cualquiera; el observador, las suyas | Borra una plantilla |
-| `GET /api/v1/convocatorias/{id}/resultados?formato=csv` | `admin_sistema`, `coordinacion_nacional` | Reporte de resultados: la matriz en CSV |
-| `GET /api/v1/convocatorias/{id}/tablero` | `admin_sistema`, `coordinacion_nacional` | Postulaciones por estado, envíos por día, documentos y subsanaciones pendientes, avance de cada jurado |
-| `GET /api/v1/ediciones/{id}/estadisticas` | `admin_sistema`, `coordinacion_nacional` | Distribuciones de las postulaciones enviadas. Con `convocatoria`, sólo esa |
-
-**Qué lleva el expediente, según quién lo pide:**
-
-| Quien lo pide | Recibe |
-|---|---|
-| Titular | Su postulación. Nada interno |
-| Jurado | La postulación y **su** evaluación; nunca la de otro jurado ni la suma |
-| Revisor | La postulación y la revisión documental; ninguna evaluación |
-| Administrador y observador | Todo |
-
-Parámetros del reporte, además de los filtros del archivo:
-
-| Parámetro | Qué hace |
-|---|---|
-| `campos` | Claves del catálogo separadas por coma, en el orden de las columnas |
-| `granularidad` | `postulacion` (por omisión) u `obra`: una fila por obra, con los datos de la postulación repetidos |
-| `separador` | `coma` (por omisión) o `punto_y_coma`, que es el que Excel en español espera |
-| `puntaje_min`, `puntaje_max` | Rango de puntaje |
-| `orden` | Los del archivo, o `puntaje` / `-puntaje` |
-| `plantilla` | Id de una plantilla guardada; los demás parámetros mandan sobre ella |
-| `idioma` | `es` o `en`, para encabezados y valores |
-
-Los campos de obra piden `granularidad=obra`. Los de la evaluación (`eval.*`) piden la
-granularidad de lo que califica el jurado: por postulación en Intérpretes, por obra en
-Compositores.
-
-```bash
-curl -b cookies.txt -o expediente.pdf 'http://127.0.0.1:8080/api/v1/postulaciones/1/expediente'
-```
-
-```bash
-curl -b cookies.txt -o reporte.csv 'http://127.0.0.1:8080/api/v1/convocatorias/1/reporte?campos=folio,datos.nombre_completo,datos.entidad_residencia,obras.titulos,eval.total,eval.lugar&orden=-puntaje&separador=punto_y_coma'
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"nombre":"Acta de resultados","tipo":"interpretes","consulta":"campos=folio,datos.nombre_completo,eval.total,eval.lugar&orden=-puntaje"}' http://127.0.0.1:8080/api/v1/reportes/plantillas
-```
-
-Decisiones de este módulo: [ADR 0013](docs/adr/0013-reportes-expediente-y-tableros.md).
-
-### API del portal público y de protección de datos
-
-| Método y ruta | Quién | Qué hace |
-|---|---|---|
-| `GET /api/v1/interop/convocatoria.json` | Público | Exportación para el portal: bases, calendario, dotaciones y la nómina publicada. `?edicion=N` |
-| `GET /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | Vista previa de la nómina y publicaciones anteriores |
-| `POST /api/v1/convocatorias/{id}/publicacion` | `admin_sistema` | `{"confirmo": true}` publica la nómina; con `"retirar": true` la retira. Sólo con la convocatoria cerrada |
-| `POST /api/v1/postulaciones/{id}/anonimizacion` | `admin_sistema` | Anonimiza: `folio` (escrito de nuevo), `fundamento`, `confirmo` y `con_cuenta` |
-
-**Qué sale al portal, y qué no.** Salen los títulos y las bases en ambos idiomas, las
-fechas de cada etapa, el catálogo de dotaciones y, de cada seleccionado, el nombre
-artístico, la semblanza y los títulos de sus obras. **Nunca** salen datos de contacto,
-fechas de nacimiento, documentos, dictámenes, calificaciones, postulaciones no
-seleccionadas ni borradores. Cerrar una convocatoria **no publica** la nómina: hace falta
-la acción explícita del administrador, y lo publicado queda congelado hasta que vuelva a
-publicar.
-
-```bash
-curl http://127.0.0.1:8080/api/v1/interop/convocatoria.json
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"confirmo":true}' http://127.0.0.1:8080/api/v1/convocatorias/1/publicacion
-```
-
-Decisiones de este módulo: [ADR 0014](docs/adr/0014-continuidad-portal-publico-y-anonimizacion.md).
-
-### API de plantillas de correo
-
-Cada correo del sistema es una plantilla en Markdown con variables (`{{nombre}}`,
-`{{liga}}`…), en español y en inglés. Guardar crea una versión nueva, que pasa a ser la
-vigente; ninguna se edita ni se borra. Se rechaza una versión que use una variable que la
-plantilla no recibe o que omita una indispensable. Sólo el administrador.
-
-```bash
-curl -b cookies.txt http://127.0.0.1:8080/api/v1/plantillas-correo
-```
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -H 'Content-Type: application/json' -d '{"asunto":"Recibimos tu postulación {{folio}}","cuerpo_md":"Hola, {{nombre}}:\n\nTu folio es **{{folio}}**."}' http://127.0.0.1:8080/api/v1/plantillas-correo/acuse/es
-```
-
-`…/vista-previa` arma el correo con valores de muestra sin guardar, y `…/prueba` envía
-un correo de prueba a quien lo pide.
-
-### API de importación asistida y campos extendidos
-
-| Método y ruta | Quién | Qué hace |
-|---|---|---|
-| `POST /api/v1/importaciones` | `admin_sistema` | **Analyze**: multipart con `tipo`, `convocatoria_id` y `archivo` (.csv o .xlsx). No escribe nada en el dominio |
-| `GET /api/v1/importaciones/{id}` | `admin_sistema` | Conflictos, candidatos y efecto que tendrá confirmarla |
-| `PUT /api/v1/importaciones/{id}/conflictos/{conflicto}` | `admin_sistema` | Resuelve uno: `resolucion` (`vincular`, `crear_nuevo`, `omitir`) y `entidad_id` |
-| `POST /api/v1/importaciones/{id}/resoluciones` | `admin_sistema` | Resuelve de una vez los que no tienen candidatos: `crear_nuevo` u `omitir` |
-| `POST /api/v1/importaciones/{id}/confirmacion` | `admin_sistema` | **Commit**: `{"confirmo": true}`. Todo o nada |
-| `DELETE /api/v1/importaciones/{id}` | `admin_sistema` | La cancela |
-| `GET /api/v1/extendidos` | `admin_sistema`, `coordinacion_nacional` | Diccionario de campos extendidos |
-| `GET` · `PUT /api/v1/extendidos/{tabla}/{id}` | Supervisión · `admin_sistema` | Valores de los campos extendidos de una fila; `PUT` los captura |
-
-Tipos de importación y columnas de la hoja (el primer renglón, con estos nombres exactos):
-
-| `tipo` | Columnas | Obligatorias |
-|---|---|---|
-| `dotaciones` (sólo Compositores) | `nombre_es`, `nombre_en`, `descripcion_es`, `descripcion_en` | `nombre_es` |
-| `usuarios_jurado`, `usuarios_revisor` | `email`, `nombre`, `apellidos`, `idioma` | las tres primeras |
-
-Una dotación sólo se da por existente si su nombre es **idéntico**; en una importación de
-cuentas **todo** renglón pide una decisión, también cuando el correo coincide con el de
-una cuenta. Una postulación nunca se importa.
-
-```bash
-curl -b cookies.txt -H 'Sec-Fetch-Site: same-origin' -F tipo=dotaciones -F convocatoria_id=2 -F archivo=@dotaciones.xlsx http://127.0.0.1:8080/api/v1/importaciones
-```
-
-Decisiones de este módulo: [ADR 0015](docs/adr/0015-extension-dinamica-e-importacion-asistida.md).
-
-Los errores de la API son JSON: `{"error": {"codigo": "sin_permiso", "mensaje": "…"}}`.
-Cuando una regla no se cumple, la respuesta es `422` con código `validacion` y la lista
-`campos`, que dice qué corregir en cada uno.
-
-Las plantillas, la hoja de estilo y las traducciones van **incrustadas en el binario**
-(`//go:embed`), así que tras editar cualquiera de ellas hay que reiniciar `make dev`.
-
-Antes de entregar cualquier cambio:
-
-```bash
-make verificar
-```
-
-Ejecuta el formato (`gofmt`), el análisis estático (`go vet`) y las pruebas. Las pruebas
-crean sus propias bases SQLite temporales; no tocan `./data`.
+### La API
+
+Todas las operaciones de la API, con ejemplos de `curl` para cada módulo, sus
+convenciones y códigos de error, están en
+[`FIMNME-03`](docs/FIMNME-03-especificacion-de-api-e-interfaz.md). La descripción formal
+(OpenAPI 3.1) la sirve el propio sistema en `/api/v1/openapi.json`.
 
 ## Estructura del proyecto (MVC estricto)
 
 ```
 cmd/
   fimnme-web/         Ejecutable: servidor HTTP y trabajadores internos
-  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, verify, mirror,
-                      export-json, export-csv, arco, schema, import, sembrar-demo)
+  fimnme-cli/         Ejecutable: mantenimiento (migrate, crear-usuario, enlace-activacion,
+                      segundo-factor, verify, mirror, export-json, export-csv,
+                      exportar-mariadb, arco, schema, import, sembrar-demo)
                       y modo interactivo (--tui)
 models/             MODELO
   entities.go         entidades de dominio
@@ -698,10 +257,11 @@ models/             MODELO
   mirror.go           verificación del acervo e instantáneas firmadas del espejo
   schema_extender.go  extensión dinámica de campos: lista blanca y composición del DDL
   importacion.go      importación asistida: lectura de CSV y XLSX, análisis y reglas
+  mariadb.go          migración a MariaDB: traducción del esquema y de los datos
   catalogos.go        catálogos fijos: países y entidades federativas
   persistencia.go     interfaz Persistencia: lo que el sistema le pide a la base
   repository.go       persistencia sobre SQLite: TODO el SQL del sistema
-  seguridad.go        Argon2id y secretos de un solo uso
+  seguridad.go        Argon2id, secretos de un solo uso, TOTP y códigos de recuperación
   migrations/         migraciones NNNN_nombre.sql, incrustadas en el binario
 controllers/        CONTROLADOR
   app.go              rutas, dependencias y sondas /healthz y /readyz
@@ -709,6 +269,8 @@ controllers/        CONTROLADOR
   sesion.go           sesiones, control de acceso y límite de intentos
   paginas.go          páginas públicas
   cuenta.go           registro, ingreso, recuperación, activación, «Mi cuenta»
+  segundo_factor.go   verificación en dos pasos: sesión pendiente, alta, código
+  fechas.go           fechas de los formularios: dd/mm/aaaa y 24 horas
   api.go              API REST /api/v1: sesión y bitácora
   configuracion.go    API de configuración de ediciones y convocatorias
   postulaciones.go    API de captura de postulaciones
@@ -733,6 +295,7 @@ controllers/        CONTROLADOR
   reportes.go         reportes CSV, plantillas de reporte y tableros
   enlaces.go          comprobación en red de las ligas de video
   trabajadores.go     correo saliente, limpieza de sesiones, avance de etapa y recordatorios
+  correo_transporte.go transportes de correo: archivo .eml y SMTP
 views/              VISTA (todo incrustado con //go:embed)
   views.go            motor de plantillas
   i18n.go             traducciones y formato de fechas
@@ -748,15 +311,22 @@ views/              VISTA (todo incrustado con //go:embed)
   expediente.go       composición del expediente en PDF
   fotografia.go       reducción de la fotografía para el PDF
   reportes.go         CSV de reportes y respuestas de tableros
+  mensaje.go          mensaje de correo MIME (texto, HTML y adjuntos)
+  qr.go               código QR del alta del segundo factor, como SVG
   api/openapi.json    descripción OpenAPI 3.1 de /api/v1
   templates/          html/template (páginas y parciales)
   static/css/         tema.css (identidad de la edición) y fimnme.css (todo lo demás)
   static/js/          htmx y fimnme.js (mejoras opcionales: todo funciona sin ellos)
   i18n/               es.json, en.json
 deploy/             systemd, proxy inverso y guiones de instalación y actualización
+  correo/             Postfix y OpenDKIM: instalación y comprobación
+  contenedor/         Containerfile, compose.yaml y unidades Quadlet
+  carga/              prueba de carga (RNF-01)
+  accesibilidad/      auditoría con axe-core (sus dependencias, fuera del repositorio)
 internal/
-  pdf/                escritor mínimo de PDF, con la biblioteca estándar (el acuse)
-docs/               perfil de dominio, requerimientos, plan y ADR
+  pdf/                escritor mínimo de PDF, con la biblioteca estándar
+  qr/                 codificador QR mínimo, con la biblioteca estándar
+docs/               perfil de dominio, documentos 01 a 06, diccionario, plan y ADR
 ```
 
 Reglas que el código hace cumplir con pruebas:

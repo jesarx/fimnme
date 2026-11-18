@@ -43,6 +43,18 @@ func directorioDeBlobs(dirDatos string) string {
 	return filepath.Join(dirDatos, "blobs")
 }
 
+// abrirAcervo abre el almacén de archivos de un directorio de datos, sin
+// limpiar las subidas en curso (el servidor puede estar recibiendo
+// archivos). En una instalación recién creada, en la que el servidor aún no
+// arranca, el directorio no existe todavía: se crea vacío, con permisos 0750,
+// en vez de fallar.
+func abrirAcervo(dirDatos string) (*models.AlmacenEnDisco, error) {
+	if err := os.MkdirAll(filepath.Join(directorioDeBlobs(dirDatos), "tmp"), 0o750); err != nil {
+		return nil, fmt.Errorf("preparar el acervo: %w", err)
+	}
+	return models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+}
+
 // legible escribe un tamaño en bytes como «812 KB», «4.3 MB» o «8.2 GB».
 func legible(bytes int64) string {
 	switch {
@@ -104,7 +116,7 @@ func verificar(dirDatos string, args []string) func(context.Context, *models.Rep
 		if err := banderas.Parse(args); err != nil {
 			return err
 		}
-		almacen, err := models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+		almacen, err := abrirAcervo(dirDatos)
 		if err != nil {
 			return err
 		}
@@ -193,7 +205,7 @@ func tomarInstantanea(dirDatos string, args []string) func(context.Context, *mod
 		if err != nil {
 			return err
 		}
-		almacen, err := models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+		almacen, err := abrirAcervo(dirDatos)
 		if err != nil {
 			return err
 		}

@@ -55,7 +55,7 @@ Las pruebas automáticas corren todas con:
 make verificar
 ```
 
-Revisa formato, `go vet` y las **227 pruebas** de la versión entregada. Para correr una
+Revisa formato, `go vet` y las **230 pruebas** de la versión entregada. Para correr una
 sola: `go test ./controllers -run NombreDeLaPrueba -v`.
 
 ---
@@ -75,6 +75,7 @@ sola: `go test ./controllers -run NombreDeLaPrueba -v`.
 | V-ENT-07 | CLAUDE.md, §API | A | `TestOpenAPICoincideConLasRutas` | Cada operación de la API está en `views/api/openapi.json`, y al revés. |
 | V-ENT-08 | RNF-07 | A | `TestTraduccionesConLasMismasClaves`, `TestClavesDeLasPlantillasExisten`, `TestClavesDinamicasExisten`, `TestClavesDeLosControladoresExisten` | Las mismas claves en `es.json` y `en.json`; ninguna clave usada falta. |
 | V-ENT-09 | RNF-14b | M | Un integrante del equipo receptor que no participó compila, despliega en un servidor de pruebas y abre una convocatoria **sólo con el FIMNME-04** | Lo logra sin ayuda del equipo entregante. Lo que haya faltado se anota y se corrige en el manual. |
+| V-ENT-10 | RNF-13, perfil §2.B | A | `TestDiccionarioCubreElEsquema`, `TestDiccionarioCubreLaAPI` | `docs/DICCIONARIO_DATOS_Y_ACL.md` describe cada tabla y columna del esquema vigente y cada operación de la API con quién puede ejecutarla. |
 
 ### 3.2 Aislamiento entre jurados — **condición de firma**
 
@@ -213,8 +214,8 @@ este manual. Los casos que exigen el servidor final quedan pendientes (§5).
 
 | Caso | Resultado |
 |---|---|
-| V-ENT-01 | `make verificar` en verde: **227 pruebas, 0 fallas** (con el segundo factor y los ajustes del ADR 0032). |
-| V-ENT-02 | Cobertura de `models/` con todas las pruebas: **81.8 %** (mínimo 70 %). |
+| V-ENT-01 | `make verificar` en verde: **230 pruebas, 0 fallas** (versión 1.0.0-beta.1). |
+| V-ENT-02 | Cobertura de `models/` con todas las pruebas: **82.8 %** (mínimo 70 %). |
 | V-ENT-03, 04 | ELF estáticos; **dos compilaciones con la caché vacía dieron sumas idénticas**. |
 | V-ENT-05 | Los 118 archivos `.go` con su aviso de licencia. |
 | V-ENT-06 | Dos dependencias directas, las previstas. |

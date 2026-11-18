@@ -130,12 +130,8 @@ func importar(dirDatos string, args []string) func(context.Context, *models.Repo
 		if err != nil {
 			return fmt.Errorf("leer el archivo: %w", err)
 		}
-		// El archivo original se conserva en el acervo (RF-IMP-09). En una
-		// instalación recién creada el acervo puede no existir todavía.
-		if err := os.MkdirAll(filepath.Join(directorioDeBlobs(dirDatos), "tmp"), 0o750); err != nil {
-			return fmt.Errorf("preparar el acervo: %w", err)
-		}
-		almacen, err := models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+		// El archivo original se conserva en el acervo (RF-IMP-09).
+		almacen, err := abrirAcervo(dirDatos)
 		if err != nil {
 			return err
 		}

@@ -27,8 +27,8 @@ import (
 )
 
 // Orden «sembrar-demo»: carga una edición ficticia con sus dos convocatorias,
-// para poder revisar el sistema en un entorno de desarrollo mientras no exista
-// el panel de administración (paso 4 del plan).
+// para revisar el sistema y hacer pruebas en un entorno de desarrollo (la
+// usa `make dev`). Nunca en producción.
 //
 // Salvaguardas:
 //   - Sólo actúa sobre una base SIN ediciones; si ya hay alguna, no hace nada.

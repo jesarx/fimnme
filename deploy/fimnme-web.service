@@ -33,8 +33,10 @@ RestartSec=3
 TimeoutStopSec=20
 
 # Directorio de datos: /var/lib/fimnme, con dueño fimnme. Contiene la base
-# SQLite (fimnme.db y sus archivos -wal y -shm) y, más adelante, el acervo de
-# archivos. Es lo único del sistema de archivos que el servicio puede escribir.
+# SQLite (fimnme.db y sus archivos -wal y -shm), el acervo de archivos
+# (blobs/), las descargas masivas (exportaciones/) y, con el transporte
+# «archivo», los correos (correo/). Es lo único del sistema de archivos que
+# el servicio puede escribir.
 StateDirectory=fimnme
 StateDirectoryMode=0750
 

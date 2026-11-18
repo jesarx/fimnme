@@ -24,6 +24,11 @@ Validación**.
 | Dos binarios estáticos | `make build` → `bin/fimnme-web`, `bin/fimnme-cli` | El servidor y la herramienta de mantenimiento. No necesitan nada instalado en el servidor. |
 | Especificación | `docs/FIMNME-01-…` | Qué debe hacer el sistema y por qué. |
 | Perfil de dominio y políticas | `docs/PERFIL_DOMINIO_FIMNME.md` | Reglas institucionales, compartidas con los demás sistemas de la CNMO. |
+| Arquitectura de despliegue | `docs/FIMNME-02-…` | Topología, procesos, red, almacenamiento y secretos. |
+| Diccionario de datos y permisos | `docs/DICCIONARIO_DATOS_Y_ACL.md` | Cada tabla y columna, y quién puede hacer cada operación. |
+| Especificación de la API e interfaz | `docs/FIMNME-03-…` | Convenciones, errores, pantallas y ejemplos de la API. |
+| Formato de intercambio | `docs/FIMNME-06-…` | El JSON del portal público y cómo se publica. |
+| Notas de versión | `docs/NOTAS_DE_VERSION.md` | Qué trae cada versión. |
 | Plan y bitácora del desarrollo | `docs/PLAN_DE_DESARROLLO.md` | Qué se entregó en cada paso y los **puntos por confirmar con la CNMO**. |
 | Decisiones de arquitectura | `docs/adr/0001…` | Una por decisión, con sus alternativas descartadas. |
 | Manuales de órdenes | `docs/man/*.1` | Cada orden y opción de los dos binarios. |

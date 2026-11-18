@@ -50,7 +50,7 @@ func exportarJSON(dirDatos string, args []string) func(context.Context, *models.
 		if err := banderas.Parse(args); err != nil {
 			return err
 		}
-		almacen, err := models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+		almacen, err := abrirAcervo(dirDatos)
 		if err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func anonimizar(dirDatos string, args []string) func(context.Context, *models.Re
 		if err != nil {
 			return err
 		}
-		almacen, err := models.AbrirAlmacenExistente(directorioDeBlobs(dirDatos))
+		almacen, err := abrirAcervo(dirDatos)
 		if err != nil {
 			return err
 		}
